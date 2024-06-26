@@ -1,4 +1,4 @@
-FROM node:22-alpine as base
+FROM node:22 as base
 LABEL maintainer="RCaldas <docker@rcaldas.com>"
 
 FROM base AS deps
