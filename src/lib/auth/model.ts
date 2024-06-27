@@ -1,11 +1,19 @@
-import mongoose from './mongoodb';
-
-const { Schema } = mongoose;
-const ObjectId = Schema.ObjectId;
+import mongoose, { Document, Schema, model } from 'mongoose';
+import { z } from 'zod';
 
 
-// Define User schema
-const UserSchema = new Schema({
+export interface IUser extends Document {
+    _id?: Schema.ObjectId;
+    name: string;
+    email: string;
+    password: string;
+    last: number;
+    timestamp: number;
+    confirmed: number;
+    audited: number;
+}
+
+const userSchema = new Schema({
     name: {
         index: true,
         type: String,
@@ -26,19 +34,54 @@ const UserSchema = new Schema({
         // required: true,
     },
     last: { type: Number },
-    timestamp: {
-        type: Number,
-        immutable: true,
-        default: () => Date.now(),
-    },
     confirmed: { type: Number },
     audited: { type: Number },
-    buff: Buffer
+}, { timestamps: true })
+
+const User = mongoose.models.user || model<IUser>('user', userSchema)
+export default User
+
+
+
+
+
+export const SignupFormSchema = z.object({
+  name: z
+    .string()
+    .min(2, { message: 'Name must be at least 2 characters long.' })
+    .trim(),
+  email: z.string().email({ message: 'Please enter a valid email.' }).trim(),
+  password: z
+    .string()
+    .min(8, { message: 'Be at least 8 characters long' })
+    .regex(/[a-zA-Z]/, { message: 'Contain at least one letter.' })
+    .regex(/[0-9]/, { message: 'Contain at least one number.' })
+    .regex(/[^a-zA-Z0-9]/, {
+      message: 'Contain at least one special character.',
+    })
+    .trim(),
 });
 
-const users = mongoose.model('User', UserSchema);
+export const LoginFormSchema = z.object({
+  email: z.string().email({ message: 'Please enter a valid email.' }),
+  password: z.string().min(1, { message: 'Password field must not be empty.' }),
+});
 
+export type FormState =
+  | {
+      errors?: {
+        name?: string[];
+        email?: string[];
+        password?: string[];
+      };
+      message?: string;
+    }
+  | undefined;
 
+export type SessionPayload = {
+  userId: string | number;
+  expiresAt: Date;
+};
 
 // class Token(BaseModel):
 //     id: PyObjectId = Field(default_factory=uuid.uuid4, alias="_id")

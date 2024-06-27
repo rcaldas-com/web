@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import "./globals.css";
-import Header from "../ui/header"
-import Footer from "../ui/footer"
-import Container from "../ui/container"
+import "../globals.css";
+import Header from "@/ui/header-public"
+import Footer from "@/ui/footer"
+import Container from "@/ui/container"
 
 
 const inter = Inter({ subsets: ["latin"] });
@@ -20,19 +20,17 @@ export const metadata: Metadata = {
   metadataBase: new URL(public_host),
 };
 
-export default function RootLayout({
+export default function PublicLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: {
+  children: React.ReactNode
+}) {
   return (
-    <html lang="pt">
-      <body className={`${inter.className} min-h-screen bg-zinc-100 text-zinc-900`}>
-        <Container>
-          {children}
-          <Footer />
-        </Container>
-      </body>
-    </html>
+    <>
+      <Header />
+      <main className="container mx-auto my-auto flex max-w-7xl justify-center">
+        {children}
+      </main>
+    </>
   );
 }

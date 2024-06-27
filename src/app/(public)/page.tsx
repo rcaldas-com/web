@@ -1,7 +1,7 @@
 
 export default function Home() {
   return (
-    <main className="text-center pt-32 px-5">
+    <main className="text-center px-5">
       <h1 className="text-3xl font-bold mb-5 md:text-4xl">RCaldas Web App</h1>
 
 

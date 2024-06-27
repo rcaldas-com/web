@@ -30,7 +30,7 @@ export default async function NetworkPage() {
         </Suspense>
       </div>
 
-      <p className="max-w-[750px] mx-auto leading-8">Lorem ipsum dolor sit amet consectetur, adipisicing elit. Sequi, harum, et suscipit deleniti distinctio animi delectus hic explicabo rem deserunt, repellendus ad. Nesciunt incidunt tenetur dolores laborum voluptatibus, aperiam sed.</p>
+      <p className="max-w-[750px] mx-auto leading-8">Lorem ipsum dolor sit.</p>
 
     </main>
   );

@@ -1,9 +1,13 @@
 'use server'
-
 import dbConnect from "../mongodb"
 import Host from "./model"
+import { unstable_noStore as noStore } from 'next/cache';
+import { revalidatePath } from "next/cache"
+import { redirect } from "next/navigation"
+
 
 export async function getHosts() {
+    noStore()
     try {
         await dbConnect()
         const data = await Host.find()
@@ -18,8 +22,9 @@ export async function createHost(formData: FormData) {
     try {
         await dbConnect()
         const data = await Host.create({ name })
-        return { data: true }
     } catch (error: any) {
         return { error: error?.message }
     }
+    revalidatePath('/network')
+    redirect('/network')
 }
