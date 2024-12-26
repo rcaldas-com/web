@@ -44,8 +44,12 @@ export default function FinancePage() {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        // TODO: Save the income data to local storage or backend
-        router.push('/finance/next-step');
+        const financeData = {
+            monthlyIncome,
+            additionalIncomes,
+        };
+        localStorage.setItem('financeData', JSON.stringify(financeData));
+        router.push('/finance/expenses');
     };
 
     return (
