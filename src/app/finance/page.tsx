@@ -52,18 +52,27 @@ export default function FinancePage() {
         <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
             <h1 className="text-2xl font-bold mb-4">Controle Financeiro</h1>
             <form onSubmit={handleSubmit} className="w-full max-w-md bg-white p-6 rounded-lg shadow-md">
-                <div className="mb-4">
-                    <label htmlFor="monthlyIncome" className="block text-sm font-medium text-gray-700">
-                        Receita Líquida Mensal
-                    </label>
-                    <input
-                        type="number"
-                        id="monthlyIncome"
-                        value={monthlyIncome}
-                        onChange={handleMonthlyIncomeChange}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                        required
-                    />
+                <div className="mb-4 flex items-center space-x-2">
+                    <div className="flex-1">
+                        <label htmlFor="monthlyIncome" className="block text-sm font-medium text-gray-700">
+                            Receita Líquida Mensal
+                        </label>
+                        <input
+                            type="number"
+                            id="monthlyIncome"
+                            value={monthlyIncome}
+                            onChange={handleMonthlyIncomeChange}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                            required
+                        />
+                    </div>
+                    <button
+                        type="button"
+                        onClick={addAdditionalIncome}
+                        className="bg-green-500 hover:bg-green-700 text-white font-bold p-2 rounded-full"
+                    >
+                        <FaPlus className="h-5 w-5" />
+                    </button>
                 </div>
                 {additionalIncomes.map((income) => (
                     <div key={income.id} className="mb-4 flex items-center space-x-2">
@@ -103,15 +112,6 @@ export default function FinancePage() {
                         </button>
                     </div>
                 ))}
-                <div className="flex justify-end mb-4">
-                    <button
-                        type="button"
-                        onClick={addAdditionalIncome}
-                        className="bg-green-500 hover:bg-green-700 text-white font-bold p-2 rounded-full"
-                    >
-                        <FaPlus className="h-5 w-5" />
-                    </button>
-                </div>
                 <button
                     type="submit"
                     className="w-full bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
