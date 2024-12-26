@@ -69,9 +69,10 @@ export default function FinancePage() {
                     <button
                         type="button"
                         onClick={addAdditionalIncome}
-                        className="bg-green-500 hover:bg-green-700 text-white font-bold p-2 rounded-full"
+                        className="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded flex items-center"
                     >
-                        <FaPlus className="h-5 w-5" />
+                        <FaPlus className="h-4 w-4 m-1" />
+                        Nova Renda
                     </button>
                 </div>
                 {additionalIncomes.map((income) => (
