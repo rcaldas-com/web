@@ -16,10 +16,16 @@ export interface Expense {
     frequency: string;
     value: string;
 }
+export interface Balance {
+    id: number;
+    name: string;
+    value: string;
+}
 export interface FinanceData {
     monthlyIncome: string;
     additionalIncomes: AdditionalIncome[];
     expenses: Expense[];
+    balances: Balance[];
 }
 
 export default function FinancePage() {
