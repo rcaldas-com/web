@@ -9,54 +9,74 @@ export interface AdditionalIncome {
     type: string;
     value: string;
 }
+export interface Expense {
+    id: number;
+    name: string;
+    type: string;
+    frequency: string;
+    value: string;
+}
+export interface FinanceData {
+    monthlyIncome: string;
+    additionalIncomes: AdditionalIncome[];
+    expenses: Expense[];
+}
 
 export default function FinancePage() {
-    const [monthlyIncome, setMonthlyIncome] = useState('');
-    const [additionalIncomes, setAdditionalIncomes] = useState<AdditionalIncome[]>([]);
+    const [financeData, setFinanceData] = useState<FinanceData>({
+        monthlyIncome: '',
+        additionalIncomes: [],
+        expenses: [{ id: Date.now(), name: '', type: 'comum', frequency: 'mensal', value: '' }],
+    });
     const router = useRouter();
 
     useEffect(() => {
-        const financeData = localStorage.getItem('financeData');
-        if (financeData) {
-            const parsedData = JSON.parse(financeData);
-            setMonthlyIncome(parsedData.monthlyIncome);
-            setAdditionalIncomes(parsedData.additionalIncomes);
+        const storedFinanceData = localStorage.getItem('financeData');
+        if (storedFinanceData) {
+            const parsedData = JSON.parse(storedFinanceData);
+            setFinanceData((prev) => ({
+                ...prev,
+                ...parsedData,
+                expenses: parsedData.expenses.length > 0 ? parsedData.expenses : prev.expenses,
+            }));
         }
     }, []);
 
-    const handleMonthlyIncomeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setMonthlyIncome(e.target.value);
+    const handleIncomeChange = (field: string, value: string) => {
+        setFinanceData((prev) => ({
+            ...prev,
+            [field]: value,
+        }));
     };
 
-    const handleAdditionalIncomeChange = (id: number, value: string) => {
-        setAdditionalIncomes((prev) =>
-            prev.map((income) => (income.id === id ? { ...income, value } : income))
-        );
-    };
-
-    const handleAdditionalIncomeTypeChange = (id: number, type: string) => {
-        setAdditionalIncomes((prev) =>
-            prev.map((income) => (income.id === id ? { ...income, type } : income))
-        );
+    const handleAdditionalIncomeChange = (id: number, field: string, value: string) => {
+        setFinanceData((prev) => ({
+            ...prev,
+            additionalIncomes: prev.additionalIncomes.map((income) =>
+                income.id === id ? { ...income, [field]: value } : income
+            ),
+        }));
     };
 
     const addAdditionalIncome = () => {
-        setAdditionalIncomes((prev) => [
+        setFinanceData((prev) => ({
             ...prev,
-            { id: Date.now(), type: 'renda mensal', value: '' },
-        ]);
+            additionalIncomes: [
+                ...prev.additionalIncomes,
+                { id: Date.now(), type: 'renda mensal', value: '' },
+            ],
+        }));
     };
 
     const removeAdditionalIncome = (id: number) => {
-        setAdditionalIncomes((prev) => prev.filter((income) => income.id !== id));
+        setFinanceData((prev) => ({
+            ...prev,
+            additionalIncomes: prev.additionalIncomes.filter((income) => income.id !== id),
+        }));
     };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        const financeData = {
-            monthlyIncome,
-            additionalIncomes,
-        };
         localStorage.setItem('financeData', JSON.stringify(financeData));
         router.push('/finance/expenses');
     };
@@ -68,13 +88,13 @@ export default function FinancePage() {
                 <div className="mb-4 flex items-center space-x-2">
                     <div className="flex-1">
                         <label htmlFor="monthlyIncome" className="block text-sm font-medium text-gray-700">
-                            Receita Líquida Mensal
+                            Receita Mensal
                         </label>
                         <input
                             type="number"
                             id="monthlyIncome"
-                            value={monthlyIncome}
-                            onChange={handleMonthlyIncomeChange}
+                            value={financeData.monthlyIncome}
+                            onChange={(e) => handleIncomeChange('monthlyIncome', e.target.value)}
                             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                             required
                         />
@@ -88,7 +108,7 @@ export default function FinancePage() {
                         Nova Renda
                     </button>
                 </div>
-                {additionalIncomes.map((income) => (
+                {financeData.additionalIncomes.map((income) => (
                     <div key={income.id} className="mb-4 flex items-center space-x-2">
                         <div className="flex-1">
                             <label className="block text-sm font-medium text-gray-700">
@@ -96,7 +116,7 @@ export default function FinancePage() {
                             </label>
                             <select
                                 value={income.type}
-                                onChange={(e) => handleAdditionalIncomeTypeChange(income.id, e.target.value)}
+                                onChange={(e) => handleAdditionalIncomeChange(income.id, 'type', e.target.value)}
                                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                             >
                                 <option value="renda mensal">Renda Mensal</option>
@@ -111,7 +131,7 @@ export default function FinancePage() {
                             <input
                                 type="number"
                                 value={income.value}
-                                onChange={(e) => handleAdditionalIncomeChange(income.id, e.target.value)}
+                                onChange={(e) => handleAdditionalIncomeChange(income.id, 'value', e.target.value)}
                                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                                 placeholder="Valor"
                                 required
