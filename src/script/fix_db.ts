@@ -3,17 +3,15 @@ import dbConnect from "../lib/mongodb"
 import Host from "../lib/network/model"
 
 
-function find (name, query, cb) {
-    mongoose.connection.db.collection(name, function (err, collection) {
-       collection.find(query).toArray(cb);
-   });
+async function find(name: string, query: object): Promise<any[]> {
+    const collection = mongoose.connection.db.collection(name);
+    return collection.find(query).toArray();
 }
 
 async function fixHosts() {
     try {
         await dbConnect()
-        const hostCol = mongoose.connection.db.collection('host')        
-        const hosts = await hostCol.find().toArray()
+        const hosts = await find('host', {});
         for (let i of hosts) {
             const host = {
                 name: i.name,
@@ -25,17 +23,13 @@ async function fixHosts() {
                 last: i.last,
                 bkp: i.bkp?.last,
             }
-            new Host(host).save()
+            await new Host(host).save();
         }
 
-        hostCol.drop()
+        // hostCol.drop()
     } catch (error) {
-        console.error(error)
+        console.error('Error fixing hosts', error);
     }
 }
 
-async function main() {
-    fixHosts()
-}
-
-main()
+fixHosts();

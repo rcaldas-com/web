@@ -7,10 +7,16 @@ import { IHost } from "@/lib/network/model";
 
 
 export default async function HostEdit({ id }: { id: string }) {
-    const { data, error } = await fetchHostById(id);
-    if (error) return <h3 className="bg-red-500">{error}</h3>
+    const result = await fetchHostById(id);
+    if (!result) {
+        notFound();
+    }
+    const { data, error } = result;
+    if (error) {
+        return <h3 className="bg-red-500">{error}</h3>;
+    }
     if (!data) {
-      notFound();
+        notFound();
     }
     return (
         <div className="max-w-[400px] mx-auto rounded-lg bg-white shadow-lg p-2">

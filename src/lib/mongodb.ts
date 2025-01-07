@@ -11,7 +11,7 @@ export default async function dbConnect() {
     return true
   }
   try {
-    await mongoose.connect(process.env.MONGO_URI)
+    await mongoose.connect(process.env.MONGO_URI as string)
     connection.isConnected = mongoose.connection.readyState
     return true
   } catch (error) {

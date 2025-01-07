@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { FaPlus, FaTrash } from 'react-icons/fa';
 
-interface AdditionalIncome {
+export interface AdditionalIncome {
     id: number;
     type: string;
     value: string;
@@ -14,6 +14,15 @@ export default function FinancePage() {
     const [monthlyIncome, setMonthlyIncome] = useState('');
     const [additionalIncomes, setAdditionalIncomes] = useState<AdditionalIncome[]>([]);
     const router = useRouter();
+
+    useEffect(() => {
+        const financeData = localStorage.getItem('financeData');
+        if (financeData) {
+            const parsedData = JSON.parse(financeData);
+            setMonthlyIncome(parsedData.monthlyIncome);
+            setAdditionalIncomes(parsedData.additionalIncomes);
+        }
+    }, []);
 
     const handleMonthlyIncomeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setMonthlyIncome(e.target.value);

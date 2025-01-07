@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { Suspense } from "react";
 import HostEdit from "@/ui/network/host-edit";
 import Breadcrumbs from '@/ui/breadcrumbs';

@@ -5,8 +5,12 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { MenuIcon } from '@/ui/icons';
 
+interface NavLink {
+    href: string;
+    label: string;
+}
 
-const navlinks = [
+const navlinks: NavLink[] = [
     // {
     //     href: "/",
     //     label:  "Home",

@@ -5,7 +5,7 @@ import dbConnect from "../mongodb"
 
 
 export interface IHost extends Document {
-    _id?: Schema.ObjectId;
+    _id?: typeof Schema.ObjectId;
     name: string;
     type: string;
     os: string;
@@ -14,7 +14,7 @@ export interface IHost extends Document {
     tunnel: number;
     last: Date;
     bkp: Date;
-    user: Schema.ObjectId;
+    user: typeof Schema.ObjectId;
 }
 
 const hostSchema = new Schema({

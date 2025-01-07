@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import HostList from "@/ui/network/host-list";
 import Link from "next/link";
 import { Suspense } from "react";
