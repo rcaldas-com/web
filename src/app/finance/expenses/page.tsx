@@ -162,7 +162,7 @@ export default function ExpensesPage() {
             <div className="w-full max-w-md p-6  mt-4">
 
                 {/* Lazy load */}
-                <h2 className="text-l font-bold mb-2">Receitas</h2>
+                <h2 className="text-lg font-bold mb-2">Receitas</h2>
                 <p>- {financeData.monthlyIncome}</p>
                 {financeData.additionalIncomes.map((income) => (
                     <p key={income.id}>- {income.value} ({income.type})</p>

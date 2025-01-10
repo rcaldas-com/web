@@ -67,6 +67,19 @@ export default function BalancesPage() {
         // Redirecionar para a próxima página ou realizar outra ação
     };
 
+    const formatFrequency = (frequency: string) => {
+        switch (frequency) {
+            case 'diária':
+                return '/dia';
+            case 'semanal':
+                return '/semana';
+            case 'mensal':
+                return '/mês';
+            default:
+                return '';
+        }
+    };
+
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
             <h1 className="text-2xl font-bold mb-4">Saldos</h1>
@@ -83,6 +96,7 @@ export default function BalancesPage() {
                                     value={balance.name}
                                     onChange={(e) => handleBalanceChange(balance.id, 'name', e.target.value)}
                                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                                    required
                                 />
                             </div>
                             <div className="flex-1">
@@ -127,6 +141,35 @@ export default function BalancesPage() {
                     Salvar
                 </button>
             </form>
+
+
+            <div className="w-full max-w-md p-6  mt-4">
+
+                <h2 className="text-lg font-bold mb-2">Receitas</h2>
+                {financeData.additionalIncomes.map((income) => (
+                    <p key={income.id}>- {income.value} ({income.type})</p>
+                ))}
+
+                <h2 className="text-lg font-bold my-2">Despesas</h2>
+                {financeData.expenses.map((expense) => (
+                    <p key={expense.id}>
+                        {expense.type === 'comum'
+                            ? `- ${expense.name}: ${expense.value}${formatFrequency(expense.frequency)}`
+                            : `- ${expense.name} (${expense.type}): ${expense.value}${formatFrequency(expense.frequency)}`}
+                    </p>
+                ))}
+
+                <button
+                    type="button"
+                    onClick={() => router.push('/finance/expenses')}
+                    className="mt-3 bg-gray-500 hover:bg-gray-700 text-white py-2 px-4 rounded"
+                >
+                    Voltar
+                </button>
+            </div>
+
+
+
         </div>
     );
 }
