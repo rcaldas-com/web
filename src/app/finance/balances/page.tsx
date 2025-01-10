@@ -64,7 +64,7 @@ export default function BalancesPage() {
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         localStorage.setItem('financeData', JSON.stringify(financeData));
-        // Redirecionar para a próxima página ou realizar outra ação
+        router.push('/finance/parcels');
     };
 
     const formatFrequency = (frequency: string) => {
@@ -82,7 +82,17 @@ export default function BalancesPage() {
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
-            <h1 className="text-2xl font-bold mb-4">Saldos</h1>
+            <div className="flex justify-center w-full max-w-md mb-4">
+                <h1 className="text-2xl font-bold pr-2">Saldos</h1>
+                <button 
+                    type="button"
+                    onClick={addBalance}
+                    className="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded flex items-center"
+                >
+                    <FaPlus className="h-4 w-4" />
+                </button>
+            </div>
+
             <form onSubmit={handleSubmit} className="w-full max-w-md bg-white p-6 rounded-lg shadow-md">
                 {financeData.balances.map((balance, index) => (
                     <div key={balance.id} className="mb-4 p-4 rounded-lg shadow-md bg-gray-50">
@@ -113,23 +123,14 @@ export default function BalancesPage() {
                                 />
                             </div>
                             <div className="flex items-end">
-                                {index === 0 ? (
-                                    <button
-                                        type="button"
-                                        onClick={addBalance}
-                                        className="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded flex items-center"
-                                    >
-                                        <FaPlus className="h-4 w-4" />
-                                    </button>
-                                ) : (
-                                    <button
-                                        type="button"
-                                        onClick={() => removeBalance(balance.id)}
-                                        className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded flex items-center"
-                                    >
-                                        <FaTrash className="h-4 w-4" />
-                                    </button>
-                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => removeBalance(balance.id)}
+                                    className={`bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded flex items-center ${index === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    disabled={index === 0}
+                                >
+                                    <FaTrash className="h-4 w-4" />
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -138,7 +139,7 @@ export default function BalancesPage() {
                     type="submit"
                     className="w-full bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
                 >
-                    Salvar
+                    Avançar
                 </button>
             </form>
 
@@ -167,8 +168,6 @@ export default function BalancesPage() {
                     Voltar
                 </button>
             </div>
-
-
 
         </div>
     );
