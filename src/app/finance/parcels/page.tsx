@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FaPlus, FaTrash } from 'react-icons/fa';
 
-
 interface Installment {
     id: number;
     description: string;
@@ -14,7 +13,9 @@ interface Installment {
 }
 
 export default function CreditCardInstallmentsPage() {
-    const [installments, setInstallments] = useState<Installment[]>([]);
+    const [installments, setInstallments] = useState<Installment[]>([
+        { id: Date.now(), description: '', amount: '', type: 'normal' }
+    ]);
     const router = useRouter();
 
     const handleInstallmentChange = (id: number, field: string, value: string) => {
@@ -44,9 +45,19 @@ export default function CreditCardInstallmentsPage() {
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
-            <h1 className="text-2xl font-bold mb-4">Fatura / Parcelas no Cartão</h1>
+            <div className="flex justify-center w-full max-w-md mb-4">
+                <h1 className="text-2xl font-bold pr-2">Fatura / Parcelas no Cartão</h1>
+                <button 
+                    type="button"
+                    onClick={addInstallment}
+                    className="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded flex items-center"
+                >
+                    <FaPlus className="h-4 w-4" />
+                </button>
+            </div>
+
             <form onSubmit={handleSubmit} className="w-full max-w-md bg-white p-6 rounded-lg shadow-md">
-                {installments.map((installment) => (
+                {installments.map((installment, index) => (
                     <div key={installment.id} className="mb-4 p-4 rounded-lg shadow-md bg-gray-50">
                         <div className="flex space-x-2 mb-2">
                             <div className="flex-1">
@@ -108,21 +119,14 @@ export default function CreditCardInstallmentsPage() {
                             <button
                                 type="button"
                                 onClick={() => removeInstallment(installment.id)}
-                                className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded flex items-center"
+                                className={`bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded flex items-center ${index === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                disabled={index === 0}
                             >
                                 <FaTrash className="h-4 w-4" />
                             </button>
                         </div>
                     </div>
                 ))}
-                <button
-                    type="button"
-                    onClick={addInstallment}
-                    className="w-full bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mb-4"
-                >
-                    <FaPlus className="h-4 w-4 m-1" />
-                    Adicionar Parcela
-                </button>
                 <button
                     type="submit"
                     className="w-full bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
