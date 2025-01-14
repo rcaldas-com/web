@@ -11,6 +11,7 @@ export default function ExpensesPage() {
         monthlyIncome: '',
         additionalIncomes: [],
         expenses: [{ id: Date.now(), name: '', type: 'comum', frequency: 'mensal', value: '' }],
+        balances: [],
     });
     const router = useRouter();
 
