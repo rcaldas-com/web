@@ -4,6 +4,9 @@ import Host from "../lib/network/model"
 
 
 async function find(name: string, query: object): Promise<any[]> {
+    if (!mongoose.connection.db) {
+        throw new Error('Database connection is not established');
+    }
     const collection = mongoose.connection.db.collection(name);
     return collection.find(query).toArray();
 }

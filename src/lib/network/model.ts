@@ -5,7 +5,7 @@ import dbConnect from "../mongodb"
 
 
 export interface IHost extends Document {
-    _id?: typeof Schema.ObjectId;
+    _id: string;
     name: string;
     type: string;
     os: string;
