@@ -73,6 +73,35 @@ export default function FinancePage() {
     }, 0);
     const futureBalance = futureBalances - futureInstallments - monthlyExpenses - monthlyInstallments;
 
+
+    const calculateFutureBalance = () => {
+        let futureBalance = futureBalances;
+        let futureInstallments = financeData.installments.map(installment => ({
+            ...installment,
+            remainingInstallments: installment.installments || 0
+        }));
+        let months = 0;
+        let futureMonthlyBalance = balance;
+
+        while (futureMonthlyBalance < 0) {
+            months++;
+            futureMonthlyBalance = totalMonthlyIncome - monthlyExpenses;
+            futureInstallments = futureInstallments.map(installment => {
+                if (installment.type === 'parcelada' && installment.remainingInstallments > 0) {
+                    futureMonthlyBalance -= parseFloat(installment.amount);
+                    installment.remainingInstallments--;
+                }
+                return installment;
+            });
+            futureBalance += futureMonthlyBalance;
+        }
+
+        return { futureBalance, months };
+    };
+
+    const { futureBalance, months } = calculateFutureBalance();
+
+
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
             <h1 className="text-2xl font-bold mb-4">Controle Financeiro</h1>
