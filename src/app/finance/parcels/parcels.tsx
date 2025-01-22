@@ -3,15 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { FaPlus, FaTrash } from 'react-icons/fa';
+import { FinanceData, Installment } from '../incomes/page';
 
-interface Installment {
-    id: number;
-    description: string;
-    amount: string;
-    type: 'normal' | 'parcelada';
-    expenseType: string;
-    installments?: number;
-}
 
 interface ExpenseType {
     _id: string;
@@ -19,42 +12,63 @@ interface ExpenseType {
 }
 
 export default function Parcels({ expenseTypes }: { expenseTypes: ExpenseType[] }) {
-    const [installments, setInstallments] = useState<Installment[]>(() => {
-        // Load installments from localStorage if available
-        const savedInstallments = localStorage.getItem('installmentsData');
-        return savedInstallments ? JSON.parse(savedInstallments) : [{ id: Date.now(), description: '', amount: '', type: 'normal', expenseType: '' }];
-    });
+    const [financeData, setFinanceData] = useState<FinanceData | null>(null);
     const router = useRouter();
 
     useEffect(() => {
-        // Save installments to localStorage whenever they change
-        localStorage.setItem('installmentsData', JSON.stringify(installments));
-    }, [installments]);
+        const storedFinanceData = localStorage.getItem('financeData');
+        if (storedFinanceData) {
+            const parsedData = JSON.parse(storedFinanceData);
+            if (parsedData.installments) {
+                setFinanceData(parsedData);
+            } else {
+                setFinanceData({
+                    ...parsedData,
+                    installments: [{ id: Date.now(), description: '', amount: '', type: 'normal', expenseType: '' }],
+                });
+            }
+        } else {
+            router.push('/finance/incomes');
+        }
+    }, [router]);
 
     const handleInstallmentChange = (id: number, field: string, value: string) => {
-        setInstallments((prev) =>
-            prev.map((installment) =>
+        setFinanceData((prev) => ({
+            ...prev!,
+            installments: prev!.installments.map((installment) =>
                 installment.id === id ? { ...installment, [field]: value } : installment
-            )
-        );
+            ),
+        }));
     };
 
     const addInstallment = () => {
-        setInstallments((prev) => [
-            ...prev,
-            { id: Date.now(), description: '', amount: '', type: 'normal', expenseType: '' },
-        ]);
+        setFinanceData((prev) => ({
+            ...prev!,
+            installments: [
+                ...prev!.installments,
+                { id: Date.now(), description: '', amount: '', type: 'normal', expenseType: '' },
+            ],
+        }));
     };
 
     const removeInstallment = (id: number) => {
-        setInstallments((prev) => prev.filter((installment) => installment.id !== id));
+        setFinanceData((prev) => ({
+            ...prev!,
+            installments: prev!.installments.filter((installment) => installment.id !== id),
+        }));
     };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        localStorage.setItem('installmentsData', JSON.stringify(installments));
-        // Redirecionar para a próxima página ou realizar outra ação
+        if (financeData) {
+            localStorage.setItem('financeData', JSON.stringify(financeData));
+            router.push('/finance');
+        }
     };
+ 
+    if (!financeData) {
+        return null; // or a loading spinner
+    }
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
@@ -70,7 +84,7 @@ export default function Parcels({ expenseTypes }: { expenseTypes: ExpenseType[] 
             </div>
 
             <form onSubmit={handleSubmit} className="w-full max-w-md bg-white p-6 rounded-lg shadow-md">
-                {installments.map((installment, index) => (
+                {financeData.installments?.map((installment, index) => (
                     <div key={installment.id} className="mb-4 p-4 rounded-lg shadow-md bg-gray-50">
                         <div className="flex space-x-2 mb-2">
                             <div className="flex-1">

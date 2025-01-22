@@ -22,6 +22,7 @@ async function seedExpenseTypes() {
       { name: 'Lazer' },
       { name: 'Moradia' },
       { name: 'Vestuário' },
+      { name: 'Utilidades' },
     ];
 
     for (const expenseType of expenseTypes) {

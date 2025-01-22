@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { FaPlus, FaTrash } from 'react-icons/fa';
-import { FinanceData } from '../page';
+import { FinanceData } from '../incomes/page';
 
 interface ExpenseType {
     _id: string;
@@ -176,7 +176,7 @@ export default function Expenses({ expenseTypes }: { expenseTypes: ExpenseType[]
                 ))}
 
                 <button
-                    onClick={() => router.push('/finance')}
+                    onClick={() => router.push('/finance/incomes')}
                     className="mt-3 bg-gray-500 hover:bg-gray-700 text-white py-2 px-4 rounded"
                 >
                     Voltar
