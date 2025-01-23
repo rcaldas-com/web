@@ -63,7 +63,9 @@ export default function FinancePage() {
     const totalMonthlyIncome = monthlyIncome + additionalIncomes;
     const balance = totalMonthlyIncome - monthlyExpenses - monthlyInstallments;
 
-    const futureBalances = financeData.balances.reduce((total, balance) => total + parseFloat(balance.value), 0);
+    const allBalances = financeData.balances.reduce((total, balance) => total + parseFloat(balance.value), 0);
+
+    // Soma de todas as parcelas futuras sem considerar as parcelas do mês atual
     const futureInstallments = financeData.installments.reduce((total, installment) => {
         if (installment.type === 'parcelada' && installment.installments) {
             const remainingInstallments = installment.installments - 1; // Subtract 1 for the current month
@@ -71,20 +73,22 @@ export default function FinancePage() {
         }
         return total;
     }, 0);
-    const futureBalance = futureBalances - futureInstallments - monthlyExpenses - monthlyInstallments;
+    // Saldo total considerando as despesas do mês atual e as parcelas futuras
+    const totalBalance = allBalances - monthlyExpenses - monthlyInstallments - futureInstallments;
+    // Saldo do mês na dívida futura
 
 
-    const calculateFutureBalance = () => {
-        let futureBalance = futureBalances;
+    const calculateFutureDebt = () => {
+        let futureDebt = 0;
         let futureInstallments = financeData.installments.map(installment => ({
             ...installment,
             remainingInstallments: installment.installments || 0
         }));
-        let months = 0;
         let futureMonthlyBalance = balance;
+        let futureDebts = [];
 
+        // Calculate future months
         while (futureMonthlyBalance < 0) {
-            months++;
             futureMonthlyBalance = totalMonthlyIncome - monthlyExpenses;
             futureInstallments = futureInstallments.map(installment => {
                 if (installment.type === 'parcelada' && installment.remainingInstallments > 0) {
@@ -93,13 +97,16 @@ export default function FinancePage() {
                 }
                 return installment;
             });
-            futureBalance += futureMonthlyBalance;
+            if (futureMonthlyBalance < 0) {
+                futureDebts.push(futureMonthlyBalance);
+                futureDebt += futureMonthlyBalance;
+            }
         }
 
-        return { futureBalance, months };
+        return { futureDebt, futureDebts };
     };
 
-    const { futureBalance, months } = calculateFutureBalance();
+    const { futureDebt, futureDebts } = calculateFutureDebt();
 
 
     return (
@@ -112,19 +119,31 @@ export default function FinancePage() {
                     <p><strong>Receitas Adicionais: </strong>R$ {additionalIncomes.toFixed(2)}</p>
                     <p><strong>Despesas Mensais: </strong>R$ {monthlyExpenses.toFixed(2)}</p>
                     <p><strong>Parcelas Mensais: </strong>R$ {monthlyInstallments.toFixed(2)}</p>
-                    <p className="text-xl"><strong>Saldo Mensal: </strong>R$ {balance.toFixed(2)}</p>
+                    <p className="text-xl"><strong>Saldo do Mês: </strong>R$ {balance.toFixed(2)}</p>
                 </div>
 
                 <h2 className="text-xl font-bold mb-2">Visão Geral</h2>
                 <div className="mb-4">
-                    <p><strong>Saldo em Conta: </strong>R$ {futureBalances.toFixed(2)}</p>
+                    <p><strong>Saldo em Conta: </strong>R$ {allBalances.toFixed(2)}</p>
                 </div>
                 <div className="mb-4">
                     <p><strong>Valor Devedor: </strong>R$ {futureInstallments.toFixed(2)}</p>
                 </div>
                 <div className="mb-4">
-                    <p className="text-xl"><strong>Saldo Futuro: </strong>R$ {futureBalance.toFixed(2)}</p>
+                    <p className="text-xl"><strong>Saldo Total: </strong>R$ {totalBalance.toFixed(2)}</p>
                 </div>
+                <hr></hr>
+
+                <div className="mb-4">
+                    <p className="text-xl"><strong>Saldo Futuro: </strong>R$ {futureDebt.toFixed(2)}</p>
+                </div>
+                <h2 className="text-xl font-bold mb-2">Dívida Futura</h2>
+                <div className="mb-4">
+                    {futureDebts.map((debt, index) => (
+                        <p key={index}><strong>Mês {index + 1}: </strong>R$ {debt.toFixed(2)}</p>
+                    ))}
+                </div>
+
             </div>
         </div>
     );
