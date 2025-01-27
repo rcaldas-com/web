@@ -75,8 +75,6 @@ export default function FinancePage() {
     }, 0);
     // Saldo total considerando as despesas do mês atual e as parcelas futuras
     const totalBalance = allBalances - monthlyExpenses - monthlyInstallments - futureInstallments;
-    // Saldo do mês na dívida futura
-
 
     const calculateFutureDebt = () => {
         let futureDebt = 0;
@@ -107,7 +105,6 @@ export default function FinancePage() {
     };
 
     const { futureDebt, futureDebts } = calculateFutureDebt();
-
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">

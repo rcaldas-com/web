@@ -11,11 +11,11 @@
     "seed:expenses": "node src/script/seedExpenseTypes.js"
   },
   "dependencies": {
-    "@auth/mongodb-adapter": "^3.3.0",
+    "@auth/mongodb-adapter": "^3.7.4",
     "clsx": "^2.1.1",
     "mongodb": "^6.12.0",
-    "mongoose": "^8.4.3",
     "next": "^14.2.4",
+    "next-auth": "^5.0.0-beta.25",
     "react": "^18",
     "react-dom": "^18",
     "react-icons": "^5.2.1",
