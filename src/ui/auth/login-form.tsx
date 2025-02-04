@@ -3,15 +3,16 @@
 import { Button } from '@/ui/button';
 import Input from '@/ui/input';
 import Label from '@/ui/label';
-// import { login } from '@/lib/auth/actions';
+import { login } from '@/lib/auth/actions';
 import Link from 'next/link';
 import { useFormState, useFormStatus } from 'react-dom';
 
 export function LoginForm() {
-  // const [state, action] = useFormState(login, undefined);
+  const initialState = { message: '', errors: {} as any };
+  const [state, action] = useFormState(login, undefined);
 
   return (
-    <form >
+    <form action={dispatch}>
       <div className="flex flex-col gap-2">
         <div>
           <Label htmlFor="email">Email</Label>
@@ -21,9 +22,12 @@ export function LoginForm() {
             placeholder="m@example.com"
             type="email"
           />
-          {/* {state?.errors?.email && (
-            <p className="text-sm text-red-500">{state.errors.email}</p>
-          )} */}
+          <div id="email-error" aria-live="polite" aria-atomic="true">
+            {state.errors?.email &&
+              state.errors.email.map((error: string) => (
+                <p className="text-sm text-red-500" key={error}>{error}</p>
+              ))}
+          </div>
         </div>
         <div className="mt-4">
           <div className="flex items-center justify-between">
@@ -33,13 +37,21 @@ export function LoginForm() {
             </Link>
           </div>
           <Input id="password" type="password" name="password" />
-          {/* {state?.errors?.password && (
-            <p className="text-sm text-red-500">{state.errors.password}</p>
-          )} */}
+          <div id="password-error" aria-live="polite" aria-atomic="true">
+            {state.errors?.password &&
+              state.errors.password.map((error: string) => (
+                <p className="mt-2 text-sm text-red-500" key={error}>
+                  {error}
+                </p>
+              ))}
+          </div>
         </div>
-        {/* {state?.message && (
-          <p className="text-sm text-red-500">{state.message}</p>
-        )} */}
+        {state.message && (
+          <>
+            <ExclamationCircleIcon className="h-5 w-5 text-red-500" />
+            <p className="text-sm text-red-500">{state.message}</p>
+          </>
+        )}
         <LoginButton />
       </div>
     </form>

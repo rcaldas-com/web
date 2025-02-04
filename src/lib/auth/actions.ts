@@ -1,4 +1,9 @@
-// 'use server';
+'use server';
+import client from '../mongodb';
+import { ObjectId } from 'mongodb';
+import { signIn } from '@/auth';
+import { AuthError } from 'next-auth';
+import { z } from 'zod';
 
 // import { db } from '@/drizzle/db';
 // import { users } from '@/drizzle/schema';
@@ -11,107 +16,126 @@
 // import bcrypt from 'bcrypt';
 // import { eq } from 'drizzle-orm';
 
-// export async function signup(
-//   state: FormState,
-//   formData: FormData,
-// ): Promise<FormState> {
-//   // 1. Validate form fields
-//   const validatedFields = SignupFormSchema.safeParse({
-//     name: formData.get('name'),
-//     email: formData.get('email'),
-//     password: formData.get('password'),
-//   });
+export type State = {
+  errors?: any;
+  message?: string | null;
+}
 
-//   // If any form fields are invalid, return early
-//   if (!validatedFields.success) {
-//     return {
-//       errors: validatedFields.error.flatten().fieldErrors,
-//     };
-//   }
+const LoginSchema = z.object({
+  email: z.string().email({ message: 'Digite um email válido.' }),
+  password: z
+    .string()
+    .min(6, { message: 'A senha precisa ter pelo menos 6 caracteres.' }),
+})
 
-//   // 2. Prepare data for insertion into database
-//   const { name, email, password } = validatedFields.data;
 
-//   // 3. Check if the user's email already exists
-//   const existingUser = await db.query.users.findFirst({
-//     where: eq(users.email, email),
-//   });
+export async function signup(
+  state: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  // 1. Validate form fields
+  const validatedFields = SignupFormSchema.safeParse({
+    name: formData.get('name'),
+    email: formData.get('email'),
+    password: formData.get('password'),
+  });
 
-//   if (existingUser) {
-//     return {
-//       message: 'Email already exists, please use a different email or login.',
-//     };
-//   }
+  // If any form fields are invalid, return early
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+    };
+  }
 
-//   // Hash the user's password
-//   const hashedPassword = await bcrypt.hash(password, 10);
+  // 2. Prepare data for insertion into database
+  const { name, email, password } = validatedFields.data;
 
-//   // 3. Insert the user into the database or call an Auth Provider's API
-//   const data = await db
-//     .insert(users)
-//     .values({
-//       name,
-//       email,
-//       password: hashedPassword,
-//     })
-//     .returning({ id: users.id });
+  // 3. Check if the user's email already exists
+  const existingUser = await db.query.users.findFirst({
+    where: eq(users.email, email),
+  });
 
-//   const user = data[0];
+  if (existingUser) {
+    return {
+      message: 'Email already exists, please use a different email or login.',
+    };
+  }
 
-//   if (!user) {
-//     return {
-//       message: 'An error occurred while creating your account.',
-//     };
-//   }
+  // Hash the user's password
+  const hashedPassword = await bcrypt.hash(password, 10);
 
-//   // 4. Create a session for the user
-//   const userId = user.id.toString();
-//   await createSession(userId);
-// }
+  // 3. Insert the user into the database or call an Auth Provider's API
+  const data = await db
+    .insert(users)
+    .values({
+      name,
+      email,
+      password: hashedPassword,
+    })
+    .returning({ id: users.id });
 
-// export async function login(
-//   state: FormState,
-//   formData: FormData,
-// ): Promise<FormState> {
-//   // 1. Validate form fields
-//   const validatedFields = LoginFormSchema.safeParse({
-//     email: formData.get('email'),
-//     password: formData.get('password'),
-//   });
-//   const errorMessage = { message: 'Invalid login credentials.' };
+  const user = data[0];
 
-//   // If any form fields are invalid, return early
-//   if (!validatedFields.success) {
-//     return {
-//       errors: validatedFields.error.flatten().fieldErrors,
-//     };
-//   }
+  if (!user) {
+    return {
+      message: 'An error occurred while creating your account.',
+    };
+  }
 
-//   // 2. Query the database for the user with the given email
-//   const user = await db.query.users.findFirst({
-//     where: eq(users.email, validatedFields.data.email),
-//   });
+  // 4. Create a session for the user
+  const userId = user.id.toString();
+  await createSession(userId);
+}
 
-//   // If user is not found, return early
-//   if (!user) {
-//     return errorMessage;
-//   }
-//   // 3. Compare the user's password with the hashed password in the database
-//   const passwordMatch = await bcrypt.compare(
-//     validatedFields.data.password,
-//     user.password,
-//   );
+export async function login(state: FormState, formData: FormData) {
+  // 1. Validate form fields
+  const validatedFields = LoginSchema.safeParse({
+    email: formData.get('email'),
+    password: formData.get('password'),
+  });
+  // If any form fields are invalid, return early
+  if (!validatedFields.success) {
+    return {
+        ...state,
+        errors: validatedFields.error.flatten().fieldErrors,
+        message: 'Valores incorretos.',
+    };
+  }
+  // 2. Query the database for the user with the given email
+  try {
+    await signIn('credentials', validatedFields.data);
+    return {
+      ...state,
+      message: 'Login realizado com sucesso.',
+      errors: {
+        email: undefined,
+        password: undefined,
+      },
+    };
+  } catch (error) {
+    if (error instanceof AuthError) {
+      switch (error.type) {
+        case 'CredentialsSignin':
+          return {
+            ...state,
+            errors: {
+              email: [],
+              password: [],
+            },
+            message: 'Credenciais inválidas.',
+          };
+        default:
+          return {
+            ...state,
+            errors: {
+              email: [],
+              password: [],
+            },
+            message: 'Algo deu errado.',
+          };
+      }
+    }
+    throw error;
+  }
+}
 
-//   // If the password does not match, return early
-//   if (!passwordMatch) {
-//     return errorMessage;
-//   }
-
-//   // 4. If login successful, create a session for the user and redirect
-//   const userId = user.id.toString();
-//   await createSession(userId);
-// }
-
-// export async function logout() {
-//   deleteSession();
-// }
