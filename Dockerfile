@@ -5,7 +5,7 @@ FROM base AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm install -g npm && npm ci
+RUN npm ci
 
 FROM base AS dev
 WORKDIR /app

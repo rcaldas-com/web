@@ -5,14 +5,11 @@ const isDev = process.env.NODE_ENV === 'development';
 const nextConfig = {
     assetPrefix: isDev ? undefined : process.env.AUTH_TRUST_HOST,
     output: "standalone",
-    // images: {
-    //     remotePatterns: [
-    //         {
-    //             protocol: 'https',
-    //             hostname: 'boragora.app',
-    //         },
-    //     ]
-    // }
+    experimental: {
+        serverActions: {
+            bodySizeLimit: '10mb',
+        },
+    },
 };
 
 export default nextConfig;
