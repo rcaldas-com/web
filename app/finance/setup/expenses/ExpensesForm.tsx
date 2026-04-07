@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { saveExpensesAndContinue } from '@/lib/finance/actions';
+import { saveExpensesAndContinue, saveExpensesAndFinish } from '@/lib/finance/actions';
 import type { RecurringExpense } from '@/lib/finance/types';
 
 interface ExpenseRow {
@@ -23,7 +23,7 @@ export default function ExpensesForm({ expenses }: { expenses: RecurringExpense[
   );
 
   const addRow = () => {
-    setRows([...rows, { name: '', value: 0, category: 'cash', proportional: false as false }]);
+    setRows([...rows, { name: '', value: 0, category: 'cash' as const, proportional: false as const }]);
     focusNewRow.current = true;
   };
   const removeRow = (i: number) => setRows(rows.filter((_, idx) => idx !== i));
@@ -127,10 +127,16 @@ export default function ExpensesForm({ expenses }: { expenses: RecurringExpense[
           className="text-zinc-600 hover:text-zinc-800 px-4 py-2">
           ← Voltar
         </a>
-        <button type="submit"
-          className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-          Próximo →
-        </button>
+        <div className="flex gap-3">
+          <button type="submit" formAction={saveExpensesAndFinish}
+            className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
+            Concluir ✓
+          </button>
+          <button type="submit"
+            className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
+            Próximo →
+          </button>
+        </div>
       </div>
     </form>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { saveProfileAndContinue } from '@/lib/finance/actions';
+import { saveProfileAndContinue, saveProfileAndFinish } from '@/lib/finance/actions';
 import type { FinanceProfile, BankAccount } from '@/lib/finance/types';
 
 export default function ProfileForm({ profile }: { profile: FinanceProfile | null }) {
@@ -104,7 +104,11 @@ export default function ProfileForm({ profile }: { profile: FinanceProfile | nul
         ))}
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-3">
+        <button type="submit" formAction={saveProfileAndFinish}
+          className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
+          Concluir ✓
+        </button>
         <button type="submit"
           className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
           Próximo →

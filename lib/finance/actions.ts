@@ -12,8 +12,11 @@ import {
   saveExpenses,
   addInstallment,
   deleteInstallment as deleteInstallmentData,
+  updateInstallment,
   rollOverMonth,
   toggleExpensePayment,
+  updateMonthCardInvoice,
+  toggleMonthCardInvoicePaid,
 } from './data';
 import type { RecurringExpense } from './types';
 
@@ -56,6 +59,11 @@ export async function saveProfileAndContinue(formData: FormData) {
   redirect('/finance/setup/cards');
 }
 
+export async function saveProfileAndFinish(formData: FormData) {
+  await saveProfile(formData);
+  redirect('/finance');
+}
+
 // ==================== Cards ====================
 
 export async function saveCards(formData: FormData) {
@@ -83,6 +91,11 @@ export async function saveCards(formData: FormData) {
 export async function saveCardsAndContinue(formData: FormData) {
   await saveCards(formData);
   redirect('/finance/setup/expenses');
+}
+
+export async function saveCardsAndFinish(formData: FormData) {
+  await saveCards(formData);
+  redirect('/finance');
 }
 
 export async function removeCard(cardId: string) {
@@ -128,6 +141,11 @@ export async function saveExpensesAndContinue(formData: FormData) {
   redirect('/finance/setup/installments');
 }
 
+export async function saveExpensesAndFinish(formData: FormData) {
+  await saveExpensesList(formData);
+  redirect('/finance');
+}
+
 // ==================== Installments ====================
 
 export async function addNewInstallment(formData: FormData) {
@@ -153,6 +171,15 @@ export async function addNewInstallment(formData: FormData) {
 export async function removeInstallment(installmentId: string) {
   await getUserId();
   await deleteInstallmentData(installmentId);
+  revalidatePath('/finance');
+}
+
+export async function editInstallment(
+  installmentId: string,
+  data: { monthlyValue?: number; remainingInstallments?: number; description?: string }
+) {
+  await getUserId();
+  await updateInstallment(installmentId, data);
   revalidatePath('/finance');
 }
 
@@ -187,11 +214,28 @@ export async function updateBankBalance(formData: FormData) {
   const profile = await getProfile(userId);
   if (!profile) return;
 
+  const foodVoucherStr = formData.get('foodVoucher') as string | null;
+  const foodVoucher = foodVoucherStr != null ? parseFloat(foodVoucherStr) || 0 : profile.foodVoucher;
+
   await upsertProfile(userId, {
     salary: profile.salary,
-    foodVoucher: profile.foodVoucher,
+    foodVoucher,
     banks,
   });
 
+  revalidatePath('/finance');
+}
+
+// ==================== Month Card Invoices ====================
+
+export async function updateMonthInvoice(cardId: string, invoiceTotal: number, yearMonth: string) {
+  const userId = await getUserId();
+  await updateMonthCardInvoice(userId, yearMonth, cardId, invoiceTotal);
+  revalidatePath('/finance');
+}
+
+export async function toggleInvoicePaid(cardId: string, cardName: string, invoiceTotal: number, yearMonth: string) {
+  const userId = await getUserId();
+  await toggleMonthCardInvoicePaid(userId, yearMonth, cardId, cardName, invoiceTotal);
   revalidatePath('/finance');
 }

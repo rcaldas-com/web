@@ -7,6 +7,7 @@ import type {
   Installment,
   MonthData,
   MonthPayment,
+  MonthCardInvoice,
   InstallmentGroup,
   CardView,
 } from './types';
@@ -123,6 +124,22 @@ export async function deleteInstallment(installmentId: string) {
   await db.collection('financeInstallment').deleteOne({ _id: new ObjectId(installmentId) });
 }
 
+export async function updateInstallment(
+  installmentId: string,
+  data: { monthlyValue?: number; remainingInstallments?: number; description?: string }
+) {
+  const client = await clientPromise;
+  const db = client.db();
+  const $set: Record<string, unknown> = {};
+  if (data.monthlyValue !== undefined) $set.monthlyValue = data.monthlyValue;
+  if (data.remainingInstallments !== undefined) $set.remainingInstallments = data.remainingInstallments;
+  if (data.description !== undefined) $set.description = data.description;
+  await db.collection('financeInstallment').updateOne(
+    { _id: new ObjectId(installmentId) },
+    { $set }
+  );
+}
+
 export async function rollOverMonth(userId: string) {
   const client = await clientPromise;
   const db = client.db();
@@ -184,20 +201,103 @@ export async function toggleExpensePayment(
   );
 }
 
+// ==================== Month Card Invoices ====================
+
+export async function getOrInitMonthCardInvoices(
+  userId: string,
+  yearMonth: string,
+  cards: CreditCard[],
+  installments: Installment[],
+  monthOffset: number,
+): Promise<MonthCardInvoice[]> {
+  const monthData = await getMonthData(userId, yearMonth);
+
+  if (monthData?.cardInvoices?.length) {
+    return monthData.cardInvoices;
+  }
+
+  // Initialize: current month uses card's invoiceTotal, future months use installments sum
+  return cards.map(card => {
+    const cardInsts = installments.filter(i => i.cardId === card._id);
+    const activeInsts = cardInsts.filter(i => i.remainingInstallments > monthOffset);
+    const installmentsTotal = activeInsts.reduce((sum, i) => sum + i.monthlyValue, 0);
+
+    return {
+      cardId: card._id!,
+      cardName: card.name,
+      invoiceTotal: monthOffset === 0 ? card.invoiceTotal : installmentsTotal,
+      paid: false,
+    };
+  });
+}
+
+export async function updateMonthCardInvoice(
+  userId: string,
+  yearMonth: string,
+  cardId: string,
+  invoiceTotal: number,
+) {
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db.collection('financeMonth').findOne({ userId, yearMonth });
+  const invoices: MonthCardInvoice[] = doc?.cardInvoices || [];
+
+  const idx = invoices.findIndex(ci => ci.cardId === cardId);
+  if (idx >= 0) {
+    invoices[idx].invoiceTotal = invoiceTotal;
+  } else {
+    invoices.push({ cardId, cardName: '', invoiceTotal, paid: false });
+  }
+
+  await db.collection('financeMonth').updateOne(
+    { userId, yearMonth },
+    { $set: { cardInvoices: invoices, userId, yearMonth } },
+    { upsert: true }
+  );
+}
+
+export async function toggleMonthCardInvoicePaid(
+  userId: string,
+  yearMonth: string,
+  cardId: string,
+  cardName: string,
+  invoiceTotal: number,
+) {
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db.collection('financeMonth').findOne({ userId, yearMonth });
+  const invoices: MonthCardInvoice[] = doc?.cardInvoices || [];
+
+  const idx = invoices.findIndex(ci => ci.cardId === cardId);
+  if (idx >= 0) {
+    invoices[idx].paid = !invoices[idx].paid;
+  } else {
+    invoices.push({ cardId, cardName, invoiceTotal, paid: true });
+  }
+
+  await db.collection('financeMonth').updateOne(
+    { userId, yearMonth },
+    { $set: { cardInvoices: invoices, userId, yearMonth } },
+    { upsert: true }
+  );
+}
+
 // ==================== Computed Views ====================
 
-export function groupInstallments(installments: Installment[], cards: CreditCard[]): InstallmentGroup[] {
+export function groupInstallments(installments: Installment[], cards: CreditCard[], monthOffset = 0): InstallmentGroup[] {
   const cardMap = new Map(cards.map(c => [c._id!, c.name]));
   const groups = new Map<number, InstallmentGroup>();
 
   for (const inst of installments) {
-    const remaining = inst.remainingInstallments;
+    const remaining = inst.remainingInstallments - monthOffset;
+    if (remaining <= 0) continue;
     if (!groups.has(remaining)) {
       groups.set(remaining, { remaining, total: 0, items: [] });
     }
     const group = groups.get(remaining)!;
     group.total += inst.monthlyValue;
     group.items.push({
+      _id: inst._id!,
       description: inst.description,
       monthlyValue: inst.monthlyValue,
       cardName: cardMap.get(inst.cardId) || 'N/A',
@@ -207,20 +307,34 @@ export function groupInstallments(installments: Installment[], cards: CreditCard
   return Array.from(groups.values()).sort((a, b) => b.remaining - a.remaining);
 }
 
-export function buildCardViews(cards: CreditCard[], installments: Installment[]): CardView[] {
+export function buildCardViews(
+  cards: CreditCard[],
+  installments: Installment[],
+  monthInvoices?: MonthCardInvoice[],
+  monthOffset = 0,
+): CardView[] {
+  const invoiceMap = new Map((monthInvoices || []).map(ci => [ci.cardId, ci]));
+
   return cards.map(card => {
-    const cardInstallments = installments.filter(i => i.cardId === card._id);
+    const cardInstallments = installments
+      .filter(i => i.cardId === card._id && i.remainingInstallments > monthOffset);
     const installmentsTotal = cardInstallments.reduce((sum, i) => sum + i.monthlyValue, 0);
+    const monthInvoice = invoiceMap.get(card._id!);
+    const invoiceTotal = monthInvoice ? monthInvoice.invoiceTotal : card.invoiceTotal;
+    const paid = monthInvoice ? monthInvoice.paid : false;
+
     return {
       _id: card._id!,
       name: card.name,
       dueDay: card.dueDay,
-      invoiceTotal: card.invoiceTotal,
+      invoiceTotal,
       installmentsTotal,
-      extras: card.invoiceTotal - installmentsTotal,
+      extras: invoiceTotal - installmentsTotal,
+      paid,
       items: cardInstallments.map(i => ({
+        _id: i._id!,
         description: i.description,
-        remaining: i.remainingInstallments,
+        remaining: i.remainingInstallments - monthOffset,
         monthlyValue: i.monthlyValue,
       })).sort((a, b) => b.remaining - a.remaining),
     };

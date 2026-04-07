@@ -54,8 +54,16 @@ export interface MonthData {
   yearMonth: string;         // "2026-04"
   daysInMonth: number;
   payments: MonthPayment[];  // despesas pagas/zeradas no mês
+  cardInvoices: MonthCardInvoice[]; // faturas dos cartões neste mês
   extraExpenses: ExtraExpense[]; // gastos pontuais do mês
   notes?: string;
+}
+
+export interface MonthCardInvoice {
+  cardId: string;
+  cardName: string;
+  invoiceTotal: number;
+  paid: boolean;
 }
 
 export interface MonthPayment {
@@ -77,6 +85,7 @@ export interface InstallmentGroup {
   remaining: number;         // meses restantes
   total: number;             // soma mensal do grupo
   items: {
+    _id: string;
     description: string;
     monthlyValue: number;
     cardName: string;
@@ -109,7 +118,9 @@ export interface CardView {
   invoiceTotal: number;
   installmentsTotal: number; // soma parcelas
   extras: number;            // fatura - parcelas
+  paid: boolean;             // fatura paga neste mês
   items: {
+    _id: string;
     description: string;
     remaining: number;
     monthlyValue: number;

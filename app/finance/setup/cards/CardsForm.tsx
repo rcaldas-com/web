@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { saveCardsAndContinue } from '@/lib/finance/actions';
+import { saveCardsAndContinue, saveCardsAndFinish } from '@/lib/finance/actions';
 import type { CreditCard } from '@/lib/finance/types';
 
 interface CardRow {
@@ -74,10 +74,16 @@ export default function CardsForm({ cards }: { cards: CreditCard[] }) {
           className="text-zinc-600 hover:text-zinc-800 px-4 py-2">
           ← Voltar
         </a>
-        <button type="submit"
-          className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-          Próximo →
-        </button>
+        <div className="flex gap-3">
+          <button type="submit" formAction={saveCardsAndFinish}
+            className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
+            Concluir ✓
+          </button>
+          <button type="submit"
+            className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
+            Próximo →
+          </button>
+        </div>
       </div>
     </form>
   );
