@@ -14,6 +14,7 @@ interface ExpenseItem {
   dueDay?: number;
   proportional: false | 'daily' | 'weekly';
   paid: boolean;
+  category: 'card' | 'cash';
 }
 
 interface Props {
@@ -35,6 +36,7 @@ interface Props {
   cardViews: CardView[];
   monthBalance: number;
   bankTotal: number;
+  availableBalance: number;
   projections: { label: string; value: number }[];
   totals: {
     salary: number;
@@ -60,18 +62,25 @@ export default function DashboardClient({
   cardViews,
   monthBalance,
   bankTotal,
+  availableBalance,
   projections,
   totals,
 }: Props) {
   const [y, m] = yearMonth.split('-').map(Number);
   const monthLabel = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 
-  const paidCashTotal = cashExpenses.filter(e => e.paid).reduce((s, e) => s + e.value, 0);
+  const allExpenses = [...cardExpenses, ...cashExpenses].sort((a, b) => (a.dueDay ?? 99) - (b.dueDay ?? 99));
   const totalInvoices = cardViews.reduce((s, c) => s + c.invoiceTotal, 0);
   const unpaidInvoices = cardViews.filter(c => !c.paid).reduce((s, c) => s + c.invoiceTotal, 0);
+  const unpaidCash = cashExpenses.filter(e => !e.paid).reduce((s, e) => s + e.value, 0);
+
+  // Current month: original formula (bank - unpaid). Future: server-computed projection.
+  const effectiveBalance = isCurrentMonth
+    ? bankTotal - unpaidCash - unpaidInvoices
+    : availableBalance;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-5xl mx-auto px-4 py-6 space-y-4">
       {/* Header with month navigation */}
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-3">
@@ -90,37 +99,44 @@ export default function DashboardClient({
         </div>
       </div>
 
-      {/* Saldo Mês - hero */}
-      <div className={`rounded-lg p-6 text-center ${monthBalance >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-        <p className="text-sm text-zinc-500">Saldo do Mês</p>
-        <p className={`text-3xl font-bold ${monthBalance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-          {BRL(monthBalance)}
-        </p>
-        <p className="text-xs text-zinc-400 mt-1">
-          Saldo bancos: {BRL(bankTotal)}
-          {paidCashTotal > 0 && <> · Pago à vista: {BRL(paidCashTotal)}</>}
-        </p>
+      {/* Hero: Saldo Disponível + Saldo Mês na mesma linha */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className={`col-span-2 rounded-lg p-5 text-center ${effectiveBalance >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+          <p className="text-sm text-zinc-500">Saldo Disponível</p>
+          <p className={`text-3xl font-bold ${effectiveBalance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+            {BRL(effectiveBalance)}
+          </p>
+          <p className="text-xs text-zinc-400 mt-1">
+            {isCurrentMonth
+              ? <>saldo {BRL(bankTotal)} − à vista {BRL(unpaidCash)} − faturas {BRL(unpaidInvoices)}</>
+              : <>projeção a partir do saldo atual</>
+            }
+          </p>
+        </div>
+        <div className={`rounded-lg p-5 text-center border ${monthBalance >= 0 ? 'bg-zinc-50 border-zinc-200' : 'bg-red-50/50 border-red-100'}`}>
+          <p className="text-sm text-zinc-500">Saldo do Mês</p>
+          <p className={`text-xl font-bold ${monthBalance >= 0 ? 'text-zinc-700' : 'text-red-700'}`}>
+            {BRL(monthBalance)}
+          </p>
+          <p className="text-xs text-zinc-400 mt-1">receita − despesas</p>
+        </div>
       </div>
 
-      {/* Resumo do mês */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <SummaryCard label="Desp. Cartão" value={-totals.cardExpensesTotal} negative />
-        <SummaryCard label="Desp. À Vista" value={-totals.cashExpensesTotal} negative />
-        <SummaryCard label="Parcelas" value={-totals.installmentsTotal} negative />
-        <SummaryCard label="Faturas" value={-totalInvoices} negative />
+      {/* Resumo discreto */}
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-zinc-500 px-1">
+        <span>Desp. cartão <span className="font-mono text-zinc-700">{BRL(totals.cardExpensesTotal)}</span></span>
+        <span>À vista <span className="font-mono text-zinc-700">{BRL(totals.cashExpensesTotal)}</span></span>
+        <span>Parcelas <span className="font-mono text-zinc-700">{BRL(totals.installmentsTotal)}</span></span>
+        <span>Faturas <span className="font-mono text-zinc-700">{BRL(totalInvoices)}</span></span>
       </div>
 
-      {/* Despesas do mês - checklist */}
-      <ExpenseChecklist
-        title="Despesas À Vista"
-        expenses={cashExpenses}
-        yearMonth={yearMonth}
-        proportionalDays={proportionalDays}
-      />
+      {/* Saldos bancários - editáveis */}
+      <BankBalancesSection banks={profile.banks} foodVoucher={profile.foodVoucher} />
 
+      {/* Despesas do mês - todas juntas, ordenadas por vencimento */}
       <ExpenseChecklist
-        title="Despesas Cartão"
-        expenses={cardExpenses}
+        title="Despesas do Mês"
+        expenses={allExpenses}
         yearMonth={yearMonth}
         proportionalDays={proportionalDays}
       />
@@ -209,8 +225,7 @@ export default function DashboardClient({
         </div>
       )}
 
-      {/* Contas e Saldos */}
-      <BankBalancesSection banks={profile.banks} foodVoucher={profile.foodVoucher} />
+
     </div>
   );
 }
@@ -374,24 +389,6 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
   );
 }
 
-function SummaryCard({ label, value, negative, highlight }: {
-  label: string;
-  value: number;
-  negative?: boolean;
-  highlight?: boolean;
-}) {
-  const color = highlight
-    ? value >= 0 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'
-    : negative ? 'text-red-600' : 'text-zinc-900';
-
-  return (
-    <div className={`rounded-lg border p-3 ${highlight ? color : 'bg-white'}`}>
-      <p className="text-xs text-zinc-500">{label}</p>
-      <p className={`text-lg font-mono font-semibold ${color}`}>{BRL(value)}</p>
-    </div>
-  );
-}
-
 function ExpenseChecklist({
   title,
   expenses,
@@ -431,19 +428,22 @@ function ExpenseChecklist({
       </div>
       <div className="space-y-1">
         {expenses.map(e => (
-          <label
+          <div
             key={e.id}
-            className={`flex items-center gap-3 py-2 px-2 rounded-md cursor-pointer transition
+            className={`flex items-center gap-3 py-2 px-2 rounded-md transition
               ${e.paid ? 'bg-green-50' : 'hover:bg-zinc-50'}
               ${isPending ? 'opacity-70 pointer-events-none' : ''}`}
           >
-            <input
-              type="checkbox"
-              checked={e.paid}
-              onChange={() => handleToggle(e)}
-              className="h-4 w-4 rounded border-zinc-300 text-green-600 focus:ring-green-500"
-            />
+            <label className="flex items-center cursor-pointer p-1">
+              <input
+                type="checkbox"
+                checked={e.paid}
+                onChange={() => handleToggle(e)}
+                className="h-4 w-4 rounded border-zinc-300 text-green-600 focus:ring-green-500"
+              />
+            </label>
             <span className={`flex-1 text-sm ${e.paid ? 'line-through text-zinc-400' : 'text-zinc-800'}`}>
+              <span className="text-xs mr-1">{e.category === 'card' ? '💳' : '💵'}</span>
               {e.name}
               {e.proportional && (
                 <span className="text-xs text-zinc-400 ml-1">{propLabel(e)}</span>
@@ -455,7 +455,7 @@ function ExpenseChecklist({
             <span className={`font-mono text-sm ${e.paid ? 'text-green-600' : 'text-zinc-700'}`}>
               {BRL(e.value)}
             </span>
-          </label>
+          </div>
         ))}
       </div>
       <div className="flex justify-between mt-3 pt-3 border-t text-sm">
