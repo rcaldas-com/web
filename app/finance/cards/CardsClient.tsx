@@ -6,7 +6,7 @@ import {
   addNewInstallment,
   removeInstallment,
   editInstallment,
-  updateInvoice,
+  updateMonthInvoice,
 } from '@/lib/finance/actions';
 import type { CardView, CreditCard } from '@/lib/finance/types';
 
@@ -16,9 +16,11 @@ const BRL = (v: number) =>
 export default function CardsClient({
   cardViews,
   cards,
+  nextYearMonth,
 }: {
   cardViews: CardView[];
   cards: CreditCard[];
+  nextYearMonth: string;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const descRef = useRef<HTMLInputElement>(null);
@@ -36,7 +38,10 @@ export default function CardsClient({
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Cartões & Parcelas</h1>
+        <div>
+          <h1 className="text-2xl font-bold">Cartões & Parcelas</h1>
+          <p className="text-xs text-zinc-400">Referência: próximo mês</p>
+        </div>
         <Link href="/finance" className="text-sm text-blue-600 hover:underline">
           ← Dashboard
         </Link>
@@ -60,7 +65,7 @@ export default function CardsClient({
 
       {/* Per card */}
       {cardViews.map((card) => (
-        <CardSection key={card._id} card={card} />
+        <CardSection key={card._id} card={card} yearMonth={nextYearMonth} />
       ))}
 
       {/* Add new installment */}
@@ -124,7 +129,7 @@ export default function CardsClient({
   );
 }
 
-function CardSection({ card }: { card: CardView }) {
+function CardSection({ card, yearMonth }: { card: CardView; yearMonth: string }) {
   const [isPending, startTransition] = useTransition();
   const [editingInvoice, setEditingInvoice] = useState(false);
   const [invoiceVal, setInvoiceVal] = useState(card.invoiceTotal.toString());
@@ -132,7 +137,7 @@ function CardSection({ card }: { card: CardView }) {
   const handleInvoiceSave = () => {
     const val = parseFloat(invoiceVal) || 0;
     startTransition(async () => {
-      await updateInvoice(card._id, val);
+      await updateMonthInvoice(card._id, val, yearMonth);
       setEditingInvoice(false);
     });
   };

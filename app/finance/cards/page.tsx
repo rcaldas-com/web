@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { getProfile, getCards, getInstallments, buildCardViews } from '@/lib/finance/data';
+import { getProfile, getCards, getInstallments, getOrInitMonthCardInvoices, buildCardViews } from '@/lib/finance/data';
 import CardsClient from './CardsClient';
 
 export default async function CardsPage() {
@@ -16,7 +16,14 @@ export default async function CardsPage() {
     getInstallments(userId),
   ]);
 
-  const cardViews = buildCardViews(cards, installments);
+  // Next month's yearMonth
+  const now = new Date();
+  const nextDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const nextYearMonth = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
 
-  return <CardsClient cardViews={cardViews} cards={cards} />;
+  // Load next month's invoices and show from next month's perspective
+  const nextMonthInvoices = await getOrInitMonthCardInvoices(userId, nextYearMonth, cards, installments, 1);
+  const cardViews = buildCardViews(cards, installments, nextMonthInvoices, 1);
+
+  return <CardsClient cardViews={cardViews} cards={cards} nextYearMonth={nextYearMonth} />;
 }

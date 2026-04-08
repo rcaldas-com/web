@@ -158,11 +158,12 @@ export async function addNewInstallment(formData: FormData) {
 
   if (!cardId || !description || !monthlyValue || !remainingInstallments) return;
 
+  // User enters remaining from next month's perspective; store +1 for current month base
   await addInstallment(userId, {
     cardId,
     description,
     monthlyValue,
-    remainingInstallments,
+    remainingInstallments: remainingInstallments + 1,
   });
 
   revalidatePath('/finance');
@@ -179,7 +180,11 @@ export async function editInstallment(
   data: { monthlyValue?: number; remainingInstallments?: number; description?: string }
 ) {
   await getUserId();
-  await updateInstallment(installmentId, data);
+  // User edits from next month's perspective; store +1 for current month base
+  const toSave = data.remainingInstallments != null
+    ? { ...data, remainingInstallments: data.remainingInstallments + 1 }
+    : data;
+  await updateInstallment(installmentId, toSave);
   revalidatePath('/finance');
 }
 
