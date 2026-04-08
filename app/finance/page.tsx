@@ -65,7 +65,8 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   const installmentGroups = groupInstallments(installments, cards, offset);
   const cardViews = buildCardViews(cards, installments, monthCardInvoices, offset);
 
-  const monthCalc = calculateMonthBalance(profile, expenses, installmentGroups, proportionalDays);
+  // Saldo do Mês: always uses full month (not proportional days)
+  const monthCalc = calculateMonthBalance(profile, expenses, installmentGroups, daysInMonth);
   const projections = calculateProjections(monthCalc.monthBalance, installmentGroups);
 
   // Month navigation
@@ -86,6 +87,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       proportional: e.proportional,
       dueDay: e.dueDay,
       paid: paidExpenseIds.has(e._id!),
+      category: 'card' as const,
     }))
     .sort(sortByDueDay);
 
@@ -98,10 +100,73 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       dueDay: e.dueDay,
       proportional: e.proportional,
       paid: paidExpenseIds.has(e._id!),
+      category: 'cash' as const,
     }))
     .sort(sortByDueDay);
 
-  const bankTotal = profile.banks.reduce((sum, b) => sum + b.balance, 0);
+  const bankTotal = profile.banks.reduce((sum, b) => sum + b.balance, 0) + profile.foodVoucher;
+
+  // Compute available balance
+  let availableBalance: number;
+
+  if (monthOffset <= 0) {
+    // Current/past month: bank total minus unpaid items
+    const unpaidCashTotal = cashExpenses.filter(e => !e.paid).reduce((s, e) => s + e.value, 0);
+    const unpaidInvoicesTotal = monthCardInvoices.filter(c => !c.paid).reduce((s, c) => s + c.invoiceTotal, 0);
+    availableBalance = bankTotal - unpaidCashTotal - unpaidInvoicesTotal;
+  } else {
+    // Future month: project from current month
+    // Formula (spreadsheet): prevAvail + salary + VR - futureCash - futureInvoices - prevUnpaidCard
+
+    // 1. Current month available — must match client-side hero (uses cardViews, not monthCardInvoices)
+    const curMonthData = await getMonthData(userId, currentYearMonth);
+    const curPaidIds = new Set((curMonthData?.payments || []).map((p: { expenseId?: string }) => p.expenseId));
+    const curCardInvoices = await getOrInitMonthCardInvoices(userId, currentYearMonth, cards, installments, 0);
+    // buildCardViews includes ALL cards (falls back to card.invoiceTotal for missing entries)
+    const curCardViews = buildCardViews(cards, installments, curCardInvoices, 0);
+
+    const curDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const curPropDays = curDays - now.getDate() + 1;
+    const calcVal = (e: typeof expenses[0], d: number) =>
+      e.proportional === 'daily' ? e.value * d : e.proportional === 'weekly' ? e.value * (d / 7) : e.value;
+
+    // Current month unpaid cash (proportional remaining days)
+    const curUnpaidCash = expenses.filter(e => e.category === 'cash' && !curPaidIds.has(e._id!))
+      .reduce((s, e) => s + calcVal(e, curPropDays), 0);
+    // Use cardViews (all 5 cards) — same as client-side DashboardClient
+    const curUnpaidInvoices = curCardViews.filter(c => !c.paid)
+      .reduce((s, c) => s + c.invoiceTotal, 0);
+    const curAvailable = bankTotal - curUnpaidCash - curUnpaidInvoices;
+
+    // 2. Current month unpaid card expenses (will appear in next month but not yet in its invoice)
+    const curUnpaidCard = expenses.filter(e => e.category === 'card' && !curPaidIds.has(e._id!))
+      .reduce((s, e) => s + calcVal(e, curPropDays), 0);
+
+    // 3. Salary: if advance already received (day >= advanceDay), only payment
+    //    (advance is already in bankTotal); otherwise full salary
+    const { payment, advance, advanceDay } = profile.salary;
+    const salaryForNextMonth = now.getDate() >= advanceDay ? payment : (payment + advance);
+
+    // 4. Future month cash expenses (full month, all items)
+    const futureCashTotal = cashExpenses.reduce((s, e) => s + e.value, 0);
+
+    // 5. Future month invoices (from cardViews which includes all cards)
+    const futureInvoicesTotal = cardViews.reduce((s, c) => s + c.invoiceTotal, 0);
+
+    // M+1: curAvailable + salary + VR - futureCash - futureInvoices - curUnpaidCard
+    availableBalance = curAvailable + salaryForNextMonth + profile.foodVoucher
+      - futureCashTotal - futureInvoicesTotal - curUnpaidCard;
+
+    // Chain for M+2+: each additional month adds salary+VR-cash-cardExpenses
+    if (monthOffset > 1) {
+      const fullSalary = payment + advance;
+      const allCardExp = expenses.filter(e => e.category === 'card')
+        .reduce((s, e) => s + calcVal(e, daysInMonth), 0);
+      for (let i = 2; i <= monthOffset; i++) {
+        availableBalance += fullSalary + profile.foodVoucher - futureCashTotal - allCardExp;
+      }
+    }
+  }
 
   return (
     <DashboardClient
@@ -123,6 +188,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       cardViews={cardViews}
       monthBalance={monthCalc.monthBalance}
       bankTotal={bankTotal}
+      availableBalance={availableBalance}
       projections={projections}
       totals={{
         salary: monthCalc.totalSalary,
