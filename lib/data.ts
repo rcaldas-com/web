@@ -82,6 +82,7 @@ export async function authenticateUser(email: string, password: string): Promise
       email: user.email,
       globalRole: user.globalRole,
       isActive: user.isActive,
+      emailVerified: user.emailVerified,
     };
   } catch (error) {
     console.error('Authentication Error:', error);
@@ -93,26 +94,26 @@ export async function verifyEmail(token: string): Promise<{ success: boolean; me
   try {
     const client = await clientPromise;
     const db = client.db();
-    const usersCollection = db.collection('user');
 
-    const user = await usersCollection.findOne({
-      verificationToken: token,
-      verificationTokenExpires: { $gt: new Date() },
+    const tokenDoc = await db.collection('rcaldas_token').findOne({
+      token,
+      feature: 'verify-email',
+      used: false,
+      expiresAt: { $gt: new Date() },
     });
 
-    if (!user) {
+    if (!tokenDoc) {
       return { success: false, message: 'Token inválido ou expirado' };
     }
 
-    await usersCollection.updateOne(
-      { _id: user._id },
-      {
-        $set: {
-          emailVerified: true,
-          verificationToken: null,
-          verificationTokenExpires: null,
-        },
-      }
+    await db.collection('user').updateOne(
+      { email: tokenDoc.email },
+      { $set: { emailVerified: true } }
+    );
+
+    await db.collection('rcaldas_token').updateOne(
+      { _id: tokenDoc._id },
+      { $set: { used: new Date() } }
     );
 
     return { success: true, message: 'Email verificado com sucesso!' };
@@ -135,20 +136,19 @@ export async function resendVerificationEmail(email: string): Promise<{ success:
     }
 
     const verificationToken = crypto.randomBytes(32).toString('hex');
-    const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     const client = await clientPromise;
     const db = client.db();
 
-    await db.collection('user').updateOne(
-      { _id: new ObjectId(user._id) },
-      {
-        $set: {
-          verificationToken,
-          verificationTokenExpires,
-        },
-      }
-    );
+    await db.collection('rcaldas_token').insertOne({
+      email,
+      token: verificationToken,
+      feature: 'verify-email',
+      app: 'rcaldas',
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      createdAt: new Date(),
+      used: false,
+    });
 
     await sendVerificationEmail(email, verificationToken, user.name);
 

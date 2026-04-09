@@ -34,7 +34,7 @@ export default async function DashboardPage() {
                   <span className="text-amber-600">Não</span>
                 )}
               </p>
-              <p><span className="font-medium">Perfil:</span> {user.role}</p>
+              <p><span className="font-medium">Perfil:</span> {user.globalRole || 'usuário'}</p>
             </div>
           </div>
         </div>

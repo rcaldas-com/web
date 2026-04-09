@@ -1,27 +1,32 @@
 'use server';
 
+import redis from '@/lib/redis';
+
 const APP_URL = process.env.AUTH_TRUST_HOST || 'http://localhost:8001';
+const APP_NAME = process.env.TITLE || 'RCaldas';
+const QUEUE_NAME = 'email:send';
+
+async function enqueueEmail(to: string, subject: string, template: string, variables: Record<string, string>) {
+  const payload = JSON.stringify({ to, subject, template, variables });
+  await redis.lpush(QUEUE_NAME, payload);
+}
 
 export async function sendVerificationEmail(email: string, token: string, name: string) {
-  const verificationUrl = `${APP_URL}/verify-email?token=${token}`;
+  const verifyUrl = `${APP_URL}/verify-email?token=${token}`;
 
-  console.log('\n=== EMAIL DE VERIFICAÇÃO (DEV MODE) ===');
-  console.log('Para:', email);
-  console.log('Nome:', name);
-  console.log('Link:', verificationUrl);
-  console.log('========================================\n');
-
-  return { success: true, devMode: true };
+  await enqueueEmail(email, 'Verificação de Email', 'verify-email', {
+    name,
+    verifyUrl,
+    app: APP_NAME,
+  });
 }
 
 export async function sendPasswordResetEmail(email: string, token: string, name: string) {
   const resetUrl = `${APP_URL}/reset-password?token=${token}`;
 
-  console.log('\n=== EMAIL DE REDEFINIÇÃO DE SENHA (DEV MODE) ===');
-  console.log('Para:', email);
-  console.log('Nome:', name);
-  console.log('Link:', resetUrl);
-  console.log('=================================================\n');
-
-  return { success: true, devMode: true };
+  await enqueueEmail(email, 'Redefinição de Senha', 'reset-password', {
+    name,
+    resetUrl,
+    app: APP_NAME,
+  });
 }

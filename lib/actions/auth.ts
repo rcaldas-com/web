@@ -4,6 +4,9 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { z } from 'zod';
 import clientPromise from '@/lib/mongodb';
+import { sendPasswordResetEmail } from '@/lib/email';
+import { rateLimit } from '@/lib/rate-limit';
+import { headers } from 'next/headers';
 
 type State = {
   message: string;
@@ -16,6 +19,13 @@ const ForgotPasswordSchema = z.object({
 });
 
 export async function requestPasswordReset(prevState: State, formData: FormData) {
+  const headersList = await headers();
+  const ip = headersList.get('x-real-ip') || headersList.get('x-forwarded-for') || 'unknown';
+  const limited = await rateLimit(`forgot-password:${ip}`, 3, 3600);
+  if (!limited.ok) {
+    return { ...prevState, errors: {}, message: `Muitas tentativas. Tente novamente em ${limited.retryAfter}s.` };
+  }
+
   const parsed = ForgotPasswordSchema.safeParse({
     email: formData.get('email'),
   });
@@ -36,7 +46,7 @@ export async function requestPasswordReset(prevState: State, formData: FormData)
     if (!user) {
       return {
         ...prevState,
-        errors: { email: [] },
+        errors: {},
         message: 'Se o e-mail existir, um link de redefinição foi enviado.',
       };
     }
@@ -53,13 +63,7 @@ export async function requestPasswordReset(prevState: State, formData: FormData)
       used: false,
     });
 
-    const APP_URL = process.env.AUTH_TRUST_HOST || 'http://localhost:8001';
-    const resetUrl = `${APP_URL}/reset-password?token=${token}`;
-
-    console.log('🔗 LINK DE REDEFINIÇÃO DE SENHA (DEV):');
-    console.log(`📧 Para: ${parsed.data.email}`);
-    console.log(`🔑 Link: ${resetUrl}`);
-    console.log('---');
+    await sendPasswordResetEmail(parsed.data.email, token, user.name || '');
 
     return {
       ...prevState,
@@ -98,25 +102,12 @@ export async function verifyPasswordReset(token: string): Promise<string | null>
   }
 }
 
-const ResetPasswordSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6, 'A senha deve ter pelo menos 6 caracteres.'),
-  confirm: z.string().min(6, 'Confirme a senha.'),
-});
-
-export async function resetPassword(prevState: State & { success?: boolean }, formData: FormData) {
-  const email = formData.get('email');
+export async function resetPassword(token: string, prevState: State & { success?: boolean }, formData: FormData) {
   const password = formData.get('password');
   const confirm = formData.get('confirm');
 
-  const parsed = ResetPasswordSchema.safeParse({ email, password, confirm });
-  if (!parsed.success) {
-    return {
-      ...prevState,
-      errors: parsed.error.flatten().fieldErrors,
-      message: 'Dados inválidos.',
-      success: false,
-    };
+  if (!password || !confirm) {
+    return { ...prevState, errors: {}, message: 'Dados inválidos.', success: false };
   }
 
   if (password !== confirm) {
@@ -133,7 +124,7 @@ export async function resetPassword(prevState: State & { success?: boolean }, fo
     const db = client.db();
 
     const tokenDoc = await db.collection('rcaldas_token').findOne({
-      email,
+      token,
       feature: 'reset-password',
       used: false,
       expiresAt: { $gt: new Date() },
@@ -152,7 +143,7 @@ export async function resetPassword(prevState: State & { success?: boolean }, fo
     const passwordHash = await bcrypt.hash(password as string, salt);
 
     await db.collection('user').updateOne(
-      { email },
+      { email: tokenDoc.email },
       { $set: { password: passwordHash } }
     );
 

@@ -437,15 +437,15 @@ export function calculateProjections(
 
 // ==================== Expense Types (legacy) ====================
 
-export async function fetchExpenseTypes() {
+export async function fetchExpenseTypes(): Promise<{ _id: string; name: string }[]> {
   try {
     const client = await clientPromise;
     const db = client.db();
     const expenseTypes = await db.collection('ExpenseTypes')
       .find({}).project({ name: 1 }).toArray();
     return expenseTypes.map(expenseType => ({
-      ...expenseType,
       _id: expenseType._id.toString(),
+      name: expenseType.name as string,
     }));
   } catch (error) {
     console.error('Failed to fetch expense types:', error);

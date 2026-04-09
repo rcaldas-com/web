@@ -3,8 +3,17 @@
 import { redirect } from 'next/navigation';
 import { authenticateUser, getUserByEmail } from '@/lib/data';
 import { setUserSessionCookie, clearUserSessionCookie } from '@/lib/auth';
+import { rateLimit } from '@/lib/rate-limit';
+import { headers } from 'next/headers';
 
 export async function loginAction(prevState: { message: string; errors: Record<string, string[]> }, formData: FormData) {
+  const headersList = await headers();
+  const ip = headersList.get('x-real-ip') || headersList.get('x-forwarded-for') || 'unknown';
+  const limited = await rateLimit(`login:${ip}`, 5, 900);
+  if (!limited.ok) {
+    return { message: `Muitas tentativas. Tente novamente em ${Math.ceil(limited.retryAfter / 60)} min.`, errors: {} };
+  }
+
   try {
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;

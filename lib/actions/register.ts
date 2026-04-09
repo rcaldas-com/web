@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { redirect } from 'next/navigation';
 import clientPromise from '@/lib/mongodb';
 import { sendVerificationEmail } from '@/lib/email';
+import { rateLimit } from '@/lib/rate-limit';
+import { headers } from 'next/headers';
 
 const RegisterSchema = z.object({
   name: z.string().min(1, { message: 'Nome é obrigatório' }),
@@ -31,6 +33,13 @@ export async function registerUser(
   prevState: RegisterState,
   formData: FormData,
 ) {
+  const headersList = await headers();
+  const ip = headersList.get('x-real-ip') || headersList.get('x-forwarded-for') || 'unknown';
+  const limited = await rateLimit(`register:${ip}`, 3, 3600);
+  if (!limited.ok) {
+    return { message: `Muitas tentativas. Tente novamente em ${Math.ceil(limited.retryAfter / 60)} min.`, errors: {} };
+  }
+
   const validatedFields = RegisterSchema.safeParse({
     name: formData.get('name'),
     email: formData.get('email'),
@@ -62,9 +71,6 @@ export async function registerUser(
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
     await db.collection('user').insertOne({
       name: name.trim(),
       email: email.toLowerCase().trim(),
@@ -74,8 +80,17 @@ export async function registerUser(
       updatedAt: new Date(),
       isActive: true,
       emailVerified: false,
-      verificationToken,
-      verificationTokenExpires,
+    });
+
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    await db.collection('rcaldas_token').insertOne({
+      email: email.toLowerCase().trim(),
+      token: verificationToken,
+      feature: 'verify-email',
+      app: 'rcaldas',
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      createdAt: new Date(),
+      used: false,
     });
 
     try {

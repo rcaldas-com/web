@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { FaPlus, FaTrash } from 'react-icons/fa';
-import { FinanceData, Installment } from '../incomes/page';
+import { FinanceData } from '../incomes/page';
 
 
 interface ExpenseType {
