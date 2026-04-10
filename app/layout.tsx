@@ -6,6 +6,7 @@ import Footer from "@/components/footer"
 import Container from "@/components/container"
 import { getCurrentUser } from "@/lib/auth"
 
+export const dynamic = 'force-dynamic';
 
 const inter = Inter({ subsets: ["latin"] });
 

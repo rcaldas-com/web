@@ -1,5 +1,18 @@
 import Redis from 'ioredis';
 
-const redis = new Redis(process.env.REDIS_URL || 'redis://redis');
+let redis: Redis;
 
-export default redis;
+export function getRedis(): Redis {
+  if (!redis) {
+    redis = new Redis(process.env.REDIS_URL || 'redis://redis');
+  }
+  return redis;
+}
+
+export default new Proxy({} as Redis, {
+  get(_target, prop) {
+    const instance = getRedis();
+    const value = Reflect.get(instance, prop);
+    return typeof value === 'function' ? value.bind(instance) : value;
+  },
+});
