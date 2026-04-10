@@ -8,6 +8,7 @@ import type {
   MonthData,
   MonthPayment,
   MonthCardInvoice,
+  MonthExpenseOverride,
   InstallmentGroup,
   CardView,
 } from './types';
@@ -45,18 +46,20 @@ export async function getCards(userId: string): Promise<CreditCard[]> {
   return docs.map(d => ({ ...d, _id: d._id.toString() })) as CreditCard[];
 }
 
-export async function upsertCard(userId: string, card: Omit<CreditCard, '_id' | 'userId'> & { _id?: string }) {
+export async function upsertCard(userId: string, card: { _id?: string; name: string; dueDay: number; invoiceTotal?: number }) {
   const client = await clientPromise;
   const db = client.db();
   if (card._id) {
+    const $set: Record<string, unknown> = { name: card.name, dueDay: card.dueDay };
+    if (card.invoiceTotal != null) $set.invoiceTotal = card.invoiceTotal;
     await db.collection('financeCard').updateOne(
       { _id: new ObjectId(card._id) },
-      { $set: { name: card.name, dueDay: card.dueDay, invoiceTotal: card.invoiceTotal } }
+      { $set }
     );
     return card._id;
   } else {
     const result = await db.collection('financeCard').insertOne({
-      userId, name: card.name, dueDay: card.dueDay, invoiceTotal: card.invoiceTotal,
+      userId, name: card.name, dueDay: card.dueDay, invoiceTotal: card.invoiceTotal ?? 0,
     });
     return result.insertedId.toString();
   }
@@ -107,7 +110,7 @@ export async function getInstallments(userId: string): Promise<Installment[]> {
     .find({ userId, remainingInstallments: { $gt: 0 } })
     .sort({ remainingInstallments: -1 })
     .toArray();
-  return docs.map(d => ({ ...d, _id: d._id.toString() })) as Installment[];
+  return docs.map(d => ({ ...d, _id: d._id.toString(), cardId: d.cardId.toString() })) as Installment[];
 }
 
 export async function addInstallment(userId: string, data: Omit<Installment, '_id' | 'userId' | 'createdAt'>) {
@@ -199,6 +202,67 @@ export async function toggleExpensePayment(
     { $set: { payments, userId, yearMonth } },
     { upsert: true }
   );
+}
+
+// ==================== Month Expense Overrides ====================
+
+export async function updateMonthExpenseValue(
+  userId: string,
+  yearMonth: string,
+  expenseId: string,
+  value: number,
+) {
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db.collection('financeMonth').findOne({ userId, yearMonth });
+  const overrides: MonthExpenseOverride[] = doc?.expenseOverrides || [];
+
+  const idx = overrides.findIndex(o => o.expenseId === expenseId);
+  if (idx >= 0) {
+    overrides[idx].value = value;
+  } else {
+    overrides.push({ expenseId, value });
+  }
+
+  await db.collection('financeMonth').updateOne(
+    { userId, yearMonth },
+    { $set: { expenseOverrides: overrides, userId, yearMonth } },
+    { upsert: true }
+  );
+}
+
+/**
+ * Get the effective value for an expense in a given month.
+ * Checks current month for override, then most recent prior month with override, then default.
+ */
+export async function getExpenseOverrides(
+  userId: string,
+  yearMonth: string,
+): Promise<Map<string, number>> {
+  const client = await clientPromise;
+  const db = client.db();
+
+  // Find the current month and all prior months that have overrides for any expense
+  const docs = await db.collection('financeMonth')
+    .find({
+      userId,
+      yearMonth: { $lte: yearMonth },
+      'expenseOverrides.0': { $exists: true },
+    })
+    .sort({ yearMonth: -1 })
+    .toArray();
+
+  // Build map: for each expense, use the most recent override <= yearMonth
+  const overrideMap = new Map<string, number>();
+  for (const doc of docs) {
+    for (const override of (doc.expenseOverrides || []) as MonthExpenseOverride[]) {
+      if (!overrideMap.has(override.expenseId)) {
+        overrideMap.set(override.expenseId, override.value);
+      }
+    }
+  }
+
+  return overrideMap;
 }
 
 // ==================== Month Card Invoices ====================
@@ -346,15 +410,17 @@ export function calculateMonthBalance(
   expenses: RecurringExpense[],
   installmentGroups: InstallmentGroup[],
   daysInMonth: number,
+  expenseOverrides?: Map<string, number>,
 ) {
   const totalSalary = profile.salary.payment + profile.salary.advance;
   const vr = profile.foodVoucher;
 
   // Calcular despesas recorrentes
   const calcExpenseValue = (e: RecurringExpense) => {
-    if (e.proportional === 'daily') return e.value * daysInMonth;
-    if (e.proportional === 'weekly') return e.value * (daysInMonth / 7);
-    return e.value;
+    const baseValue = expenseOverrides?.get(e._id!) ?? e.value;
+    if (e.proportional === 'daily') return baseValue * daysInMonth;
+    if (e.proportional === 'weekly') return baseValue * (daysInMonth / 7);
+    return baseValue;
   };
 
   const cardExpensesTotal = expenses

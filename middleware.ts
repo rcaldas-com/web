@@ -12,6 +12,7 @@ export function middleware(request: NextRequest) {
   if (protectedRoutes.some((route) => pathname.startsWith(route))) {
     if (!userId) {
       const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('callbackUrl', pathname);
       return NextResponse.redirect(loginUrl);
     }
   }

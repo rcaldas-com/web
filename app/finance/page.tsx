@@ -7,6 +7,7 @@ import {
   getInstallments,
   getMonthData,
   getOrInitMonthCardInvoices,
+  getExpenseOverrides,
   groupInstallments,
   buildCardViews,
   calculateMonthBalance,
@@ -50,15 +51,22 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   const monthData = await getMonthData(userId, yearMonth);
   const paidExpenseIds = new Set((monthData?.payments || []).map(p => p.expenseId));
 
+  // Month-specific expense value overrides (uses most recent override <= this month)
+  const expenseOverrides = await getExpenseOverrides(userId, yearMonth);
+
   // Month-specific card invoices
   const monthCardInvoices = await getOrInitMonthCardInvoices(
     userId, yearMonth, cards, installments, Math.max(0, monthOffset)
   );
 
+  // Get effective expense value (override or default)
+  const getExpenseValue = (e: typeof expenses[0]) => expenseOverrides.get(e._id!) ?? e.value;
+
   const calcValue = (e: typeof expenses[0]) => {
-    if (e.proportional === 'daily') return e.value * proportionalDays;
-    if (e.proportional === 'weekly') return e.value * (proportionalDays / 7);
-    return e.value;
+    const baseValue = getExpenseValue(e);
+    if (e.proportional === 'daily') return baseValue * proportionalDays;
+    if (e.proportional === 'weekly') return baseValue * (proportionalDays / 7);
+    return baseValue;
   };
 
   const offset = Math.max(0, monthOffset);
@@ -66,7 +74,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   const cardViews = buildCardViews(cards, installments, monthCardInvoices, offset);
 
   // Saldo do Mês: always uses full month (not proportional days)
-  const monthCalc = calculateMonthBalance(profile, expenses, installmentGroups, daysInMonth);
+  const monthCalc = calculateMonthBalance(profile, expenses, installmentGroups, daysInMonth, expenseOverrides);
   const projections = calculateProjections(monthCalc.monthBalance, installmentGroups);
 
   // Month navigation
@@ -84,6 +92,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       id: e._id!,
       name: e.name,
       value: calcValue(e),
+      baseValue: getExpenseValue(e),
       proportional: e.proportional,
       dueDay: e.dueDay,
       paid: paidExpenseIds.has(e._id!),
@@ -97,6 +106,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       id: e._id!,
       name: e.name,
       value: calcValue(e),
+      baseValue: getExpenseValue(e),
       dueDay: e.dueDay,
       proportional: e.proportional,
       paid: paidExpenseIds.has(e._id!),

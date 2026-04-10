@@ -53,7 +53,9 @@ export async function loginAction(prevState: { message: string; errors: Record<s
     };
   }
 
-  redirect('/dashboard');
+  const callbackUrl = formData.get('callbackUrl') as string;
+  const safeUrl = callbackUrl?.startsWith('/') && !callbackUrl.startsWith('//') ? callbackUrl : '/dashboard';
+  redirect(safeUrl);
 }
 
 export async function logoutAction() {

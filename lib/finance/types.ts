@@ -55,8 +55,14 @@ export interface MonthData {
   daysInMonth: number;
   payments: MonthPayment[];  // despesas pagas/zeradas no mês
   cardInvoices: MonthCardInvoice[]; // faturas dos cartões neste mês
+  expenseOverrides: MonthExpenseOverride[]; // valores alterados de despesas neste mês
   extraExpenses: ExtraExpense[]; // gastos pontuais do mês
   notes?: string;
+}
+
+export interface MonthExpenseOverride {
+  expenseId: string;
+  value: number;             // valor alterado para este mês (e futuros sem override próprio)
 }
 
 export interface MonthCardInvoice {

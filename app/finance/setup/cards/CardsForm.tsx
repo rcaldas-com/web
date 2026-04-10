@@ -8,17 +8,16 @@ interface CardRow {
   _id?: string;
   name: string;
   dueDay: number;
-  invoiceTotal: number;
 }
 
 export default function CardsForm({ cards }: { cards: CreditCard[] }) {
   const [rows, setRows] = useState<CardRow[]>(
     cards.length
-      ? cards.map(c => ({ _id: c._id, name: c.name, dueDay: c.dueDay, invoiceTotal: c.invoiceTotal }))
-      : [{ name: '', dueDay: 1, invoiceTotal: 0 }]
+      ? cards.map(c => ({ _id: c._id, name: c.name, dueDay: c.dueDay }))
+      : [{ name: '', dueDay: 1 }]
   );
 
-  const addRow = () => setRows([...rows, { name: '', dueDay: 1, invoiceTotal: 0 }]);
+  const addRow = () => setRows([...rows, { name: '', dueDay: 1 }]);
   const removeRow = (i: number) => setRows(rows.filter((_, idx) => idx !== i));
 
   return (
@@ -48,14 +47,6 @@ export default function CardsForm({ cards }: { cards: CreditCard[] }) {
               <input
                 type="number" name="cardDueDay" min="1" max="31"
                 defaultValue={row.dueDay}
-                className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-            <div className="w-36">
-              <label className="block text-sm font-medium text-zinc-700">Fatura (R$)</label>
-              <input
-                type="text" inputMode="decimal" name="cardInvoice"
-                defaultValue={row.invoiceTotal}
                 className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               />
             </div>

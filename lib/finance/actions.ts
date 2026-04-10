@@ -16,6 +16,7 @@ import {
   toggleExpensePayment,
   updateMonthCardInvoice,
   toggleMonthCardInvoicePaid,
+  updateMonthExpenseValue,
 } from './data';
 import type { RecurringExpense } from './types';
 import { evalExpression } from './eval-expression';
@@ -72,7 +73,6 @@ export async function saveCards(formData: FormData) {
   const cardIds = formData.getAll('cardId') as string[];
   const cardNames = formData.getAll('cardName') as string[];
   const cardDueDays = formData.getAll('cardDueDay') as string[];
-  const cardInvoices = formData.getAll('cardInvoice') as string[];
 
   for (let i = 0; i < cardNames.length; i++) {
     const name = cardNames[i]?.trim();
@@ -81,7 +81,6 @@ export async function saveCards(formData: FormData) {
       _id: cardIds[i] || undefined,
       name,
       dueDay: parseInt(cardDueDays[i]) || 1,
-      invoiceTotal: evalExpression(cardInvoices[i]),
     });
   }
 
@@ -242,5 +241,13 @@ export async function updateMonthInvoice(cardId: string, invoiceTotal: number, y
 export async function toggleInvoicePaid(cardId: string, cardName: string, invoiceTotal: number, yearMonth: string) {
   const userId = await getUserId();
   await toggleMonthCardInvoicePaid(userId, yearMonth, cardId, cardName, invoiceTotal);
+  revalidatePath('/finance');
+}
+
+// ==================== Month Expense Overrides ====================
+
+export async function updateExpenseValue(expenseId: string, value: number, yearMonth: string) {
+  const userId = await getUserId();
+  await updateMonthExpenseValue(userId, yearMonth, expenseId, value);
   revalidatePath('/finance');
 }

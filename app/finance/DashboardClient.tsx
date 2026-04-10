@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { togglePaid, updateMonthInvoice, toggleInvoicePaid, updateBankBalance } from '@/lib/finance/actions';
+import { togglePaid, updateMonthInvoice, toggleInvoicePaid, updateBankBalance, updateExpenseValue } from '@/lib/finance/actions';
 import { evalExpression } from '@/lib/finance/eval-expression';
 import type { InstallmentGroup, CardView, BankAccount } from '@/lib/finance/types';
 
@@ -12,6 +12,7 @@ interface ExpenseItem {
   id: string;
   name: string;
   value: number;
+  baseValue: number;
   dueDay?: number;
   proportional: false | 'daily' | 'weekly';
   paid: boolean;
@@ -402,6 +403,8 @@ function ExpenseChecklist({
   proportionalDays: number;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editVal, setEditVal] = useState('');
   const paidCount = expenses.filter(e => e.paid).length;
   const total = expenses.reduce((s, e) => s + e.value, 0);
   const paidTotal = expenses.filter(e => e.paid).reduce((s, e) => s + e.value, 0);
@@ -410,6 +413,14 @@ function ExpenseChecklist({
   const handleToggle = (e: ExpenseItem) => {
     startTransition(() => {
       togglePaid(e.id, e.name, e.value, yearMonth);
+    });
+  };
+
+  const handleSaveValue = (e: ExpenseItem) => {
+    const newVal = evalExpression(editVal);
+    startTransition(async () => {
+      await updateExpenseValue(e.id, newVal, yearMonth);
+      setEditingId(null);
     });
   };
 
@@ -453,9 +464,29 @@ function ExpenseChecklist({
                 <span className="text-xs text-zinc-400 ml-1">dia {e.dueDay}</span>
               )}
             </span>
-            <span className={`font-mono text-sm ${e.paid ? 'text-green-600' : 'text-zinc-700'}`}>
-              {BRL(e.value)}
-            </span>
+            {editingId === e.id ? (
+              <span className="inline-flex items-center gap-1" onClick={ev => ev.stopPropagation()}>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={editVal}
+                  onChange={ev => setEditVal(ev.target.value)}
+                  onKeyDown={ev => { if (ev.key === 'Enter') handleSaveValue(e); if (ev.key === 'Escape') setEditingId(null); }}
+                  autoFocus
+                  className="w-24 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500"
+                />
+                <button onClick={() => handleSaveValue(e)} className="text-green-600 text-xs font-bold">✓</button>
+                <button onClick={() => setEditingId(null)} className="text-zinc-400 text-xs">✕</button>
+              </span>
+            ) : (
+              <span
+                className={`font-mono text-sm cursor-pointer hover:text-blue-600 transition-colors ${e.paid ? 'text-green-600' : 'text-zinc-700'}`}
+                onClick={() => { setEditVal(e.baseValue.toString()); setEditingId(e.id); }}
+                title="Clique para alterar valor deste mês"
+              >
+                {BRL(e.value)}
+              </span>
+            )}
           </div>
         ))}
       </div>

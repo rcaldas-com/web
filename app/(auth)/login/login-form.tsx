@@ -23,12 +23,13 @@ function LoginButton() {
   );
 }
 
-export default function LoginForm() {
+export default function LoginForm({ callbackUrl }: { callbackUrl?: string }) {
   const initialState = { message: '', errors: {} as Record<string, string[]> };
   const [state, dispatch] = useActionState(loginAction, initialState);
 
   return (
     <form action={dispatch} className="space-y-3">
+      {callbackUrl && <input type="hidden" name="callbackUrl" value={callbackUrl} />}
       <div className="flex-1 rounded-lg bg-white px-6 pb-4 pt-8 shadow-sm">
         <h1 className="mb-3 text-2xl font-semibold">
           Entre para continuar
