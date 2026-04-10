@@ -54,7 +54,7 @@ export default function CardsForm({ cards }: { cards: CreditCard[] }) {
             <div className="w-36">
               <label className="block text-sm font-medium text-zinc-700">Fatura (R$)</label>
               <input
-                type="number" step="0.01" name="cardInvoice"
+                type="text" inputMode="decimal" name="cardInvoice"
                 defaultValue={row.invoiceTotal}
                 className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               />

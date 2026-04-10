@@ -65,7 +65,7 @@ export default function ExpensesForm({ expenses }: { expenses: RecurringExpense[
               </div>
               <div className="w-32">
                 <input
-                  type="number" step="0.01" name="expValue"
+                  type="text" inputMode="decimal" name="expValue"
                   value={row.value || ''}
                   onChange={e => updateRow(i, 'value', e.target.value)}
                   className="block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"

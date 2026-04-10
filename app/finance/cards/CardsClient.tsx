@@ -8,6 +8,7 @@ import {
   editInstallment,
   updateMonthInvoice,
 } from '@/lib/finance/actions';
+import { evalExpression } from '@/lib/finance/eval-expression';
 import type { CardView, CreditCard } from '@/lib/finance/types';
 
 const BRL = (v: number) =>
@@ -101,8 +102,8 @@ export default function CardsClient({
               <div>
                 <label className="block text-sm font-medium text-zinc-700">Valor/mês</label>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   name="monthlyValue"
                   className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 />
@@ -135,7 +136,7 @@ function CardSection({ card, yearMonth }: { card: CardView; yearMonth: string })
   const [invoiceVal, setInvoiceVal] = useState(card.invoiceTotal.toString());
 
   const handleInvoiceSave = () => {
-    const val = parseFloat(invoiceVal) || 0;
+    const val = evalExpression(invoiceVal);
     startTransition(async () => {
       await updateMonthInvoice(card._id, val, yearMonth);
       setEditingInvoice(false);
@@ -156,8 +157,8 @@ function CardSection({ card, yearMonth }: { card: CardView; yearMonth: string })
           {editingInvoice ? (
             <div className="flex items-center gap-1">
               <input
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={invoiceVal}
                 onChange={(e) => setInvoiceVal(e.target.value)}
                 onKeyDown={(e) => {
@@ -243,7 +244,7 @@ function InstallmentRow({
 
   const handleSave = () => {
     const updates: { monthlyValue?: number; remainingInstallments?: number; description?: string } = {};
-    const newVal = parseFloat(value);
+    const newVal = evalExpression(value);
     const newRem = parseInt(remaining);
     if (desc.trim() !== item.description) updates.description = desc.trim();
     if (!isNaN(newVal) && newVal !== item.monthlyValue) updates.monthlyValue = newVal;
@@ -294,8 +295,8 @@ function InstallmentRow({
         </td>
         <td className="py-1 text-right">
           <input
-            type="number"
-            step="0.01"
+            type="text"
+            inputMode="decimal"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {

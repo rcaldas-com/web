@@ -20,7 +20,7 @@ export default function ProfileForm({ profile }: { profile: FinanceProfile | nul
           <div>
             <label className="block text-sm font-medium text-zinc-700">Pagamento (R$)</label>
             <input
-              type="number" step="0.01" name="payment"
+              type="text" inputMode="decimal" name="payment"
               defaultValue={profile?.salary?.payment || ''}
               className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               placeholder="8841.12"
@@ -37,7 +37,7 @@ export default function ProfileForm({ profile }: { profile: FinanceProfile | nul
           <div>
             <label className="block text-sm font-medium text-zinc-700">Adiantamento (R$)</label>
             <input
-              type="number" step="0.01" name="advance"
+              type="text" inputMode="decimal" name="advance"
               defaultValue={profile?.salary?.advance || ''}
               className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               placeholder="8378.08"
@@ -59,7 +59,7 @@ export default function ProfileForm({ profile }: { profile: FinanceProfile | nul
         <div>
           <label className="block text-sm font-medium text-zinc-700">Valor Mensal (R$)</label>
           <input
-            type="number" step="0.01" name="foodVoucher"
+            type="text" inputMode="decimal" name="foodVoucher"
             defaultValue={profile?.foodVoucher || ''}
             className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
             placeholder="2300.00"
@@ -89,7 +89,7 @@ export default function ProfileForm({ profile }: { profile: FinanceProfile | nul
             <div className="flex-1">
               <label className="block text-sm font-medium text-zinc-700">Saldo (R$)</label>
               <input
-                type="number" step="0.01" name="bankBalance"
+                type="text" inputMode="decimal" name="bankBalance"
                 defaultValue={bank.balance}
                 className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               />

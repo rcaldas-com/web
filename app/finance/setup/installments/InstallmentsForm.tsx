@@ -99,7 +99,7 @@ export default function InstallmentsForm({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-zinc-700">Valor/mês (R$)</label>
-                <input type="number" step="0.01" name="monthlyValue"
+                <input type="text" inputMode="decimal" name="monthlyValue"
                   className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" />
               </div>
               <div>

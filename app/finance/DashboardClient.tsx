@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { togglePaid, updateMonthInvoice, toggleInvoicePaid, updateBankBalance } from '@/lib/finance/actions';
+import { evalExpression } from '@/lib/finance/eval-expression';
 import type { InstallmentGroup, CardView, BankAccount } from '@/lib/finance/types';
 
 const BRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -275,7 +276,7 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
             {editingIdx === i ? (
               <span className="inline-flex items-center gap-1">
                 <input
-                  type="number" step="0.01" value={editVal}
+                  type="text" inputMode="decimal" value={editVal}
                   onChange={e => setEditVal(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') saveBank(i); if (e.key === 'Escape') setEditingIdx(null); }}
                   autoFocus
@@ -299,7 +300,7 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
           {editingVR ? (
             <span className="inline-flex items-center gap-1">
               <input
-                type="number" step="0.01" value={vrVal}
+                type="text" inputMode="decimal" value={vrVal}
                 onChange={e => setVrVal(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') saveVR(); if (e.key === 'Escape') setEditingVR(false); }}
                 autoFocus
@@ -334,7 +335,7 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
   };
 
   const handleSave = () => {
-    const num = parseFloat(val) || 0;
+    const num = evalExpression(val);
     startTransition(async () => {
       await updateMonthInvoice(card._id, num, yearMonth);
       setEditing(false);
@@ -365,8 +366,8 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
       {editing ? (
         <span className="inline-flex items-center gap-1" onClick={e => e.preventDefault()}>
           <input
-            type="number"
-            step="0.01"
+            type="text"
+            inputMode="decimal"
             value={val}
             onChange={e => setVal(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false); }}

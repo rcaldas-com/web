@@ -108,7 +108,8 @@ export default function IncomesPage() {
                             Receita Mensal
                         </label>
                         <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             id="monthlyIncome"
                             value={financeData.monthlyIncome}
                             onChange={(e) => handleIncomeChange('monthlyIncome', e.target.value)}
@@ -146,7 +147,8 @@ export default function IncomesPage() {
                                 Valor
                             </label>
                             <input
-                                type="number"
+                                type="text"
+                                inputMode="decimal"
                                 value={income.value}
                                 onChange={(e) => handleAdditionalIncomeChange(income.id, 'value', e.target.value)}
                                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"

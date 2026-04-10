@@ -18,6 +18,7 @@ import {
   toggleMonthCardInvoicePaid,
 } from './data';
 import type { RecurringExpense } from './types';
+import { evalExpression } from './eval-expression';
 
 async function getUserId(): Promise<string> {
   const cookieStore = await cookies();
@@ -31,17 +32,17 @@ async function getUserId(): Promise<string> {
 export async function saveProfile(formData: FormData) {
   const userId = await getUserId();
 
-  const payment = parseFloat(formData.get('payment') as string) || 0;
-  const advance = parseFloat(formData.get('advance') as string) || 0;
+  const payment = evalExpression(formData.get('payment') as string);
+  const advance = evalExpression(formData.get('advance') as string);
   const paymentDay = parseInt(formData.get('paymentDay') as string) || 7;
   const advanceDay = parseInt(formData.get('advanceDay') as string) || 15;
-  const foodVoucher = parseFloat(formData.get('foodVoucher') as string) || 0;
+  const foodVoucher = evalExpression(formData.get('foodVoucher') as string);
 
   // Parse banks array from form
   const bankNames = formData.getAll('bankName') as string[];
   const bankBalances = formData.getAll('bankBalance') as string[];
   const banks = bankNames
-    .map((name, i) => ({ name: name.trim(), balance: parseFloat(bankBalances[i]) || 0 }))
+    .map((name, i) => ({ name: name.trim(), balance: evalExpression(bankBalances[i]) }))
     .filter(b => b.name);
 
   await upsertProfile(userId, {
@@ -80,7 +81,7 @@ export async function saveCards(formData: FormData) {
       _id: cardIds[i] || undefined,
       name,
       dueDay: parseInt(cardDueDays[i]) || 1,
-      invoiceTotal: parseFloat(cardInvoices[i]) || 0,
+      invoiceTotal: evalExpression(cardInvoices[i]),
     });
   }
 
@@ -123,7 +124,7 @@ export async function saveExpensesList(formData: FormData) {
   const expenses: Omit<RecurringExpense, '_id' | 'userId'>[] = names
     .map((name, i) => ({
       name: name.trim(),
-      value: parseFloat(values[i]) || 0,
+      value: evalExpression(values[i]),
       category: (categories[i] === 'card' ? 'card' : 'cash') as 'card' | 'cash',
       proportional: (['daily', 'weekly'].includes(proportionals[i]) ? proportionals[i] : false) as false | 'daily' | 'weekly',
       dueDay: parseInt(dueDays[i]) || undefined,
@@ -152,7 +153,7 @@ export async function addNewInstallment(formData: FormData) {
 
   const cardId = formData.get('cardId') as string;
   const description = (formData.get('description') as string)?.trim();
-  const monthlyValue = parseFloat(formData.get('monthlyValue') as string) || 0;
+  const monthlyValue = evalExpression(formData.get('monthlyValue') as string);
   const remainingInstallments = parseInt(formData.get('remainingInstallments') as string) || 0;
 
   if (!cardId || !description || !monthlyValue || !remainingInstallments) return;
@@ -210,7 +211,7 @@ export async function updateBankBalance(formData: FormData) {
   const bankNames = formData.getAll('bankName') as string[];
   const bankBalances = formData.getAll('bankBalance') as string[];
   const banks = bankNames
-    .map((name, i) => ({ name: name.trim(), balance: parseFloat(bankBalances[i]) || 0 }))
+    .map((name, i) => ({ name: name.trim(), balance: evalExpression(bankBalances[i]) }))
     .filter(b => b.name);
 
   // Get existing profile to preserve other fields
@@ -219,7 +220,7 @@ export async function updateBankBalance(formData: FormData) {
   if (!profile) return;
 
   const foodVoucherStr = formData.get('foodVoucher') as string | null;
-  const foodVoucher = foodVoucherStr != null ? parseFloat(foodVoucherStr) || 0 : profile.foodVoucher;
+  const foodVoucher = foodVoucherStr != null ? evalExpression(foodVoucherStr) : profile.foodVoucher;
 
   await upsertProfile(userId, {
     salary: profile.salary,
