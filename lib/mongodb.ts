@@ -14,9 +14,9 @@ let clientPromise: Promise<MongoClient>;
 function getClientPromise(): Promise<MongoClient> {
   if (clientPromise) return clientPromise;
 
-  const uri = process.env.MONGODB_URI;
+  const uri = process.env.MONGO_URI;
   if (!uri) {
-    throw new Error('Invalid/Missing environment variable: "MONGODB_URI"');
+    throw new Error('Invalid/Missing environment variable: "MONGO_URI"');
   }
 
   if (process.env.NODE_ENV === 'development') {
