@@ -114,14 +114,16 @@ export async function updateInvoice(cardId: string, amount: number) {
 export async function saveExpensesList(formData: FormData) {
   const userId = await getUserId();
 
+  const ids = formData.getAll('expId') as string[];
   const names = formData.getAll('expName') as string[];
   const values = formData.getAll('expValue') as string[];
   const categories = formData.getAll('expCategory') as string[];
   const proportionals = formData.getAll('expProportional') as string[];
   const dueDays = formData.getAll('expDueDay') as string[];
 
-  const expenses: Omit<RecurringExpense, '_id' | 'userId'>[] = names
+  const expenses: (Omit<RecurringExpense, '_id' | 'userId'> & { _id?: string })[] = names
     .map((name, i) => ({
+      ...(ids[i] ? { _id: ids[i] } : {}),
       name: name.trim(),
       value: evalExpression(values[i]),
       category: (categories[i] === 'card' ? 'card' : 'cash') as 'card' | 'cash',

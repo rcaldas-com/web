@@ -5,6 +5,7 @@ import { saveExpensesAndContinue, saveExpensesAndFinish } from '@/lib/finance/ac
 import type { RecurringExpense } from '@/lib/finance/types';
 
 interface ExpenseRow {
+  id: string;
   name: string;
   value: number;
   category: 'card' | 'cash';
@@ -16,14 +17,14 @@ export default function ExpensesForm({ expenses }: { expenses: RecurringExpense[
   const [rows, setRows] = useState<ExpenseRow[]>(
     expenses.length
       ? expenses.map(e => ({
-          name: e.name, value: e.value, category: e.category,
+          id: e._id || '', name: e.name, value: e.value, category: e.category,
           proportional: e.proportional || false, dueDay: e.dueDay,
         }))
-      : [{ name: '', value: 0, category: 'cash', proportional: false }]
+      : [{ id: '', name: '', value: 0, category: 'cash', proportional: false }]
   );
 
   const addRow = () => {
-    setRows([...rows, { name: '', value: 0, category: 'cash' as const, proportional: false as const }]);
+    setRows([...rows, { id: '', name: '', value: 0, category: 'cash' as const, proportional: false as const }]);
     focusNewRow.current = true;
   };
   const removeRow = (i: number) => setRows(rows.filter((_, idx) => idx !== i));
@@ -52,6 +53,7 @@ export default function ExpensesForm({ expenses }: { expenses: RecurringExpense[
         </p>
         {rows.map((row, i) => (
           <div key={i} className="border rounded-md p-3 space-y-2">
+            <input type="hidden" name="expId" value={row.id} />
             <div className="flex gap-3">
               <div className="flex-1">
                 <input

@@ -90,15 +90,26 @@ export async function getExpenses(userId: string): Promise<RecurringExpense[]> {
   return docs.map(d => ({ ...d, _id: d._id.toString() })) as RecurringExpense[];
 }
 
-export async function saveExpenses(userId: string, expenses: Omit<RecurringExpense, '_id' | 'userId'>[]) {
+export async function saveExpenses(userId: string, expenses: (Omit<RecurringExpense, '_id' | 'userId'> & { _id?: string })[]) {
   const client = await clientPromise;
   const db = client.db();
-  await db.collection('financeExpense').deleteMany({ userId });
-  if (expenses.length > 0) {
-    await db.collection('financeExpense').insertMany(
-      expenses.map((e, i) => ({ ...e, userId, order: i }))
-    );
-  }
+  const col = db.collection('financeExpense');
+
+  const keepIds = expenses.filter(e => e._id).map(e => new ObjectId(e._id!));
+  await col.deleteMany({ userId, _id: { $nin: keepIds } });
+
+  const ops = expenses.map((e, i) => {
+    const { _id, ...fields } = e;
+    if (_id) {
+      return col.updateOne(
+        { _id: new ObjectId(_id), userId },
+        { $set: { ...fields, userId, order: i } }
+      );
+    } else {
+      return col.insertOne({ ...fields, userId, order: i });
+    }
+  });
+  await Promise.all(ops);
 }
 
 // ==================== Installments ====================
