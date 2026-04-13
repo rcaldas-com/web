@@ -11,7 +11,6 @@ import {
   groupInstallments,
   buildCardViews,
   calculateMonthBalance,
-  calculateProjections,
 } from '@/lib/finance/data';
 import DashboardClient from './DashboardClient';
 
@@ -75,7 +74,22 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
 
   // Saldo do Mês: always uses full month (not proportional days)
   const monthCalc = calculateMonthBalance(profile, expenses, installmentGroups, daysInMonth, expenseOverrides);
-  const projections = calculateProjections(monthCalc.monthBalance, installmentGroups);
+
+  // Projections: compute each future month with its own days, overrides, and installments
+  const projMonths = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(year, month + i, 1);
+    return {
+      idx: i + 1,
+      ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      days: new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(),
+    };
+  });
+  const projOverrides = await Promise.all(projMonths.map(m => getExpenseOverrides(userId, m.ym)));
+  const projections = projMonths.map((m, i) => {
+    const ig = groupInstallments(installments, cards, Math.max(0, monthOffset + m.idx));
+    const calc = calculateMonthBalance(profile, expenses, ig, m.days, projOverrides[i]);
+    return { label: `M+${m.idx}`, value: calc.monthBalance };
+  });
 
   // Month navigation
   const prevDate = new Date(year, month - 2, 1);
