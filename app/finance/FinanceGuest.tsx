@@ -1,69 +1,75 @@
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
+'use client';
+
+import { useState, useCallback, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  getProfile,
-  getCards,
-  getExpenses,
-  getInstallments,
-  getMonthData,
-  getOrInitMonthCardInvoices,
-  getExpenseOverrides,
-} from '@/lib/finance/data';
-import { groupInstallments, buildCardViews, calculateMonthBalance } from '@/lib/finance/compute';
+  getLocalProfile,
+  getLocalCards,
+  getLocalExpenses,
+  getLocalInstallments,
+  getLocalMonthData,
+  getLocalExpenseOverrides,
+} from '@/lib/finance/local-storage';
+import {
+  groupInstallments,
+  buildCardViews,
+  calculateMonthBalance,
+  initMonthCardInvoices,
+} from '@/lib/finance/compute';
 import DashboardClient from './DashboardClient';
-import FinanceGuest from './FinanceGuest';
-import MigrateGuestData from './MigrateGuestData';
+import type { MonthCardInvoice } from '@/lib/finance/types';
 
-export default async function FinancePage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
-  const cookieStore = await cookies();
-  const userId = cookieStore.get('userId')?.value;
+function GuestRedirect() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace('/finance/setup/profile');
+  }, [router]);
+  return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <p className="text-zinc-500">Carregando...</p>
+    </div>
+  );
+}
 
-  if (!userId) {
-    return <FinanceGuest />;
-  }
+export default function FinanceGuest() {
+  const searchParams = useSearchParams();
+  const [, setTick] = useState(0);
+  const refresh = useCallback(() => setTick(t => t + 1), []);
 
-  const profile = await getProfile(userId);
-  if (!profile) redirect('/finance/setup');
-
-  const [cards, expenses, installments] = await Promise.all([
-    getCards(userId),
-    getExpenses(userId),
-    getInstallments(userId),
-  ]);
-
-  const params = await searchParams;
   const now = new Date();
   const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-  // Use month from URL or default to current
-  const yearMonth = params.month && /^\d{4}-\d{2}$/.test(params.month) ? params.month : currentYearMonth;
+  const paramMonth = searchParams.get('month');
+  const yearMonth = paramMonth && /^\d{4}-\d{2}$/.test(paramMonth) ? paramMonth : currentYearMonth;
   const [year, month] = yearMonth.split('-').map(Number);
   const daysInMonth = new Date(year, month, 0).getDate();
   const isCurrentMonth = yearMonth === currentYearMonth;
   const dayOfMonth = isCurrentMonth ? now.getDate() : daysInMonth;
+  const proportionalDays = isCurrentMonth ? daysInMonth - dayOfMonth + 1 : daysInMonth;
 
-  // Month offset from current (0=current, 1=next, -1=prev)
   const currentMonthIndex = now.getFullYear() * 12 + now.getMonth();
   const viewMonthIndex = year * 12 + (month - 1);
   const monthOffset = viewMonthIndex - currentMonthIndex;
+  const offset = Math.max(0, monthOffset);
 
-  // Proportional: remaining days for current month, full month otherwise
-  const proportionalDays = isCurrentMonth ? daysInMonth - dayOfMonth + 1 : daysInMonth;
+  const profile = getLocalProfile();
+  const cards = getLocalCards();
+  const expenses = getLocalExpenses();
+  const installments = getLocalInstallments();
 
-  const monthData = await getMonthData(userId, yearMonth);
+  if (!profile) {
+    return <GuestRedirect />;
+  }
+
+  const monthData = getLocalMonthData(yearMonth);
   const paidExpenseIds = new Set((monthData?.payments || []).map(p => p.expenseId));
+  const expenseOverrides = getLocalExpenseOverrides(yearMonth);
 
-  // Month-specific expense value overrides (uses most recent override <= this month)
-  const expenseOverrides = await getExpenseOverrides(userId, yearMonth);
+  // Card invoices: use month-specific if saved, otherwise init
+  const monthCardInvoices: MonthCardInvoice[] = monthData?.cardInvoices?.length
+    ? monthData.cardInvoices
+    : initMonthCardInvoices(cards, installments, offset);
 
-  // Month-specific card invoices
-  const monthCardInvoices = await getOrInitMonthCardInvoices(
-    userId, yearMonth, cards, installments, Math.max(0, monthOffset)
-  );
-
-  // Get effective expense value (override or default)
   const getExpenseValue = (e: typeof expenses[0]) => expenseOverrides.get(e._id!) ?? e.value;
-
   const calcValue = (e: typeof expenses[0]) => {
     const baseValue = getExpenseValue(e);
     if (e.proportional === 'daily') return baseValue * proportionalDays;
@@ -71,27 +77,19 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     return baseValue;
   };
 
-  const offset = Math.max(0, monthOffset);
   const installmentGroups = groupInstallments(installments, cards, offset);
   const cardViews = buildCardViews(cards, installments, monthCardInvoices, offset);
-
-  // Saldo do Mês: always uses full month (not proportional days)
   const monthCalc = calculateMonthBalance(profile, expenses, installmentGroups, daysInMonth, expenseOverrides);
 
-  // Projections: compute each future month with its own days, overrides, and installments
-  const projMonths = Array.from({ length: 6 }, (_, i) => {
+  // Projections
+  const projections = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(year, month + i, 1);
-    return {
-      idx: i + 1,
-      ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      days: new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(),
-    };
-  });
-  const projOverrides = await Promise.all(projMonths.map(m => getExpenseOverrides(userId, m.ym)));
-  const projections = projMonths.map((m, i) => {
-    const ig = groupInstallments(installments, cards, Math.max(0, monthOffset + m.idx));
-    const calc = calculateMonthBalance(profile, expenses, ig, m.days, projOverrides[i]);
-    return { label: `M+${m.idx}`, value: calc.monthBalance };
+    const pym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const pDays = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const pOverrides = getLocalExpenseOverrides(pym);
+    const ig = groupInstallments(installments, cards, Math.max(0, monthOffset + i + 1));
+    const calc = calculateMonthBalance(profile, expenses, ig, pDays, pOverrides);
+    return { label: `M+${i + 1}`, value: calc.monthBalance };
   });
 
   // Month navigation
@@ -124,8 +122,8 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       name: e.name,
       value: calcValue(e),
       baseValue: getExpenseValue(e),
-      dueDay: e.dueDay,
       proportional: e.proportional,
+      dueDay: e.dueDay,
       paid: paidExpenseIds.has(e._id!),
       category: 'cash' as const,
     }))
@@ -133,58 +131,40 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
 
   const bankTotal = profile.banks.reduce((sum, b) => sum + b.balance, 0) + profile.foodVoucher;
 
-  // Compute available balance
+  // Available balance
   let availableBalance: number;
-
   if (monthOffset <= 0) {
-    // Current/past month: bank total minus unpaid items
     const unpaidCashTotal = cashExpenses.filter(e => !e.paid).reduce((s, e) => s + e.value, 0);
     const unpaidInvoicesTotal = monthCardInvoices.filter(c => !c.paid).reduce((s, c) => s + c.invoiceTotal, 0);
     availableBalance = bankTotal - unpaidCashTotal - unpaidInvoicesTotal;
   } else {
-    // Future month: project from current month
-    // Formula (spreadsheet): prevAvail + salary + VR - futureCash - futureInvoices - prevUnpaidCard
-
-    // 1. Current month available — must match client-side hero (uses cardViews, not monthCardInvoices)
-    const curMonthData = await getMonthData(userId, currentYearMonth);
-    const curPaidIds = new Set((curMonthData?.payments || []).map((p: { expenseId?: string }) => p.expenseId));
-    const curCardInvoices = await getOrInitMonthCardInvoices(userId, currentYearMonth, cards, installments, 0);
-    // buildCardViews includes ALL cards (falls back to card.invoiceTotal for missing entries)
+    // Simplified future projection
+    const curMonthData = getLocalMonthData(currentYearMonth);
+    const curPaidIds = new Set((curMonthData?.payments || []).map(p => p.expenseId));
+    const curCardInvoices = initMonthCardInvoices(cards, installments, 0);
     const curCardViews = buildCardViews(cards, installments, curCardInvoices, 0);
-
     const curDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const curPropDays = curDays - now.getDate() + 1;
+
     const calcVal = (e: typeof expenses[0], d: number) =>
       e.proportional === 'daily' ? e.value * d : e.proportional === 'weekly' ? e.value * (d / 7) : e.value;
 
-    // Current month unpaid cash (proportional remaining days)
     const curUnpaidCash = expenses.filter(e => e.category === 'cash' && !curPaidIds.has(e._id!))
       .reduce((s, e) => s + calcVal(e, curPropDays), 0);
-    // Use cardViews (all 5 cards) — same as client-side DashboardClient
     const curUnpaidInvoices = curCardViews.filter(c => !c.paid)
       .reduce((s, c) => s + c.invoiceTotal, 0);
     const curAvailable = bankTotal - curUnpaidCash - curUnpaidInvoices;
-
-    // 2. Current month unpaid card expenses (will appear in next month but not yet in its invoice)
     const curUnpaidCard = expenses.filter(e => e.category === 'card' && !curPaidIds.has(e._id!))
       .reduce((s, e) => s + calcVal(e, curPropDays), 0);
 
-    // 3. Salary: if advance already received (day >= advanceDay), only payment
-    //    (advance is already in bankTotal); otherwise full salary
     const { payment, advance, advanceDay } = profile.salary;
     const salaryForNextMonth = now.getDate() >= advanceDay ? payment : (payment + advance);
-
-    // 4. Future month cash expenses (full month, all items)
     const futureCashTotal = cashExpenses.reduce((s, e) => s + e.value, 0);
-
-    // 5. Future month invoices (from cardViews which includes all cards)
     const futureInvoicesTotal = cardViews.reduce((s, c) => s + c.invoiceTotal, 0);
 
-    // M+1: curAvailable + salary + VR - futureCash - futureInvoices - curUnpaidCard
     availableBalance = curAvailable + salaryForNextMonth + profile.foodVoucher
       - futureCashTotal - futureInvoicesTotal - curUnpaidCard;
 
-    // Chain for M+2+: each additional month adds salary+VR-cash-cardExpenses
     if (monthOffset > 1) {
       const fullSalary = payment + advance;
       const allCardExp = expenses.filter(e => e.category === 'card')
@@ -196,9 +176,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   }
 
   return (
-    <>
-      <MigrateGuestData />
-      <DashboardClient
+    <DashboardClient
       yearMonth={yearMonth}
       daysInMonth={daysInMonth}
       proportionalDays={proportionalDays}
@@ -226,7 +204,8 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         cashExpensesTotal: monthCalc.cashExpensesTotal,
         installmentsTotal: monthCalc.installmentsTotal,
       }}
+      isGuest
+      onGuestAction={refresh}
     />
-    </>
   );
 }

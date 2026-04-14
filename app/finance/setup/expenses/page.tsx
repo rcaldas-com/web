@@ -4,8 +4,8 @@ import ExpensesForm from './ExpensesForm';
 
 export default async function ExpensesSetupPage() {
   const cookieStore = await cookies();
-  const userId = cookieStore.get('userId')!.value;
-  const expenses = await getExpenses(userId);
+  const userId = cookieStore.get('userId')?.value;
+  const expenses = userId ? await getExpenses(userId) : [];
 
   return (
     <>
@@ -15,7 +15,7 @@ export default async function ExpensesSetupPage() {
         <span>→</span><span className="font-semibold text-zinc-900">3. Despesas</span>
         <span>→</span><span>4. Parcelas</span>
       </div>
-      <ExpensesForm expenses={expenses} />
+      <ExpensesForm expenses={expenses} isGuest={!userId} />
     </>
   );
 }

@@ -40,10 +40,12 @@ function getClientPromise(): Promise<MongoClient> {
 }
 
 // Lazy proxy delays connection until runtime (avoids build-time errors).
-export default new Proxy({} as Promise<MongoClient>, {
+const clientProxy = new Proxy({} as Promise<MongoClient>, {
   get(_target, prop) {
     const promise = getClientPromise();
     const value = Reflect.get(promise, prop);
     return typeof value === 'function' ? value.bind(promise) : value;
   },
 });
+
+export default clientProxy;

@@ -4,8 +4,8 @@ import ProfileForm from './ProfileForm';
 
 export default async function ProfileSetupPage() {
   const cookieStore = await cookies();
-  const userId = cookieStore.get('userId')!.value;
-  const profile = await getProfile(userId);
+  const userId = cookieStore.get('userId')?.value;
+  const profile = userId ? await getProfile(userId) : null;
 
   return (
     <>
@@ -15,7 +15,7 @@ export default async function ProfileSetupPage() {
         <span>→</span><span>3. Despesas</span>
         <span>→</span><span>4. Parcelas</span>
       </div>
-      <ProfileForm profile={profile} />
+      <ProfileForm profile={profile} isGuest={!userId} />
     </>
   );
 }

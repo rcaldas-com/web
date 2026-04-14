@@ -1,23 +1,64 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { addNewInstallment, removeInstallment, finishSetup } from '@/lib/finance/actions';
+import {
+  addLocalInstallment,
+  deleteLocalInstallment,
+  getLocalInstallments,
+  getLocalCards,
+} from '@/lib/finance/local-storage';
 import type { CreditCard, Installment } from '@/lib/finance/types';
 
 export default function InstallmentsForm({
-  cards,
-  installments,
+  cards: serverCards,
+  installments: serverInstallments,
+  isGuest,
 }: {
   cards: CreditCard[];
   installments: Installment[];
+  isGuest?: boolean;
 }) {
+  const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const descriptionRef = useRef<HTMLInputElement>(null);
 
+  // For guest: manage installments in local state backed by localStorage
+  const guestCards = isGuest ? getLocalCards() : [];
+  const cards = isGuest ? guestCards : serverCards;
+  const [localInstallments, setLocalInstallments] = useState<Installment[]>(
+    isGuest ? getLocalInstallments() : []
+  );
+  const installments = isGuest ? localInstallments : serverInstallments;
+
   const handleAdd = async (formData: FormData) => {
-    await addNewInstallment(formData);
+    if (isGuest) {
+      const description = formData.get('description') as string;
+      const cardId = formData.get('cardId') as string;
+      const monthlyValue = parseFloat(String(formData.get('monthlyValue')).replace(',', '.')) || 0;
+      const remainingInstallments = parseInt(formData.get('remainingInstallments') as string) || 1;
+      if (!description.trim()) return;
+      addLocalInstallment({ description: description.trim(), cardId, monthlyValue, remainingInstallments });
+      setLocalInstallments(getLocalInstallments());
+    } else {
+      await addNewInstallment(formData);
+    }
     formRef.current?.reset();
     setTimeout(() => descriptionRef.current?.focus(), 100);
+  };
+
+  const handleRemove = async (id: string) => {
+    if (isGuest) {
+      deleteLocalInstallment(id);
+      setLocalInstallments(getLocalInstallments());
+    } else {
+      await removeInstallment(id);
+    }
+  };
+
+  const handleFinish = () => {
+    router.push('/finance');
   };
 
   // Group by card
@@ -62,7 +103,7 @@ export default function InstallmentsForm({
                       <td className="py-1 text-right">{inst.remainingInstallments}x</td>
                       <td className="py-1 text-right">
                         <button
-                          onClick={() => removeInstallment(inst._id!)}
+                          onClick={() => handleRemove(inst._id!)}
                           className="text-red-500 hover:text-red-700 text-xs">
                           ✕
                         </button>
@@ -121,12 +162,19 @@ export default function InstallmentsForm({
           className="text-zinc-600 hover:text-zinc-800 px-4 py-2">
           ← Voltar
         </a>
-        <form action={finishSetup}>
-          <button type="submit"
+        {isGuest ? (
+          <button type="button" onClick={handleFinish}
             className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
             Concluir ✓
           </button>
-        </form>
+        ) : (
+          <form action={finishSetup}>
+            <button type="submit"
+              className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
+              Concluir ✓
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

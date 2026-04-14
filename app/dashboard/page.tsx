@@ -41,18 +41,18 @@ export default async function DashboardPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Link
-            href="/"
-            className="bg-white rounded-lg shadow-sm p-6 hover:shadow-md transition"
+            href="/finance"
+            className="bg-blue-50 rounded-lg shadow-sm p-6 hover:shadow-md transition"
           >
-            <h3 className="font-semibold text-gray-900">Página Inicial</h3>
-            <p className="text-sm text-gray-600 mt-1">Voltar para a página inicial</p>
+            <h3 className="font-semibold text-gray-900">📊 Finance</h3>
+            <p className="text-sm text-gray-600 mt-1">Receitas, despesas, cartões e projeções</p>
           </Link>
           <Link
-            href="/posts"
-            className="bg-white rounded-lg shadow-sm p-6 hover:shadow-md transition"
+            href="/wallet"
+            className="bg-emerald-50 rounded-lg shadow-sm p-6 hover:shadow-md transition"
           >
-            <h3 className="font-semibold text-gray-900">Posts</h3>
-            <p className="text-sm text-gray-600 mt-1">Ver todos os posts</p>
+            <h3 className="font-semibold text-gray-900">💰 Wallet</h3>
+            <p className="text-sm text-gray-600 mt-1">Carteira digital e transações</p>
           </Link>
         </div>
       </div>

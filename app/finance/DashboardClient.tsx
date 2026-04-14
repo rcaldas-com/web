@@ -1,12 +1,31 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { createContext, useContext, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { togglePaid, updateMonthInvoice, toggleInvoicePaid, updateBankBalance, updateExpenseValue } from '@/lib/finance/actions';
+import {
+  toggleLocalExpensePayment,
+  updateLocalMonthCardInvoice,
+  toggleLocalCardInvoicePaid,
+  updateLocalExpenseOverride,
+  updateLocalBankBalance,
+  updateLocalFoodVoucher,
+} from '@/lib/finance/local-storage';
 import { evalExpression } from '@/lib/finance/eval-expression';
 import type { InstallmentGroup, CardView, BankAccount } from '@/lib/finance/types';
 
 const BRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+interface FinanceActions {
+  togglePaid: (id: string, name: string, value: number, ym: string) => Promise<void>;
+  updateInvoice: (cardId: string, amount: number, ym: string) => Promise<void>;
+  toggleInvoicePaid: (cardId: string, name: string, total: number, ym: string) => Promise<void>;
+  updateBankBalance: (fd: FormData) => Promise<void>;
+  updateExpenseValue: (id: string, value: number, ym: string) => Promise<void>;
+}
+
+const ActionsContext = createContext<FinanceActions>(null!);
+const useActions = () => useContext(ActionsContext);
 
 interface ExpenseItem {
   id: string;
@@ -47,6 +66,8 @@ interface Props {
     cashExpensesTotal: number;
     installmentsTotal: number;
   };
+  isGuest?: boolean;
+  onGuestAction?: () => void;
 }
 
 export default function DashboardClient({
@@ -67,7 +88,34 @@ export default function DashboardClient({
   availableBalance,
   projections,
   totals,
+  isGuest,
+  onGuestAction,
 }: Props) {
+  const guestRefresh = onGuestAction || (() => {});
+
+  const actions: FinanceActions = isGuest
+    ? {
+        togglePaid: async (id, name, value, ym) => { toggleLocalExpensePayment(ym, id, name, value); guestRefresh(); },
+        updateInvoice: async (cardId, amount, ym) => { updateLocalMonthCardInvoice(ym, cardId, amount); guestRefresh(); },
+        toggleInvoicePaid: async (cardId, name, total, ym) => { toggleLocalCardInvoicePaid(ym, cardId, name, total); guestRefresh(); },
+        updateBankBalance: async (fd) => {
+          const names = fd.getAll('bankName') as string[];
+          const balances = fd.getAll('bankBalance') as string[];
+          const vr = fd.get('foodVoucher') as string | null;
+          names.forEach((n, i) => updateLocalBankBalance(n, evalExpression(balances[i])));
+          if (vr) updateLocalFoodVoucher(evalExpression(vr));
+          guestRefresh();
+        },
+        updateExpenseValue: async (id, value, ym) => { updateLocalExpenseOverride(ym, id, value); guestRefresh(); },
+      }
+    : {
+        togglePaid: async (id, name, value, ym) => { await togglePaid(id, name, value, ym); },
+        updateInvoice: async (cardId, amount, ym) => { await updateMonthInvoice(cardId, amount, ym); },
+        toggleInvoicePaid: async (cardId, name, total, ym) => { await toggleInvoicePaid(cardId, name, total, ym); },
+        updateBankBalance: async (fd) => { await updateBankBalance(fd); },
+        updateExpenseValue: async (id, value, ym) => { await updateExpenseValue(id, value, ym); },
+      };
+
   const [y, m] = yearMonth.split('-').map(Number);
   const monthLabel = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 
@@ -82,7 +130,16 @@ export default function DashboardClient({
     : availableBalance;
 
   return (
+    <ActionsContext.Provider value={actions}>
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-4">
+      {/* Guest mode banner */}
+      {isGuest && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-sm text-amber-800 flex justify-between items-center">
+          <span>Modo offline — dados salvos no navegador.
+            <Link href="/login" className="text-blue-600 hover:underline ml-1">Faça login</Link> para sincronizar.
+          </span>
+        </div>
+      )}
       {/* Header with month navigation */}
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-3">
@@ -229,10 +286,12 @@ export default function DashboardClient({
 
 
     </div>
+    </ActionsContext.Provider>
   );
 }
 
 function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foodVoucher: number }) {
+  const actions = useActions();
   const [isPending, startTransition] = useTransition();
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editVal, setEditVal] = useState('');
@@ -246,7 +305,7 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
       formData.append('bankBalance', i === idx ? editVal : b.balance.toString());
     });
     startTransition(async () => {
-      await updateBankBalance(formData);
+      await actions.updateBankBalance(formData);
       setEditingIdx(null);
     });
   };
@@ -259,7 +318,7 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
     });
     formData.append('foodVoucher', vrVal);
     startTransition(async () => {
-      await updateBankBalance(formData);
+      await actions.updateBankBalance(formData);
       setEditingVR(false);
     });
   };
@@ -325,20 +384,21 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
 }
 
 function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string }) {
+  const actions = useActions();
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(card.invoiceTotal.toString());
 
   const handleToggle = () => {
     startTransition(() => {
-      toggleInvoicePaid(card._id, card.name, card.invoiceTotal, yearMonth);
+      actions.toggleInvoicePaid(card._id, card.name, card.invoiceTotal, yearMonth);
     });
   };
 
   const handleSave = () => {
     const num = evalExpression(val);
     startTransition(async () => {
-      await updateMonthInvoice(card._id, num, yearMonth);
+      await actions.updateInvoice(card._id, num, yearMonth);
       setEditing(false);
     });
   };
@@ -402,6 +462,7 @@ function ExpenseChecklist({
   yearMonth: string;
   proportionalDays: number;
 }) {
+  const actions = useActions();
   const [isPending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
@@ -412,14 +473,14 @@ function ExpenseChecklist({
 
   const handleToggle = (e: ExpenseItem) => {
     startTransition(() => {
-      togglePaid(e.id, e.name, e.value, yearMonth);
+      actions.togglePaid(e.id, e.name, e.value, yearMonth);
     });
   };
 
   const handleSaveValue = (e: ExpenseItem) => {
     const newVal = evalExpression(editVal);
     startTransition(async () => {
-      await updateExpenseValue(e.id, newVal, yearMonth);
+      await actions.updateExpenseValue(e.id, newVal, yearMonth);
       setEditingId(null);
     });
   };

@@ -4,8 +4,8 @@ import CardsForm from './CardsForm';
 
 export default async function CardsSetupPage() {
   const cookieStore = await cookies();
-  const userId = cookieStore.get('userId')!.value;
-  const cards = await getCards(userId);
+  const userId = cookieStore.get('userId')?.value;
+  const cards = userId ? await getCards(userId) : [];
 
   return (
     <>
@@ -15,7 +15,7 @@ export default async function CardsSetupPage() {
         <span>→</span><span>3. Despesas</span>
         <span>→</span><span>4. Parcelas</span>
       </div>
-      <CardsForm cards={cards} />
+      <CardsForm cards={cards} isGuest={!userId} />
     </>
   );
 }

@@ -1,8 +1,12 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { saveExpensesAndContinue, saveExpensesAndFinish } from '@/lib/finance/actions';
+import { saveLocalExpenses, saveDraft, loadDraft, clearDraft, getLocalExpenses } from '@/lib/finance/local-storage';
 import type { RecurringExpense } from '@/lib/finance/types';
+
+const DRAFT_ID = 'expenses';
 
 interface ExpenseRow {
   id: string;
@@ -13,15 +17,51 @@ interface ExpenseRow {
   dueDay?: number;
 }
 
-export default function ExpensesForm({ expenses }: { expenses: RecurringExpense[] }) {
+export default function ExpensesForm({ expenses, isGuest }: { expenses: RecurringExpense[]; isGuest?: boolean }) {
+  const router = useRouter();
+  const draft = isGuest ? loadDraft<{ rows: ExpenseRow[] }>(DRAFT_ID) : null;
+  const localExpenses = isGuest && !draft ? getLocalExpenses() : [];
   const [rows, setRows] = useState<ExpenseRow[]>(
-    expenses.length
-      ? expenses.map(e => ({
+    draft?.rows || (isGuest && localExpenses.length
+      ? localExpenses.map(e => ({
           id: e._id || '', name: e.name, value: e.value, category: e.category,
           proportional: e.proportional || false, dueDay: e.dueDay,
         }))
-      : [{ id: '', name: '', value: 0, category: 'cash', proportional: false }]
+      : expenses.length
+        ? expenses.map(e => ({
+            id: e._id || '', name: e.name, value: e.value, category: e.category,
+            proportional: e.proportional || false, dueDay: e.dueDay,
+          }))
+        : [{ id: '', name: '', value: 0, category: 'cash', proportional: false }])
   );
+
+  const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const autoSave = useCallback(() => {
+    if (!isGuest) return;
+    clearTimeout(saveTimeout.current);
+    saveTimeout.current = setTimeout(() => {
+      saveDraft(DRAFT_ID, { rows });
+    }, 2000);
+  }, [isGuest, rows]);
+
+  useEffect(() => () => clearTimeout(saveTimeout.current), []);
+
+  const handleGuestSubmit = (dest: 'continue' | 'finish') => {
+    const validExpenses = rows
+      .filter(r => r.name.trim())
+      .map((r, i) => ({
+        name: r.name.trim(),
+        value: typeof r.value === 'string' ? parseFloat(String(r.value).replace(',', '.')) || 0 : r.value,
+        category: r.category,
+        proportional: r.proportional,
+        dueDay: r.dueDay ? Number(r.dueDay) : undefined,
+        order: i,
+      }));
+    saveLocalExpenses(validExpenses);
+    clearDraft(DRAFT_ID);
+    router.push(dest === 'continue' ? '/finance/setup/installments' : '/finance');
+  };
 
   const addRow = () => {
     setRows([...rows, { id: '', name: '', value: 0, category: 'cash' as const, proportional: false as const }]);
@@ -42,7 +82,10 @@ export default function ExpensesForm({ expenses }: { expenses: RecurringExpense[
   });
 
   return (
-    <form action={saveExpensesAndContinue} className="space-y-6">
+    <form action={isGuest ? undefined : saveExpensesAndContinue}
+      onChange={autoSave}
+      onSubmit={isGuest ? (e) => { e.preventDefault(); handleGuestSubmit('continue'); } : undefined}
+      className="space-y-6">
       <div className="bg-white rounded-lg border p-6 space-y-4">
         <div className="flex justify-between items-center">
           <h2 className="text-lg font-semibold">Despesas Recorrentes</h2>
@@ -130,14 +173,29 @@ export default function ExpensesForm({ expenses }: { expenses: RecurringExpense[
           ← Voltar
         </a>
         <div className="flex gap-3">
-          <button type="submit" formAction={saveExpensesAndFinish}
-            className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
-            Concluir ✓
-          </button>
-          <button type="submit"
-            className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-            Próximo →
-          </button>
+          {isGuest ? (
+            <>
+              <button type="button" onClick={() => handleGuestSubmit('finish')}
+                className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
+                Concluir ✓
+              </button>
+              <button type="submit"
+                className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
+                Próximo →
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="submit" formAction={saveExpensesAndFinish}
+                className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
+                Concluir ✓
+              </button>
+              <button type="submit"
+                className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
+                Próximo →
+              </button>
+            </>
+          )}
         </div>
       </div>
     </form>

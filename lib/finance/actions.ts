@@ -253,3 +253,60 @@ export async function updateExpenseValue(expenseId: string, value: number, yearM
   await updateMonthExpenseValue(userId, yearMonth, expenseId, value);
   revalidatePath('/finance');
 }
+
+// ==================== Guest Data Migration ====================
+
+export async function migrateGuestData(data: {
+  profile: {
+    salary: { payment: number; advance: number; paymentDay: number; advanceDay: number };
+    foodVoucher: number;
+    banks: { name: string; balance: number }[];
+  };
+  cards: { name: string; dueDay: number; invoiceTotal?: number }[];
+  expenses: { name: string; value: number; category: 'card' | 'cash'; proportional: false | 'daily' | 'weekly'; dueDay?: number; order?: number }[];
+  installments: { cardName: string; description: string; monthlyValue: number; remainingInstallments: number }[];
+}) {
+  const userId = await getUserId();
+
+  // 1. Profile
+  await upsertProfile(userId, {
+    salary: data.profile.salary,
+    foodVoucher: data.profile.foodVoucher,
+    banks: data.profile.banks,
+  });
+
+  // 2. Cards — upsert and build name→id map for installments
+  const cardIdMap = new Map<string, string>();
+  for (const card of data.cards) {
+    const result = await upsertCard(userId, { name: card.name, dueDay: card.dueDay, invoiceTotal: card.invoiceTotal });
+    if (result) cardIdMap.set(card.name, result.toString());
+  }
+
+  // 3. Expenses
+  if (data.expenses.length > 0) {
+    await saveExpenses(userId, data.expenses.map((e, i) => ({
+      name: e.name,
+      value: e.value,
+      category: e.category,
+      proportional: e.proportional,
+      dueDay: e.dueDay,
+      order: e.order ?? i,
+    })));
+  }
+
+  // 4. Installments — map card names to real card IDs
+  const { getCards } = await import('./data');
+  const dbCards = await getCards(userId);
+  for (const inst of data.installments) {
+    const dbCard = dbCards.find(c => c.name === inst.cardName);
+    if (!dbCard?._id) continue;
+    await addInstallment(userId, {
+      cardId: dbCard._id,
+      description: inst.description,
+      monthlyValue: inst.monthlyValue,
+      remainingInstallments: inst.remainingInstallments,
+    });
+  }
+
+  revalidatePath('/finance');
+}

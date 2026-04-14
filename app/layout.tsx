@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import Header from "@/components/header"
 import Footer from "@/components/footer"
@@ -8,7 +8,11 @@ import { getCurrentUser } from "@/lib/auth"
 
 export const dynamic = 'force-dynamic';
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = localFont({
+  src: '../public/fonts/Inter-Variable.woff2',
+  variable: '--font-inter',
+  display: 'swap',
+});
 
 const title = process.env.TITLE || '';
 const public_host = process.env.AUTH_TRUST_HOST || 'http://localhost:3000';

@@ -4,9 +4,9 @@ import InstallmentsForm from './InstallmentsForm';
 
 export default async function InstallmentsSetupPage() {
   const cookieStore = await cookies();
-  const userId = cookieStore.get('userId')!.value;
-  const cards = await getCards(userId);
-  const installments = await getInstallments(userId);
+  const userId = cookieStore.get('userId')?.value;
+  const cards = userId ? await getCards(userId) : [];
+  const installments = userId ? await getInstallments(userId) : [];
 
   return (
     <>
@@ -16,7 +16,7 @@ export default async function InstallmentsSetupPage() {
         <span>→</span><span>3. Despesas</span>
         <span>→</span><span className="font-semibold text-zinc-900">4. Parcelas</span>
       </div>
-      <InstallmentsForm cards={cards} installments={installments} />
+      <InstallmentsForm cards={cards} installments={installments} isGuest={!userId} />
     </>
   );
 }

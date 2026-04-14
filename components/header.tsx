@@ -4,15 +4,10 @@ import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
-const navlinks = [
-    {
-        href: "/",
-        label:  "Home",
-    },
-    {
-        href: "/posts",
-        label:  "Posts",
-    },
+const publicLinks = [
+    { href: "/", label: "Home" },
+    { href: "/finance", label: "Finance" },
+    { href: "/wallet", label: "Wallet" },
 ]
 
 interface HeaderProps {
@@ -21,6 +16,9 @@ interface HeaderProps {
 
 export default function Header({ userName }: HeaderProps) {
     const pathname = usePathname()
+    const links = publicLinks;
+    const isActive = (href: string) =>
+        href === '/' ? pathname === '/' : pathname.startsWith(href);
 
     return (
         <header className="flex justify-between items-center py-4 px-7 border-b">
@@ -35,26 +33,24 @@ export default function Header({ userName }: HeaderProps) {
             </Link>
             <nav>
                 <ul className="flex gap-x-5 text-[15px] items-center">
-                    {
-                        navlinks.map((link) => (
-                            <li key={link.href}>
-                                <Link
-                                    className={`${
-                                        pathname === link.href ? 'text-gray-900' : 'text-zinc-400'
-                                    } hover:text-zinc-700`}
-                                    href={link.href}
-                                >
-                                    {link.label}
-                                </Link>
-                            </li>
-                        ))
-                    }
+                    {links.map((link) => (
+                        <li key={link.href}>
+                            <Link
+                                className={`${
+                                    isActive(link.href) ? 'text-gray-900 font-medium' : 'text-zinc-400'
+                                } hover:text-zinc-700 transition`}
+                                href={link.href}
+                            >
+                                {link.label}
+                            </Link>
+                        </li>
+                    ))}
                     <li>
                         {userName ? (
                             <Link
                                 className={`${
                                     pathname === '/dashboard' ? 'text-gray-900' : 'text-zinc-400'
-                                } hover:text-zinc-700`}
+                                } hover:text-zinc-700 transition`}
                                 href="/dashboard"
                             >
                                 {userName}
@@ -63,7 +59,7 @@ export default function Header({ userName }: HeaderProps) {
                             <Link
                                 className={`${
                                     pathname === '/login' ? 'text-gray-900' : 'text-zinc-400'
-                                } hover:text-zinc-700`}
+                                } hover:text-zinc-700 transition`}
                                 href="/login"
                             >
                                 Entrar
