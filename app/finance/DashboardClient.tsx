@@ -123,11 +123,11 @@ export default function DashboardClient({
   const totalInvoices = cardViews.reduce((s, c) => s + c.invoiceTotal, 0);
   const unpaidInvoices = cardViews.filter(c => !c.paid).reduce((s, c) => s + c.invoiceTotal, 0);
   const unpaidCash = cashExpenses.filter(e => !e.paid).reduce((s, e) => s + e.value, 0);
+  const advanceDeducted = isCurrentMonth && new Date().getDate() >= profile.salary.advanceDay
+    ? profile.salary.advance : 0;
 
   // Current month: original formula (bank - unpaid). Future: server-computed projection.
-  const effectiveBalance = isCurrentMonth
-    ? bankTotal - unpaidCash - unpaidInvoices
-    : availableBalance;
+  const effectiveBalance = availableBalance;
 
   return (
     <ActionsContext.Provider value={actions}>
@@ -167,7 +167,7 @@ export default function DashboardClient({
           </p>
           <p className="text-xs text-zinc-400 mt-1">
             {isCurrentMonth
-              ? <>saldo {BRL(bankTotal)} − à vista {BRL(unpaidCash)} − faturas {BRL(unpaidInvoices)}</>
+              ? <>saldo {BRL(bankTotal)} − à vista {BRL(unpaidCash)} − faturas {BRL(unpaidInvoices)}{advanceDeducted > 0 && <> − adiant. {BRL(advanceDeducted)}</>}</>
               : <>projeção a partir do saldo atual</>
             }
           </p>

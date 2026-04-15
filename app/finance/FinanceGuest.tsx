@@ -137,6 +137,11 @@ export default function FinanceGuest() {
     const unpaidCashTotal = cashExpenses.filter(e => !e.paid).reduce((s, e) => s + e.value, 0);
     const unpaidInvoicesTotal = monthCardInvoices.filter(c => !c.paid).reduce((s, c) => s + c.invoiceTotal, 0);
     availableBalance = bankTotal - unpaidCashTotal - unpaidInvoicesTotal;
+
+    // If advance already received (day >= advanceDay), subtract it — it belongs to next month's salary
+    if (isCurrentMonth && dayOfMonth >= profile.salary.advanceDay) {
+      availableBalance -= profile.salary.advance;
+    }
   } else {
     // Simplified future projection
     const curMonthData = getLocalMonthData(currentYearMonth);
