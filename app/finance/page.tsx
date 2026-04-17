@@ -169,15 +169,10 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     const curUnpaidInvoices = curCardViews.filter(c => !c.paid)
       .reduce((s, c) => s + c.invoiceTotal, 0);
 
-    // curAvailable uses banksOnly (without current VR) — VR will be added fresh for each future month
-    const banksOnly = profile.banks.reduce((sum, b) => sum + b.balance, 0);
-    let curAvailable = banksOnly - curUnpaidCash - curUnpaidInvoices;
+    // curAvailable: bankTotal (includes current VR) minus current-month unpaid items
+    const curAvailable = bankTotal - curUnpaidCash - curUnpaidInvoices;
 
-    // If advance already received, subtract it from base (it's in the bank but belongs to next month)
     const { payment, advance, advanceDay } = profile.salary;
-    if (now.getDate() >= advanceDay) {
-      curAvailable -= advance;
-    }
 
     // 2. Current month unpaid card expenses (will appear in next month but not yet in its invoice)
     const curUnpaidCard = expenses.filter(e => e.category === 'card' && !curPaidIds.has(e._id!))

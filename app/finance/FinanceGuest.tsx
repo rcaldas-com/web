@@ -159,18 +159,13 @@ export default function FinanceGuest() {
     const curUnpaidInvoices = curCardViews.filter(c => !c.paid)
       .reduce((s, c) => s + c.invoiceTotal, 0);
 
-    // curAvailable uses banksOnly (without current VR) — VR will be added fresh for each future month
-    const banksOnly = profile.banks.reduce((sum, b) => sum + b.balance, 0);
-    let curAvailable = banksOnly - curUnpaidCash - curUnpaidInvoices;
+    // curAvailable: bankTotal (includes current VR) minus current-month unpaid items
+    const curAvailable = bankTotal - curUnpaidCash - curUnpaidInvoices;
 
     const curUnpaidCard = expenses.filter(e => e.category === 'card' && !curPaidIds.has(e._id!))
       .reduce((s, e) => s + calcVal(e, curPropDays), 0);
 
     const { payment, advance, advanceDay } = profile.salary;
-    // If advance already received, subtract it from base
-    if (now.getDate() >= advanceDay) {
-      curAvailable -= advance;
-    }
     const salaryForNextMonth = now.getDate() >= advanceDay ? payment : (payment + advance);
     const futureCashTotal = cashExpenses.reduce((s, e) => s + e.value, 0);
     const futureInvoicesTotal = cardViews.reduce((s, c) => s + c.invoiceTotal, 0);
