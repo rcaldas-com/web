@@ -42,6 +42,7 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
     const paymentDay = parseInt(fd.get('paymentDay') as string) || 7;
     const advanceDay = parseInt(fd.get('advanceDay') as string) || 15;
     const foodVoucher = evalExpression(fd.get('foodVoucher') as string);
+    const foodVoucherMonthly = evalExpression(fd.get('foodVoucherMonthly') as string) || foodVoucher;
     const bankNames = fd.getAll('bankName') as string[];
     const bankBalances = fd.getAll('bankBalance') as string[];
     const parsedBanks = bankNames
@@ -51,6 +52,7 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
     saveLocalProfile({
       salary: { payment, advance, paymentDay, advanceDay },
       foodVoucher,
+      foodVoucherMonthly,
       banks: parsedBanks,
     });
     clearDraft(DRAFT_ID);
@@ -106,14 +108,27 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
 
       <div className="bg-white rounded-lg border p-6 space-y-4">
         <h2 className="text-lg font-semibold">Vale Refeição/Alimentação</h2>
-        <div>
-          <label className="block text-sm font-medium text-zinc-700">Valor Mensal (R$)</label>
-          <input
-            type="text" inputMode="decimal" name="foodVoucher"
-            defaultValue={profile?.foodVoucher || ''}
-            className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            placeholder="1300.00"
-          />
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-zinc-700">Crédito Mensal (R$)</label>
+            <input
+              type="text" inputMode="decimal" name="foodVoucherMonthly"
+              defaultValue={profile?.foodVoucherMonthly || profile?.foodVoucher || ''}
+              className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              placeholder="2000.00"
+            />
+            <p className="text-xs text-zinc-400 mt-1">Valor cheio creditado todo mês (projeções)</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-zinc-700">Saldo Atual (R$)</label>
+            <input
+              type="text" inputMode="decimal" name="foodVoucher"
+              defaultValue={profile?.foodVoucher || ''}
+              className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              placeholder="1300.00"
+            />
+            <p className="text-xs text-zinc-400 mt-1">Saldo restante neste mês</p>
+          </div>
         </div>
       </div>
 

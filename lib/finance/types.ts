@@ -7,7 +7,8 @@ export interface FinanceProfile {
     paymentDay: number;  // default 7
     advanceDay: number;  // default 15
   };
-  foodVoucher: number;   // VR+VA fixo mensal (ex: 2300)
+  foodVoucher: number;          // VR+VA saldo atual (editável no dashboard)
+  foodVoucherMonthly?: number;  // VR+VA crédito mensal cheio (usado em projeções)
   banks: BankAccount[];
   createdAt: Date;
   updatedAt: Date;

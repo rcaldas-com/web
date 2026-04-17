@@ -49,6 +49,7 @@ interface Props {
   profile: {
     salary: { payment: number; advance: number; paymentDay: number; advanceDay: number };
     foodVoucher: number;
+    foodVoucherMonthly?: number;
     banks: BankAccount[];
   };
   cardExpenses: ExpenseItem[];

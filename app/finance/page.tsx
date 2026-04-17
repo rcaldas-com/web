@@ -168,7 +168,16 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     // Use cardViews (all 5 cards) — same as client-side DashboardClient
     const curUnpaidInvoices = curCardViews.filter(c => !c.paid)
       .reduce((s, c) => s + c.invoiceTotal, 0);
-    const curAvailable = bankTotal - curUnpaidCash - curUnpaidInvoices;
+
+    // curAvailable uses banksOnly (without current VR) — VR will be added fresh for each future month
+    const banksOnly = profile.banks.reduce((sum, b) => sum + b.balance, 0);
+    let curAvailable = banksOnly - curUnpaidCash - curUnpaidInvoices;
+
+    // If advance already received, subtract it from base (it's in the bank but belongs to next month)
+    const { payment, advance, advanceDay } = profile.salary;
+    if (now.getDate() >= advanceDay) {
+      curAvailable -= advance;
+    }
 
     // 2. Current month unpaid card expenses (will appear in next month but not yet in its invoice)
     const curUnpaidCard = expenses.filter(e => e.category === 'card' && !curPaidIds.has(e._id!))
@@ -176,7 +185,6 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
 
     // 3. Salary: if advance already received (day >= advanceDay), only payment
     //    (advance is already in bankTotal); otherwise full salary
-    const { payment, advance, advanceDay } = profile.salary;
     const salaryForNextMonth = now.getDate() >= advanceDay ? payment : (payment + advance);
 
     // 4. Future month cash expenses (full month, all items)
@@ -185,17 +193,19 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     // 5. Future month invoices (from cardViews which includes all cards)
     const futureInvoicesTotal = cardViews.reduce((s, c) => s + c.invoiceTotal, 0);
 
-    // M+1: curAvailable + salary + VR - futureCash - futureInvoices - curUnpaidCard
-    availableBalance = curAvailable + salaryForNextMonth + profile.foodVoucher
+    const vrMonthly = profile.foodVoucherMonthly ?? profile.foodVoucher;
+
+    // M+1: curAvailable + salary + VR_monthly - futureCash - futureInvoices - curUnpaidCard
+    availableBalance = curAvailable + salaryForNextMonth + vrMonthly
       - futureCashTotal - futureInvoicesTotal - curUnpaidCard;
 
-    // Chain for M+2+: each additional month adds salary+VR-cash-cardExpenses
+    // Chain for M+2+: each additional month adds salary+VR_monthly-cash-cardExpenses
     if (monthOffset > 1) {
       const fullSalary = payment + advance;
       const allCardExp = expenses.filter(e => e.category === 'card')
         .reduce((s, e) => s + calcVal(e, daysInMonth), 0);
       for (let i = 2; i <= monthOffset; i++) {
-        availableBalance += fullSalary + profile.foodVoucher - futureCashTotal - allCardExp;
+        availableBalance += fullSalary + vrMonthly - futureCashTotal - allCardExp;
       }
     }
   }
@@ -214,6 +224,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       profile={{
         salary: profile.salary,
         foodVoucher: profile.foodVoucher,
+        foodVoucherMonthly: profile.foodVoucherMonthly,
         banks: profile.banks,
       }}
       cardExpenses={cardExpenses}

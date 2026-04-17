@@ -158,16 +158,25 @@ export default function FinanceGuest() {
       .reduce((s, e) => s + calcVal(e, curPropDays), 0);
     const curUnpaidInvoices = curCardViews.filter(c => !c.paid)
       .reduce((s, c) => s + c.invoiceTotal, 0);
-    const curAvailable = bankTotal - curUnpaidCash - curUnpaidInvoices;
+
+    // curAvailable uses banksOnly (without current VR) — VR will be added fresh for each future month
+    const banksOnly = profile.banks.reduce((sum, b) => sum + b.balance, 0);
+    let curAvailable = banksOnly - curUnpaidCash - curUnpaidInvoices;
+
     const curUnpaidCard = expenses.filter(e => e.category === 'card' && !curPaidIds.has(e._id!))
       .reduce((s, e) => s + calcVal(e, curPropDays), 0);
 
     const { payment, advance, advanceDay } = profile.salary;
+    // If advance already received, subtract it from base
+    if (now.getDate() >= advanceDay) {
+      curAvailable -= advance;
+    }
     const salaryForNextMonth = now.getDate() >= advanceDay ? payment : (payment + advance);
     const futureCashTotal = cashExpenses.reduce((s, e) => s + e.value, 0);
     const futureInvoicesTotal = cardViews.reduce((s, c) => s + c.invoiceTotal, 0);
+    const vrMonthly = profile.foodVoucherMonthly ?? profile.foodVoucher;
 
-    availableBalance = curAvailable + salaryForNextMonth + profile.foodVoucher
+    availableBalance = curAvailable + salaryForNextMonth + vrMonthly
       - futureCashTotal - futureInvoicesTotal - curUnpaidCard;
 
     if (monthOffset > 1) {
@@ -175,7 +184,7 @@ export default function FinanceGuest() {
       const allCardExp = expenses.filter(e => e.category === 'card')
         .reduce((s, e) => s + calcVal(e, daysInMonth), 0);
       for (let i = 2; i <= monthOffset; i++) {
-        availableBalance += fullSalary + profile.foodVoucher - futureCashTotal - allCardExp;
+        availableBalance += fullSalary + vrMonthly - futureCashTotal - allCardExp;
       }
     }
   }
@@ -192,6 +201,7 @@ export default function FinanceGuest() {
       profile={{
         salary: profile.salary,
         foodVoucher: profile.foodVoucher,
+        foodVoucherMonthly: profile.foodVoucherMonthly,
         banks: profile.banks,
       }}
       cardExpenses={cardExpenses}

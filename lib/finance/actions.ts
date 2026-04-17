@@ -38,6 +38,7 @@ export async function saveProfile(formData: FormData) {
   const paymentDay = parseInt(formData.get('paymentDay') as string) || 7;
   const advanceDay = parseInt(formData.get('advanceDay') as string) || 15;
   const foodVoucher = evalExpression(formData.get('foodVoucher') as string);
+  const foodVoucherMonthly = evalExpression(formData.get('foodVoucherMonthly') as string) || foodVoucher;
 
   // Parse banks array from form
   const bankNames = formData.getAll('bankName') as string[];
@@ -49,6 +50,7 @@ export async function saveProfile(formData: FormData) {
   await upsertProfile(userId, {
     salary: { payment, advance, paymentDay, advanceDay },
     foodVoucher,
+    foodVoucherMonthly,
     banks,
   });
 
@@ -226,6 +228,7 @@ export async function updateBankBalance(formData: FormData) {
   await upsertProfile(userId, {
     salary: profile.salary,
     foodVoucher,
+    foodVoucherMonthly: profile.foodVoucherMonthly ?? profile.foodVoucher,
     banks,
   });
 
@@ -260,6 +263,7 @@ export async function migrateGuestData(data: {
   profile: {
     salary: { payment: number; advance: number; paymentDay: number; advanceDay: number };
     foodVoucher: number;
+    foodVoucherMonthly?: number;
     banks: { name: string; balance: number }[];
   };
   cards: { name: string; dueDay: number; invoiceTotal?: number }[];
@@ -272,6 +276,7 @@ export async function migrateGuestData(data: {
   await upsertProfile(userId, {
     salary: data.profile.salary,
     foodVoucher: data.profile.foodVoucher,
+    foodVoucherMonthly: data.profile.foodVoucherMonthly ?? data.profile.foodVoucher,
     banks: data.profile.banks,
   });
 

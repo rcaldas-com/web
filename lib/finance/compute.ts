@@ -78,7 +78,7 @@ export function calculateMonthBalance(
   expenseOverrides?: Map<string, number>,
 ) {
   const totalSalary = profile.salary.payment + profile.salary.advance;
-  const vr = profile.foodVoucher;
+  const vr = profile.foodVoucherMonthly ?? profile.foodVoucher;
 
   const calcExpenseValue = (e: RecurringExpense) => {
     const baseValue = expenseOverrides?.get(e._id!) ?? e.value;
