@@ -19,6 +19,14 @@ const modules = [
     color: 'from-emerald-500 to-emerald-600',
     bg: 'bg-emerald-50',
   },
+  {
+    href: '/habitar',
+    icon: '🏠',
+    title: 'Habitar',
+    description: 'Simulador: alugar vs comprar — compare cenários com financiamento e investimentos.',
+    color: 'from-amber-500 to-amber-600',
+    bg: 'bg-amber-50',
+  },
 ];
 
 function ModuleCardSkeleton() {
@@ -37,7 +45,7 @@ async function ModuleCards() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         {modules.map((mod) => (
           <Link
             key={mod.href}

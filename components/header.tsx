@@ -8,6 +8,7 @@ const publicLinks = [
     { href: "/", label: "Home" },
     { href: "/finance", label: "Finance" },
     { href: "/wallet", label: "Wallet" },
+    { href: "/habitar", label: "Habitar" },
 ]
 
 interface HeaderProps {
