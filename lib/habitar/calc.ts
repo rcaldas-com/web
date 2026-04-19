@@ -261,7 +261,6 @@ export function calculateBuyScenario(input: HabitarInput): BuyScenario {
 
 export function calculateRentScenario(input: HabitarInput, buyMonthlyPayments: number[]): RentScenario {
   const monthlyInvestRate = annualToMonthlyRate(input.investmentReturnRate);
-  const monthlyRentIncrease = annualToMonthlyRate(input.annualRentIncrease);
 
   // Capital inicial: se a entrada não vier de FGTS, pode ser investida
   const itbi = input.propertyValue * (input.itbiRate / 100);
