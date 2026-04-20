@@ -41,8 +41,8 @@ export interface HabitarInput {
   // Horizonte de análise
   analysisMonths: number;        // Período de análise em meses
 
-  // Opção: incluir entrada como capital inicial do investimento
-  includeDownPaymentInInvestment: boolean;
+  // Opção: aporte inicial no cenário de aluguel
+  initialInvestmentRent: number;  // Capital inicial do locatário (0 se vier de FGTS)
 }
 
 export interface MonthlyInstallment {
@@ -274,11 +274,8 @@ export function calculateBuyScenario(input: HabitarInput): BuyScenario {
 export function calculateRentScenario(input: HabitarInput, buyMonthlyPayments: number[]): RentScenario {
   const monthlyInvestRate = annualToMonthlyRate(input.investmentReturnRate);
 
-  // Capital inicial: se a entrada não vier de FGTS, pode ser investida
-  const itbi = input.propertyValue * (input.itbiRate / 100);
-  const initialInvestedCapital = input.includeDownPaymentInInvestment
-    ? input.downPayment + itbi + input.registryFees
-    : 0;
+  // Capital inicial: valor informado manualmente
+  const initialInvestedCapital = input.initialInvestmentRent;
   let investmentBalance = initialInvestedCapital;
 
   let rent = input.rentValue;

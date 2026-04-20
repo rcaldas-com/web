@@ -32,7 +32,7 @@ const defaultInput: HabitarInput = {
   annualPropertyAppreciation: 4.14,
   annualMonetaryCorrection: 4.14,
   analysisMonths: 360,
-  includeDownPaymentInInvestment: false,
+  initialInvestmentRent: 0,
 };
 
 function InputField({
@@ -123,6 +123,7 @@ export default function HabitarPage() {
   const [equilibrium, setEquilibrium] = useState<EquilibriumResult | null>(null);
   const [showSchedule, setShowSchedule] = useState(false);
   const [tab, setTab] = useState<'comparativo' | 'equilibrio'>('comparativo');
+  const [decisionCriterion, setDecisionCriterion] = useState<'netWorth' | 'cashFlow'>('cashFlow');
 
   const handleChange = (name: string, value: number) => {
     setInput((prev) => ({ ...prev, [name]: value }));
@@ -140,6 +141,15 @@ export default function HabitarPage() {
   };
 
   const financedAmount = input.propertyValue - input.downPayment;
+  const verdictData = result
+    ? (decisionCriterion === 'cashFlow'
+      ? { verdict: result.verdictCashFlow, advantage: result.advantageCashFlow, criterion: 'Saldo líquido (patrimônio - desembolso)' }
+      : { verdict: result.verdict, advantage: result.advantage, criterion: 'Patrimônio final' })
+    : null;
+
+  const efficiencyBuy = result ? (result.buy.totalCashOutflow > 0 ? result.buy.netWorthAtEnd / result.buy.totalCashOutflow : 0) : 0;
+  const efficiencyRent = result ? (result.rent.totalCashOutflow > 0 ? result.rent.netWorthAtEnd / result.rent.totalCashOutflow : 0) : 0;
+  const efficiencyDiff = efficiencyBuy - efficiencyRent;
 
   return (
     <main className="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
@@ -196,24 +206,8 @@ export default function HabitarPage() {
 
         <Section title="Investimentos (cenário aluguel)">
           <InputField label="Rendimento anual" name="investmentReturnRate" value={input.investmentReturnRate} onChange={handleChange} suffix="%" hint="CDI, Selic, etc." />
+          <InputField label="Capital inicial do locatário" name="initialInvestmentRent" value={input.initialInvestmentRent} onChange={handleChange} prefix="R$" hint="Zero se a entrada vier de FGTS" />
           <div className="flex flex-col gap-1">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={input.includeDownPaymentInInvestment}
-                onChange={(e) => setInput((prev) => ({ ...prev, includeDownPaymentInInvestment: e.target.checked }))}
-                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-700">Incluir entrada como capital inicial</span>
-            </label>
-            <span className="text-xs text-gray-400 ml-6">
-              Marque se o valor da entrada estaria disponível para investir (não veio de FGTS).
-              {input.includeDownPaymentInInvestment && (
-                <> Capital inicial: {formatBRL(input.downPayment + input.propertyValue * input.itbiRate / 100 + input.registryFees)}</>
-              )}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1 col-span-2">
             <span className="text-xs text-gray-400">
               Quem aluga investe a diferença entre o custo total de comprar e o aluguel.
               Ambos os cenários usam o mesmo orçamento mensal.
@@ -238,6 +232,34 @@ export default function HabitarPage() {
       >
         Calcular Comparação
       </button>
+
+      {result && (
+        <div className="border border-gray-200 rounded-lg p-4 space-y-3">
+          <div className="text-sm font-semibold text-gray-800">Critério do veredito principal</div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setDecisionCriterion('cashFlow')}
+              className={`px-3 py-2 text-sm rounded-md border transition-colors ${
+                decisionCriterion === 'cashFlow'
+                  ? 'bg-blue-50 border-blue-400 text-blue-700'
+                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Saldo líquido (mais justo no caixa)
+            </button>
+            <button
+              onClick={() => setDecisionCriterion('netWorth')}
+              className={`px-3 py-2 text-sm rounded-md border transition-colors ${
+                decisionCriterion === 'netWorth'
+                  ? 'bg-blue-50 border-blue-400 text-blue-700'
+                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Patrimônio final (acumulação)
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* TABS */}
       {result && (
@@ -369,32 +391,49 @@ export default function HabitarPage() {
         <div className="space-y-6 pt-4 border-t">
           {/* Veredicto */}
           <div className={`rounded-xl p-6 text-center ${
-            result.verdict === 'BUY' ? 'bg-green-100 border-2 border-green-400' :
-            result.verdict === 'RENT' ? 'bg-blue-100 border-2 border-blue-400' :
+            verdictData?.verdict === 'BUY' ? 'bg-green-100 border-2 border-green-400' :
+            verdictData?.verdict === 'RENT' ? 'bg-blue-100 border-2 border-blue-400' :
             'bg-yellow-100 border-2 border-yellow-400'
           }`}>
             <div className="text-sm uppercase tracking-widest opacity-75">
-              {result.verdict === 'BUY' ? 'Comprar é mais vantajoso' :
-               result.verdict === 'RENT' ? 'Alugar é mais vantajoso' :
+              {verdictData?.verdict === 'BUY' ? 'Comprar é mais vantajoso' :
+               verdictData?.verdict === 'RENT' ? 'Alugar é mais vantajoso' :
                'Praticamente equivalentes'}
             </div>
             <div className="text-3xl font-bold mt-2">
-              {result.verdict !== 'EQUIVALENT' && (
-                <>Vantagem de {formatBRL(result.advantage)}</>
+              {verdictData?.verdict !== 'EQUIVALENT' && verdictData && (
+                <>Vantagem de {formatBRL(verdictData.advantage)}</>
               )}
-              {result.verdict === 'EQUIVALENT' && 'Diferença menor que R$ 1.000'}
+              {verdictData?.verdict === 'EQUIVALENT' && 'Diferença menor que R$ 1.000'}
             </div>
             <div className="text-sm mt-2 opacity-75">
+              Critério ativo: {verdictData?.criterion}
+            </div>
+            <div className="text-sm mt-1 opacity-75">
               Em {formatMonths(input.analysisMonths)} de análise
               {result.breakEvenMonth && ` • Break-even no mês ${result.breakEvenMonth} (${formatMonths(result.breakEvenMonth)})`}
             </div>
-            <div className="text-sm mt-1 opacity-75">
-              Visão caixa (patrimônio - desembolso):
-              {' '}
-              {result.verdictCashFlow === 'BUY' ? 'Comprar melhor por ' : result.verdictCashFlow === 'RENT' ? 'Alugar melhor por ' : 'Praticamente equivalente ('}
-              {formatBRL(result.advantageCashFlow)}
-              {result.verdictCashFlow === 'EQUIVALENT' ? ')' : ''}
-            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <ResultCard
+              title="Veredito por Patrimônio"
+              value={result.verdict === 'BUY' ? 'Comprar' : result.verdict === 'RENT' ? 'Alugar' : 'Equivalente'}
+              sub={`Diferença: ${formatBRL(result.advantage)}`}
+              color={result.verdict === 'BUY' ? 'green' : result.verdict === 'RENT' ? 'blue' : 'yellow'}
+            />
+            <ResultCard
+              title="Veredito por Saldo Líquido"
+              value={result.verdictCashFlow === 'BUY' ? 'Comprar' : result.verdictCashFlow === 'RENT' ? 'Alugar' : 'Equivalente'}
+              sub={`Diferença: ${formatBRL(result.advantageCashFlow)}`}
+              color={result.verdictCashFlow === 'BUY' ? 'green' : result.verdictCashFlow === 'RENT' ? 'blue' : 'yellow'}
+            />
+            <ResultCard
+              title="Eficiência de Capital"
+              value={efficiencyDiff >= 0 ? 'Comprar' : 'Alugar'}
+              sub={`Índice compra ${efficiencyBuy.toFixed(3)} vs aluguel ${efficiencyRent.toFixed(3)}`}
+              color={efficiencyDiff >= 0 ? 'green' : 'blue'}
+            />
           </div>
 
           {/* Comparação lado a lado */}
@@ -483,8 +522,8 @@ export default function HabitarPage() {
               />
               <ResultCard
                 title="Capital Inicial Investido"
-                value={formatBRL(input.includeDownPaymentInInvestment ? input.downPayment + input.propertyValue * input.itbiRate / 100 + input.registryFees : 0)}
-                sub={input.includeDownPaymentInInvestment ? 'Entrada + ITBI + cartório investidos' : 'Começa do zero (entrada via FGTS)'}
+                value={formatBRL(input.initialInvestmentRent)}
+                sub={input.initialInvestmentRent === 0 ? 'Começa do zero (entrada via FGTS)' : 'Capital inicial informado'}
                 color="gray"
               />
               <ResultCard
