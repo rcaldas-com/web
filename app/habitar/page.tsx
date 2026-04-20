@@ -388,6 +388,13 @@ export default function HabitarPage() {
               Em {formatMonths(input.analysisMonths)} de análise
               {result.breakEvenMonth && ` • Break-even no mês ${result.breakEvenMonth} (${formatMonths(result.breakEvenMonth)})`}
             </div>
+            <div className="text-sm mt-1 opacity-75">
+              Visão caixa (patrimônio - desembolso):
+              {' '}
+              {result.verdictCashFlow === 'BUY' ? 'Comprar melhor por ' : result.verdictCashFlow === 'RENT' ? 'Alugar melhor por ' : 'Praticamente equivalente ('}
+              {formatBRL(result.advantageCashFlow)}
+              {result.verdictCashFlow === 'EQUIVALENT' ? ')' : ''}
+            </div>
           </div>
 
           {/* Comparação lado a lado */}
@@ -423,9 +430,15 @@ export default function HabitarPage() {
                 color="gray"
               />
               <ResultCard
-                title="Custo Total da Compra"
-                value={formatBRL(result.buy.totalCostOfOwnership)}
+                title="Desembolso Total no Período"
+                value={formatBRL(result.buy.totalCashOutflow)}
+                sub="Tudo que saiu do bolso para chegar ao patrimônio final"
                 color="red"
+              />
+              <ResultCard
+                title="Saldo Líquido (Patrimônio - Desembolso)"
+                value={formatBRL(result.buy.netAfterCashOutflow)}
+                color={result.buy.netAfterCashOutflow >= 0 ? 'green' : 'yellow'}
               />
               <ResultCard
                 title="Prazo para Quitar"
@@ -473,6 +486,23 @@ export default function HabitarPage() {
                 value={formatBRL(input.includeDownPaymentInInvestment ? input.downPayment + input.propertyValue * input.itbiRate / 100 + input.registryFees : 0)}
                 sub={input.includeDownPaymentInInvestment ? 'Entrada + ITBI + cartório investidos' : 'Começa do zero (entrada via FGTS)'}
                 color="gray"
+              />
+              <ResultCard
+                title="Aportes em Investimentos"
+                value={formatBRL(result.rent.totalInvestedContributions)}
+                sub="Soma dos aportes mensais ao longo do período"
+                color="gray"
+              />
+              <ResultCard
+                title="Desembolso Total no Período"
+                value={formatBRL(result.rent.totalCashOutflow)}
+                sub="Aluguel + aportes + capital inicial"
+                color="red"
+              />
+              <ResultCard
+                title="Saldo Líquido (Patrimônio - Desembolso)"
+                value={formatBRL(result.rent.netAfterCashOutflow)}
+                color={result.rent.netAfterCashOutflow >= 0 ? 'green' : 'yellow'}
               />
             </div>
           </div>

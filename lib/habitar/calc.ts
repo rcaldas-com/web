@@ -67,12 +67,18 @@ export interface BuyScenario {
   propertyValueAtEnd: number;
   equityAtEnd: number;              // Patrimônio líquido (valor imóvel - saldo devedor)
   totalCostOfOwnership: number;     // Tudo que gastou
+  totalCashOutflow: number;         // Desembolso total no período
+  netAfterCashOutflow: number;      // Patrimônio - desembolso
   effectiveMonthsToPayOff: number;  // Meses até quitar
   netWorthAtEnd: number;            // Patrimônio final
 }
 
 export interface RentScenario {
   totalRentPaid: number;
+  initialInvestedCapital: number;
+  totalInvestedContributions: number;
+  totalCashOutflow: number;      // Aluguel + aportes + capital inicial
+  netAfterCashOutflow: number;   // Patrimônio - desembolso
   investmentBalance: number;  // Saldo acumulado dos investimentos
   monthlyPassiveIncome: number; // Renda passiva mensal no fim do período
   monthsUntilRentCovered: number | null; // Meses até rendimento cobrir aluguel
@@ -85,6 +91,8 @@ export interface HabitarResult {
   rent: RentScenario;
   verdict: 'BUY' | 'RENT' | 'EQUIVALENT';
   advantage: number;          // Diferença em R$ a favor do vencedor
+  verdictCashFlow: 'BUY' | 'RENT' | 'EQUIVALENT';
+  advantageCashFlow: number;  // Diferença em R$ na visão patrimônio - desembolso
   breakEvenMonth: number | null;
 }
 
@@ -242,6 +250,8 @@ export function calculateBuyScenario(input: HabitarInput): BuyScenario {
 
   // Patrimônio final = valor do imóvel - saldo devedor
   const netWorthAtEnd = equityAtEnd;
+  const totalCashOutflow = totalCostOfOwnership;
+  const netAfterCashOutflow = netWorthAtEnd - totalCashOutflow;
 
   return {
     schedule,
@@ -254,6 +264,8 @@ export function calculateBuyScenario(input: HabitarInput): BuyScenario {
     propertyValueAtEnd,
     equityAtEnd,
     totalCostOfOwnership,
+    totalCashOutflow,
+    netAfterCashOutflow,
     effectiveMonthsToPayOff,
     netWorthAtEnd,
   };
@@ -264,12 +276,14 @@ export function calculateRentScenario(input: HabitarInput, buyMonthlyPayments: n
 
   // Capital inicial: se a entrada não vier de FGTS, pode ser investida
   const itbi = input.propertyValue * (input.itbiRate / 100);
-  let investmentBalance = input.includeDownPaymentInInvestment
+  const initialInvestedCapital = input.includeDownPaymentInInvestment
     ? input.downPayment + itbi + input.registryFees
     : 0;
+  let investmentBalance = initialInvestedCapital;
 
   let rent = input.rentValue;
   let totalRentPaid = 0;
+  let totalInvestedContributions = 0;
   let monthsUntilRentCovered: number | null = null;
   const rentSchedule: RentScenario['rentSchedule'] = [];
 
@@ -293,6 +307,7 @@ export function calculateRentScenario(input: HabitarInput, buyMonthlyPayments: n
     // Orçamento igual: quem aluga investe a diferença entre o custo de comprar e o aluguel
     const savings = buyPayment - rent;
     const invested = Math.max(savings, 0);
+    totalInvestedContributions += invested;
 
     // Rendimento do mês
     investmentBalance = investmentBalance * (1 + monthlyInvestRate) + invested;
@@ -307,9 +322,15 @@ export function calculateRentScenario(input: HabitarInput, buyMonthlyPayments: n
   }
 
   const monthlyPassiveIncome = investmentBalance * monthlyInvestRate;
+  const totalCashOutflow = totalRentPaid + totalInvestedContributions + initialInvestedCapital;
+  const netAfterCashOutflow = investmentBalance - totalCashOutflow;
 
   return {
     totalRentPaid,
+    initialInvestedCapital,
+    totalInvestedContributions,
+    totalCashOutflow,
+    netAfterCashOutflow,
     investmentBalance,
     monthlyPassiveIncome,
     monthsUntilRentCovered,
@@ -339,6 +360,16 @@ export function calculateHabitar(input: HabitarInput): HabitarResult {
     verdict = 'RENT';
   }
 
+  const diffCashFlow = buy.netAfterCashOutflow - rent.netAfterCashOutflow;
+  let verdictCashFlow: 'BUY' | 'RENT' | 'EQUIVALENT';
+  if (Math.abs(diffCashFlow) < 1000) {
+    verdictCashFlow = 'EQUIVALENT';
+  } else if (diffCashFlow > 0) {
+    verdictCashFlow = 'BUY';
+  } else {
+    verdictCashFlow = 'RENT';
+  }
+
   // Break-even: mês em que patrimônio de comprar supera alugar
   let breakEvenMonth: number | null = null;
   const monthlyAppreciation = annualToMonthlyRate(input.annualPropertyAppreciation);
@@ -362,6 +393,8 @@ export function calculateHabitar(input: HabitarInput): HabitarResult {
     rent,
     verdict,
     advantage: Math.abs(diff),
+    verdictCashFlow,
+    advantageCashFlow: Math.abs(diffCashFlow),
     breakEvenMonth,
   };
 }
