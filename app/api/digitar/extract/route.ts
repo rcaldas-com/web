@@ -72,7 +72,15 @@ async function runTesseract(buffer: ArrayBuffer): Promise<string> {
     const buf = Buffer.from(buffer);
     const { data } = await worker.recognize(buf);
     const imageWidth = data.blocks?.[0]?.bbox?.x1 ?? 0;
-    const reconstructed = reconstructFromWords(data.words, imageWidth);
+
+    // Extract words from nested blocks→paragraphs→lines→words
+    const words: Word[] = (data.blocks ?? []).flatMap(b =>
+      (b.paragraphs ?? []).flatMap(p =>
+        (p.lines ?? []).flatMap(l => l.words ?? [])
+      )
+    );
+
+    const reconstructed = reconstructFromWords(words, imageWidth);
     return reconstructed || data.text.trim();
   } finally {
     await worker.terminate();
