@@ -27,6 +27,14 @@ const modules = [
     color: 'from-amber-500 to-amber-600',
     bg: 'bg-amber-50',
   },
+  {
+    href: '/ocr',
+    icon: '🧾',
+    title: 'OCR',
+    description: 'Extraia texto de fotos de documentos com alta precisão e preservação de formatação.',
+    color: 'from-rose-500 to-orange-500',
+    bg: 'bg-rose-50',
+  },
 ];
 
 function ModuleCardSkeleton() {
