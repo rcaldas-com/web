@@ -80,7 +80,7 @@ export default function OcrPage() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const response = await fetch('/api/ocr/extract', { method: 'POST', body: formData });
+      const response = await fetch('/api/digitar/extract', { method: 'POST', body: formData });
       const json = (await response.json()) as { markdown?: string; error?: string; engine?: string };
       if (!response.ok || !json.markdown) {
         setError(json.error || 'Falha ao extrair texto.');
@@ -116,7 +116,7 @@ export default function OcrPage() {
   return (
     <main className="mx-auto w-full max-w-5xl px-5 py-10 space-y-6">
       <div className="space-y-1">
-        <h1 className="text-3xl font-bold text-zinc-900">OCR de Documentos</h1>
+        <h1 className="text-3xl font-bold text-zinc-900">DigitaR</h1>
         <p className="text-zinc-500 text-sm">
           Selecione um arquivo, arraste ou <kbd className="rounded border border-zinc-300 bg-zinc-100 px-1 py-0.5 text-xs font-mono">Ctrl+V</kbd> para colar da area de transferencia.
         </p>

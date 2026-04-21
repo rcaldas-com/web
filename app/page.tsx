@@ -28,9 +28,9 @@ const modules = [
     bg: 'bg-amber-50',
   },
   {
-    href: '/ocr',
+    href: '/digitar',
     icon: '🧾',
-    title: 'OCR',
+    title: 'DigitaR',
     description: 'Extraia texto de fotos de documentos com alta precisão e preservação de formatação.',
     color: 'from-rose-500 to-orange-500',
     bg: 'bg-rose-50',

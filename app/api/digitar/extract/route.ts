@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createWorker } from 'tesseract.js';
+import type { Word } from 'tesseract.js';
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const ACCEPTED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -21,12 +22,58 @@ function toDataUrl(buffer: ArrayBuffer, mimeType: string): string {
   return `data:${mimeType};base64,${base64}`;
 }
 
+// Reconstruct reading order from bounding-box data.
+// Groups words into rows by Y proximity, sorts each row by X,
+// and spaces words proportionally so columns stay aligned.
+function reconstructFromWords(words: Word[], imageWidth: number): string {
+  const MIN_CONF = 20;
+  const filtered = words.filter(w => w.confidence >= MIN_CONF && w.text.trim());
+  if (!filtered.length) return '';
+
+  // Estimate average word height for row-clustering tolerance
+  const avgH = filtered.reduce((s, w) => s + (w.bbox.y1 - w.bbox.y0), 0) / filtered.length;
+  const rowTol = Math.max(avgH * 0.6, 8);
+
+  // Sort by Y then X
+  filtered.sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
+
+  // Cluster into rows
+  const rows: Word[][] = [];
+  for (const word of filtered) {
+    const last = rows[rows.length - 1];
+    const lastY = last ? last[0].bbox.y0 : -Infinity;
+    if (!last || word.bbox.y0 - lastY > rowTol) {
+      rows.push([word]);
+    } else {
+      last.push(word);
+    }
+  }
+
+  // Render each row: use proportional spaces to hint at column positions
+  const charWidth = imageWidth > 0 ? imageWidth / 120 : 8; // ~120 chars wide
+  return rows.map(row => {
+    row.sort((a, b) => a.bbox.x0 - b.bbox.x0);
+    let line = '';
+    let cursorX = 0;
+    for (const word of row) {
+      const targetCol = Math.round(word.bbox.x0 / charWidth);
+      const spaces = Math.max(1, targetCol - cursorX);
+      if (line.length > 0) line += ' '.repeat(spaces);
+      line += word.text;
+      cursorX = Math.round(word.bbox.x1 / charWidth);
+    }
+    return line.trimEnd();
+  }).join('\n');
+}
+
 async function runTesseract(buffer: ArrayBuffer): Promise<string> {
   const worker = await createWorker(['por', 'eng']);
   try {
     const buf = Buffer.from(buffer);
     const { data } = await worker.recognize(buf);
-    return data.text.trim();
+    const imageWidth = data.blocks?.[0]?.bbox?.x1 ?? 0;
+    const reconstructed = reconstructFromWords(data.words, imageWidth);
+    return reconstructed || data.text.trim();
   } finally {
     await worker.terminate();
   }
