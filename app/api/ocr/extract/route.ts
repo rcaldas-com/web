@@ -24,8 +24,8 @@ function toDataUrl(buffer: ArrayBuffer, mimeType: string): string {
 async function runTesseract(buffer: ArrayBuffer): Promise<string> {
   const worker = await createWorker(['por', 'eng']);
   try {
-    const uint8 = new Uint8Array(buffer);
-    const { data } = await worker.recognize(uint8);
+    const buf = Buffer.from(buffer);
+    const { data } = await worker.recognize(buf);
     return data.text.trim();
   } finally {
     await worker.terminate();
