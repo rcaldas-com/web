@@ -77,8 +77,9 @@ export interface RentScenario {
   totalRentPaid: number;
   initialInvestedCapital: number;
   totalInvestedContributions: number;
-  totalCashOutflow: number;      // Aluguel + aportes + capital inicial
-  netAfterCashOutflow: number;   // Patrimônio - desembolso
+  totalInvestmentReturns: number;  // Rendimento puro dos juros compostos
+  totalCashOutflow: number;        // Aluguel + aportes + capital inicial (bruto, sem rendimentos)
+  netAfterCashOutflow: number;     // Patrimônio - desembolso bruto
   investmentBalance: number;  // Saldo acumulado dos investimentos
   monthlyPassiveIncome: number; // Renda passiva mensal no fim do período
   monthsUntilRentCovered: number | null; // Meses até rendimento cobrir aluguel
@@ -319,6 +320,7 @@ export function calculateRentScenario(input: HabitarInput, buyMonthlyPayments: n
   }
 
   const monthlyPassiveIncome = investmentBalance * monthlyInvestRate;
+  const totalInvestmentReturns = investmentBalance - (initialInvestedCapital + totalInvestedContributions);
   const totalCashOutflow = totalRentPaid + totalInvestedContributions + initialInvestedCapital;
   const netAfterCashOutflow = investmentBalance - totalCashOutflow;
 
@@ -326,6 +328,7 @@ export function calculateRentScenario(input: HabitarInput, buyMonthlyPayments: n
     totalRentPaid,
     initialInvestedCapital,
     totalInvestedContributions,
+    totalInvestmentReturns,
     totalCashOutflow,
     netAfterCashOutflow,
     investmentBalance,
