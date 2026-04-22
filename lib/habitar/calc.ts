@@ -77,9 +77,9 @@ export interface RentScenario {
   totalRentPaid: number;
   initialInvestedCapital: number;
   totalInvestedContributions: number;
-  totalInvestmentReturns: number;  // Rendimento puro dos juros compostos
-  totalCashOutflow: number;        // Aluguel + aportes + capital inicial (bruto, sem rendimentos)
-  netAfterCashOutflow: number;     // Patrimônio - desembolso bruto
+  totalInvestmentReturns: number;  // Rendimento puro dos juros compostos (informativo)
+  totalCashOutflow: number;        // Desembolso bruto: aluguel + aportes + capital inicial
+  netAfterCashOutflow: number;     // Patrimônio (já inclui rendimentos) - desembolso bruto
   investmentBalance: number;  // Saldo acumulado dos investimentos
   monthlyPassiveIncome: number; // Renda passiva mensal no fim do período
   monthsUntilRentCovered: number | null; // Meses até rendimento cobrir aluguel

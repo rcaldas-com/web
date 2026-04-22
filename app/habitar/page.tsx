@@ -535,19 +535,19 @@ export default function HabitarPage() {
               <ResultCard
                 title="Rendimento dos Investimentos"
                 value={formatBRL(result.rent.totalInvestmentReturns)}
-                sub="Juros compostos gerados ao longo do período"
+                sub="Juros compostos gerados — já incluídos no Patrimônio Final"
                 color="green"
               />
               <ResultCard
-                title="Desembolso Bruto no Período"
+                title="Desembolso Total no Período"
                 value={formatBRL(result.rent.totalCashOutflow)}
-                sub={`Aluguel + aportes + capital inicial (sem abater rendimentos de ${formatBRL(result.rent.totalInvestmentReturns)})`}
+                sub="Aluguel + aportes + capital inicial"
                 color="red"
               />
               <ResultCard
                 title="Saldo Líquido (Patrimônio - Desembolso)"
                 value={formatBRL(result.rent.netAfterCashOutflow)}
-                sub="Desembolso bruto menos patrimônio final"
+                sub="Patrimônio já inclui os rendimentos dos investimentos"
                 color={result.rent.netAfterCashOutflow >= 0 ? 'green' : 'yellow'}
               />
             </div>
