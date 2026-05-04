@@ -75,7 +75,7 @@ export default function DashboardClient({
   yearMonth,
   // daysInMonth,
   proportionalDays,
-  // dayOfMonth,
+  dayOfMonth,
   isCurrentMonth,
   prevMonth,
   nextMonth,
@@ -129,6 +129,10 @@ export default function DashboardClient({
 
   // Current month: original formula (bank - unpaid). Future: server-computed projection.
   const effectiveBalance = availableBalance;
+  const pendingSalary = isCurrentMonth && dayOfMonth < profile.salary.paymentDay
+    ? profile.salary.payment
+    : 0;
+  const projectedAfterSalary = effectiveBalance + pendingSalary;
 
   return (
     <ActionsContext.Provider value={actions}>
@@ -172,6 +176,14 @@ export default function DashboardClient({
               : <>projeção a partir do saldo atual</>
             }
           </p>
+          {pendingSalary > 0 && (
+            <div className="mt-3 rounded-md border border-zinc-200 bg-white/70 px-3 py-2 text-sm">
+              <span className="text-zinc-500">Após salário previsto dia {profile.salary.paymentDay}: </span>
+              <span className={`font-mono font-semibold ${projectedAfterSalary >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                {BRL(projectedAfterSalary)}
+              </span>
+            </div>
+          )}
         </div>
         <div className={`rounded-lg p-5 text-center border ${monthBalance >= 0 ? 'bg-zinc-50 border-zinc-200' : 'bg-red-50/50 border-red-100'}`}>
           <p className="text-sm text-zinc-500">Saldo do Mês</p>
