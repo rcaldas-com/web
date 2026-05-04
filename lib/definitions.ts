@@ -1,9 +1,12 @@
+export type UserRole = 'admin' | 'wallet' | 'digitar';
+
 export type AuthUser = {
   _id: string;
   name: string;
   email: string;
   password: string;
   globalRole: 'admin' | null;
+  roles: UserRole[];
   createdAt: Date;
   isActive: boolean;
   emailVerified: boolean;
@@ -16,6 +19,7 @@ export type UserSession = {
   name: string;
   email: string;
   globalRole: 'admin' | null;
+  roles: UserRole[];
   isActive: boolean;
   emailVerified: boolean;
 };

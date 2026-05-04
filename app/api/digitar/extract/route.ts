@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createWorker } from 'tesseract.js';
 import type { Word } from 'tesseract.js';
+import { getCurrentUser, hasRole } from '@/lib/auth';
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const ACCEPTED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -144,11 +145,14 @@ export async function POST(request: Request) {
 
     const arrayBuffer = await file.arrayBuffer();
     const apiKey = process.env.OPENAI_API_KEY;
+    const user = await getCurrentUser();
+    const requestedEngine = String(form.get('engine') || 'auto');
+    const canUseExternal = hasRole(user, 'digitar');
 
     let markdown: string;
     let engine: string;
 
-    if (apiKey) {
+    if (apiKey && canUseExternal && requestedEngine === 'openai') {
       markdown = await runOpenAI(apiKey, arrayBuffer, file.type);
       engine = 'openai';
     } else {

@@ -58,15 +58,17 @@ export default function ForgotPasswordForm() {
 
         <SubmitButton />
 
-        <div className="flex h-8 items-end space-x-1" aria-live="polite" aria-atomic="true">
+        <div className="mt-3 min-h-6" aria-live="polite" aria-atomic="true">
           {state.message && !state.success && (
-            <>
-              <ExclamationCircleIcon className="h-5 w-5 text-red-500" />
-              <p className="text-sm text-red-500">{state.message}</p>
-            </>
+            <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <ExclamationCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>{state.message}</p>
+            </div>
           )}
           {state.message && state.success && (
-            <p className="text-sm text-green-600">{state.message}</p>
+            <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              {state.message}
+            </p>
           )}
         </div>
       </div>

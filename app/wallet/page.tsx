@@ -1,6 +1,12 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { getCurrentUser, hasRole } from '@/lib/auth';
 
-export default function WalletHome() {
+export default async function WalletHome() {
+  const user = await getCurrentUser();
+  if (!user) redirect('/login?callbackUrl=/wallet');
+  if (!hasRole(user, 'wallet')) redirect('/');
+
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-50">
       <div className="text-center space-y-6 p-8">

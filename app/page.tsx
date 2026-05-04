@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, hasRole } from '@/lib/auth';
 
 const modules = [
   {
@@ -18,6 +18,7 @@ const modules = [
     description: 'Carteira digital para transações e pagamentos.',
     color: 'from-emerald-500 to-emerald-600',
     bg: 'bg-emerald-50',
+    requires: 'wallet',
   },
   {
     href: '/habitar',
@@ -35,6 +36,15 @@ const modules = [
     color: 'from-rose-500 to-orange-500',
     bg: 'bg-rose-50',
   },
+  {
+    href: '/configuracoes/usuarios',
+    icon: '⚙️',
+    title: 'Configurações',
+    description: 'Gerencie usuários e permissões dos módulos do RCaldas.',
+    color: 'from-zinc-700 to-zinc-900',
+    bg: 'bg-zinc-50',
+    requires: 'admin',
+  },
 ];
 
 function ModuleCardSkeleton() {
@@ -50,11 +60,16 @@ function ModuleCardSkeleton() {
 
 async function ModuleCards() {
   const user = await getCurrentUser();
+  const visibleModules = modules.filter((mod) => {
+    if (mod.requires === 'wallet') return hasRole(user, 'wallet');
+    if (mod.requires === 'admin') return hasRole(user, 'admin');
+    return true;
+  });
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        {modules.map((mod) => (
+        {visibleModules.map((mod) => (
           <Link
             key={mod.href}
             href={mod.href}

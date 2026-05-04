@@ -1,6 +1,8 @@
 import { cookies } from 'next/headers';
 import { getUserById } from './data';
-import { UserSession } from './definitions';
+import { UserRole, UserSession } from './definitions';
+
+export const MASTER_ADMIN_EMAIL = 'rclgsm@gmail.com';
 
 export class AuthError extends Error {
   constructor(message: string) {
@@ -28,6 +30,7 @@ export async function getCurrentUser(): Promise<UserSession | null> {
       name: user.name,
       email: user.email,
       globalRole: user.globalRole,
+      roles: user.roles,
       isActive: user.isActive,
       emailVerified: user.emailVerified,
     };
@@ -35,6 +38,13 @@ export async function getCurrentUser(): Promise<UserSession | null> {
     console.error('Error getting current user:', error);
     return null;
   }
+}
+
+export function hasRole(user: UserSession | null | undefined, role: UserRole): boolean {
+  if (!user) return false;
+  if (role === 'admin' && user.email.toLowerCase() === MASTER_ADMIN_EMAIL) return true;
+  if (role === 'admin' && user.globalRole === 'admin') return true;
+  return user.roles.includes(role);
 }
 
 export async function requireAuth(): Promise<UserSession> {
@@ -47,8 +57,16 @@ export async function requireAuth(): Promise<UserSession> {
 
 export async function requireAdmin(): Promise<UserSession> {
   const user = await requireAuth();
-  if (user.globalRole !== 'admin') {
+  if (!hasRole(user, 'admin')) {
     throw new AuthError('Admin access required');
+  }
+  return user;
+}
+
+export async function requireRole(role: UserRole): Promise<UserSession> {
+  const user = await requireAuth();
+  if (!hasRole(user, role)) {
+    throw new AuthError(`${role} access required`);
   }
   return user;
 }

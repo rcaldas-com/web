@@ -76,6 +76,7 @@ export async function registerUser(
       email: email.toLowerCase().trim(),
       password: passwordHash,
       globalRole: null,
+      roles: [],
       createdAt: new Date(),
       updatedAt: new Date(),
       isActive: true,

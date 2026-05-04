@@ -4,21 +4,30 @@ import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
-const publicLinks = [
+type HeaderLink = { href: string; label: string; requires?: 'wallet' | 'admin' };
+
+const publicLinks: HeaderLink[] = [
     { href: "/", label: "Home" },
     { href: "/finance", label: "Finance" },
-    { href: "/wallet", label: "Wallet" },
     { href: "/habitar", label: "Habitar" },
     { href: "/digitar", label: "DigitaR" },
+    { href: "/wallet", label: "Wallet", requires: "wallet" },
+    { href: "/configuracoes/usuarios", label: "Configurações", requires: "admin" },
 ]
 
 interface HeaderProps {
     userName?: string | null;
+    canAccessWallet?: boolean;
+    canAccessAdmin?: boolean;
 }
 
-export default function Header({ userName }: HeaderProps) {
+export default function Header({ userName, canAccessWallet = false, canAccessAdmin = false }: HeaderProps) {
     const pathname = usePathname()
-    const links = publicLinks;
+    const links = publicLinks.filter(link => {
+        if (link.requires === 'wallet') return canAccessWallet;
+        if (link.requires === 'admin') return canAccessAdmin;
+        return true;
+    });
     const isActive = (href: string) =>
         href === '/' ? pathname === '/' : pathname.startsWith(href);
 

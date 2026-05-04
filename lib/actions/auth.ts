@@ -23,7 +23,7 @@ export async function requestPasswordReset(prevState: State, formData: FormData)
   const ip = headersList.get('x-real-ip') || headersList.get('x-forwarded-for') || 'unknown';
   const limited = await rateLimit(`forgot-password:${ip}`, 3, 3600);
   if (!limited.ok) {
-    return { ...prevState, errors: {}, message: `Muitas tentativas. Tente novamente em ${limited.retryAfter}s.` };
+    return { ...prevState, errors: {}, message: `Muitas tentativas. Tente novamente em ${limited.retryAfter}s.`, success: false };
   }
 
   const parsed = ForgotPasswordSchema.safeParse({
@@ -35,6 +35,7 @@ export async function requestPasswordReset(prevState: State, formData: FormData)
       ...prevState,
       errors: parsed.error.flatten().fieldErrors,
       message: 'Dados inválidos.',
+      success: false,
     };
   }
 
@@ -48,6 +49,7 @@ export async function requestPasswordReset(prevState: State, formData: FormData)
         ...prevState,
         errors: {},
         message: 'Se o e-mail existir, um link de redefinição foi enviado.',
+        success: true,
       };
     }
 
@@ -69,6 +71,7 @@ export async function requestPasswordReset(prevState: State, formData: FormData)
       ...prevState,
       message: 'Se o e-mail existir, um link de redefinição foi enviado.',
       errors: {},
+      success: true,
     };
   } catch (error) {
     console.log('Erro ao solicitar reset de senha:', error);
@@ -76,6 +79,7 @@ export async function requestPasswordReset(prevState: State, formData: FormData)
       ...prevState,
       message: 'Erro ao solicitar redefinição de senha.',
       errors: {},
+      success: false,
     };
   }
 }
