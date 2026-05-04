@@ -10,6 +10,7 @@ import {
   updateCardInvoice,
   saveExpenses,
   addInstallment,
+  saveInstallments,
   deleteInstallment as deleteInstallmentData,
   updateInstallment,
   rollOverMonth,
@@ -75,14 +76,17 @@ export async function saveCards(formData: FormData) {
   const cardIds = formData.getAll('cardId') as string[];
   const cardNames = formData.getAll('cardName') as string[];
   const cardDueDays = formData.getAll('cardDueDay') as string[];
+  const cardInvoiceTotals = formData.getAll('cardInvoiceTotal') as string[];
 
   for (let i = 0; i < cardNames.length; i++) {
     const name = cardNames[i]?.trim();
     if (!name) continue;
+    const dueDay = Math.min(31, Math.max(1, parseInt(cardDueDays[i]) || 1));
     await upsertCard(userId, {
       _id: cardIds[i] || undefined,
       name,
-      dueDay: parseInt(cardDueDays[i]) || 1,
+      dueDay,
+      invoiceTotal: evalExpression(cardInvoiceTotals[i] || '0'),
     });
   }
 
@@ -170,6 +174,38 @@ export async function addNewInstallment(formData: FormData) {
   });
 
   revalidatePath('/finance');
+}
+
+export async function saveInstallmentsList(formData: FormData) {
+  const userId = await getUserId();
+
+  const ids = formData.getAll('installmentId') as string[];
+  const descriptions = formData.getAll('description') as string[];
+  const cardIds = formData.getAll('cardId') as string[];
+  const monthlyValues = formData.getAll('monthlyValue') as string[];
+  const remainingValues = formData.getAll('remainingInstallments') as string[];
+
+  const installments = descriptions
+    .map((description, i) => {
+      const monthlyValue = evalExpression(monthlyValues[i]);
+      const remainingInstallments = parseInt(remainingValues[i]) || 0;
+      return {
+        _id: ids[i] || undefined,
+        cardId: cardIds[i],
+        description: description.trim(),
+        monthlyValue,
+        remainingInstallments: remainingInstallments ? remainingInstallments + 1 : 0,
+      };
+    })
+    .filter(i => i.cardId && i.description && i.monthlyValue && i.remainingInstallments);
+
+  await saveInstallments(userId, installments);
+  revalidatePath('/finance');
+}
+
+export async function saveInstallmentsAndFinish(formData: FormData) {
+  await saveInstallmentsList(formData);
+  redirect('/finance');
 }
 
 export async function removeInstallment(installmentId: string) {

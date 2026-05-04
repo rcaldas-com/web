@@ -125,6 +125,17 @@ export function addLocalInstallment(data: Omit<Installment, '_id' | 'userId' | '
   write(KEYS.installments, installments);
 }
 
+export function saveLocalInstallments(installments: (Omit<Installment, 'userId' | 'createdAt'> & { _id?: string })[]) {
+  const result = installments.map(inst => ({
+    ...inst,
+    _id: inst._id || localId(),
+    userId: 'guest',
+    createdAt: new Date(),
+  }));
+  write(KEYS.installments, result);
+  return result;
+}
+
 export function deleteLocalInstallment(id: string) {
   const installments = getLocalInstallments().filter(i => i._id !== id);
   write(KEYS.installments, installments);

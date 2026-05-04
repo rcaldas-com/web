@@ -132,6 +132,27 @@ export async function addInstallment(userId: string, data: Omit<Installment, '_i
   });
 }
 
+export async function saveInstallments(userId: string, installments: (Omit<Installment, '_id' | 'userId' | 'createdAt'> & { _id?: string })[]) {
+  const client = await clientPromise;
+  const db = client.db();
+  const col = db.collection('financeInstallment');
+
+  const keepIds = installments.filter(i => i._id).map(i => new ObjectId(i._id!));
+  await col.deleteMany({ userId, _id: { $nin: keepIds } });
+
+  const ops = installments.map(inst => {
+    const { _id, ...fields } = inst;
+    if (_id) {
+      return col.updateOne(
+        { _id: new ObjectId(_id), userId },
+        { $set: { ...fields, userId } }
+      );
+    }
+    return col.insertOne({ ...fields, userId, createdAt: new Date() });
+  });
+  await Promise.all(ops);
+}
+
 export async function deleteInstallment(installmentId: string) {
   const client = await clientPromise;
   const db = client.db();
