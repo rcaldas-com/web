@@ -113,62 +113,61 @@ export default function InstallmentsForm({
         ) : (
           <div className="space-y-3">
             {rows.map((row, index) => (
-              <div key={index} className="border rounded-md p-3 space-y-3">
+              <div key={index} className="rounded-md border p-3">
                 <input type="hidden" name="installmentId" value={row._id || ''} />
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-700">Descrição</label>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="min-w-[180px] flex-[1_1_220px]">
+                    <label className="block text-xs font-medium text-zinc-600">Descrição</label>
                     <input
                       ref={index === rows.length - 1 ? lastDescriptionRef : undefined}
                       type="text"
                       name="description"
                       value={row.description}
                       onChange={event => updateRow(index, 'description', event.target.value)}
-                      className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                       placeholder="TV, Sofá..."
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-700">Cartão</label>
+                  <div className="w-28">
+                    <label className="block text-xs font-medium text-zinc-600">Cartão</label>
                     <select
                       name="cardId"
                       value={row.cardId}
                       onChange={event => updateRow(index, 'cardId', event.target.value)}
-                      className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                     >
                       {cards.map(card => (
                         <option key={card._id} value={card._id}>{card.name}</option>
                       ))}
                     </select>
                   </div>
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-700">Valor/mês (R$)</label>
+                  <div className="w-28">
+                    <label className="block text-xs font-medium text-zinc-600">Valor/mês</label>
                     <input
                       type="text"
                       inputMode="decimal"
                       name="monthlyValue"
                       value={row.monthlyValue}
                       onChange={event => updateRow(index, 'monthlyValue', event.target.value)}
-                      className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-700">Parcelas restantes</label>
+                  <div className="w-16">
+                    <label className="block text-xs font-medium text-zinc-600">Parc.</label>
                     <input
                       type="text"
                       inputMode="numeric"
                       pattern="[0-9]*"
+                      maxLength={2}
                       name="remainingInstallments"
                       value={row.remainingInstallments}
                       onChange={event => updateRow(index, 'remainingInstallments', event.target.value.replace(/\D/g, ''))}
-                      className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      className="mt-1 block h-9 w-full rounded-md border-zinc-300 text-center shadow-sm focus:border-blue-500 focus:ring-blue-500"
                     />
                   </div>
                   {rows.length > 1 && (
                     <button type="button" onClick={() => removeRow(index)}
-                      className="justify-self-start pb-2 text-red-500 hover:text-red-700 sm:justify-self-center">
+                      className="h-9 w-8 rounded-md text-red-500 hover:bg-red-50 hover:text-red-700">
                       ✕
                     </button>
                   )}
