@@ -58,11 +58,11 @@ function InputField({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label htmlFor={name} className="text-sm font-medium text-gray-700">
+      <label htmlFor={name} className="text-sm font-medium text-gray-700 dark:text-zinc-200">
         {label}
       </label>
       <div className="flex items-center gap-1">
-        {prefix && <span className="text-sm text-gray-500">{prefix}</span>}
+        {prefix && <span className="text-sm text-gray-500 dark:text-zinc-400">{prefix}</span>}
         <input
           id={name}
           name={name}
@@ -70,19 +70,19 @@ function InputField({
           step={step}
           value={value}
           onChange={(e) => onChange(name, parseFloat(e.target.value) || 0)}
-          className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border border-gray-300 rounded px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500"
         />
-        {suffix && <span className="text-sm text-gray-500 whitespace-nowrap">{suffix}</span>}
+        {suffix && <span className="text-sm text-gray-500 whitespace-nowrap dark:text-zinc-400">{suffix}</span>}
       </div>
-      {hint && <span className="text-xs text-gray-400">{hint}</span>}
+      {hint && <span className="text-xs text-gray-400 dark:text-zinc-400">{hint}</span>}
     </div>
   );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-      <h3 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">{title}</h3>
+    <div className="border border-gray-200 rounded-lg p-4 space-y-3 dark:border-zinc-700 dark:bg-zinc-900/40">
+      <h3 className="font-semibold text-gray-800 text-sm uppercase tracking-wide dark:text-zinc-100">{title}</h3>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {children}
       </div>
@@ -102,11 +102,11 @@ function ResultCard({
   color?: 'green' | 'red' | 'blue' | 'gray' | 'yellow';
 }) {
   const colors = {
-    green: 'bg-green-50 border-green-200 text-green-800',
-    red: 'bg-red-50 border-red-200 text-red-800',
-    blue: 'bg-blue-50 border-blue-200 text-blue-800',
-    gray: 'bg-gray-50 border-gray-200 text-gray-800',
-    yellow: 'bg-yellow-50 border-yellow-200 text-yellow-800',
+    green: 'bg-green-50 border-green-200 text-green-800 dark:bg-emerald-500/12 dark:border-emerald-500/35 dark:text-emerald-100',
+    red: 'bg-red-50 border-red-200 text-red-800 dark:bg-red-500/12 dark:border-red-500/35 dark:text-red-100',
+    blue: 'bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-500/12 dark:border-blue-500/35 dark:text-blue-100',
+    gray: 'bg-gray-50 border-gray-200 text-gray-800 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100',
+    yellow: 'bg-yellow-50 border-yellow-200 text-yellow-800 dark:bg-amber-500/12 dark:border-amber-500/35 dark:text-amber-100',
   };
   return (
     <div className={`rounded-lg border p-4 ${colors[color]}`}>
@@ -154,8 +154,8 @@ export default function HabitarPage() {
   return (
     <main className="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Habitar</h1>
-        <p className="text-gray-500 text-sm mt-1">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-zinc-50">Habitar</h1>
+        <p className="text-gray-500 text-sm mt-1 dark:text-zinc-400">
           Simulador: Alugar vs Comprar — Compare cenários com financiamento, amortização e investimentos
         </p>
       </div>
@@ -166,19 +166,19 @@ export default function HabitarPage() {
           <InputField label="Valor do Imóvel" name="propertyValue" value={input.propertyValue} onChange={handleChange} prefix="R$" />
           <InputField label="Entrada" name="downPayment" value={input.downPayment} onChange={handleChange} prefix="R$" hint={`${((input.downPayment / input.propertyValue) * 100).toFixed(1)}% do valor`} />
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-gray-700">Valor Financiado</label>
-            <div className="border border-gray-200 rounded px-3 py-2 text-sm bg-gray-50 font-semibold">
+            <label className="text-sm font-medium text-gray-700 dark:text-zinc-200">Valor Financiado</label>
+            <div className="border border-gray-200 rounded px-3 py-2 text-sm bg-gray-50 font-semibold text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100">
               {formatBRL(financedAmount)}
             </div>
           </div>
           <InputField label="Taxa de Juros Efetiva (ao ano)" name="annualInterestRate" value={input.annualInterestRate} onChange={handleChange} suffix="%" />
           <InputField label="Prazo do Financiamento" name="loanTermMonths" value={input.loanTermMonths} onChange={handleChange} suffix="meses" hint={formatMonths(input.loanTermMonths)} />
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-gray-700">Sistema de Amortização</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-zinc-200">Sistema de Amortização</label>
             <select
               value={input.amortizationSystem}
               onChange={(e) => handleSelectChange('amortizationSystem', e.target.value)}
-              className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="border border-gray-300 rounded px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
             >
               <option value="SAC">SAC - Amortização Constante</option>
               <option value="PRICE">PRICE - Prestação Fixa</option>
@@ -208,7 +208,7 @@ export default function HabitarPage() {
           <InputField label="Rendimento anual" name="investmentReturnRate" value={input.investmentReturnRate} onChange={handleChange} suffix="%" hint="CDI, Selic, etc." />
           <InputField label="Capital inicial do locatário" name="initialInvestmentRent" value={input.initialInvestmentRent} onChange={handleChange} prefix="R$" hint="Zero se a entrada vier de FGTS" />
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-400 dark:text-zinc-400">
               Quem aluga investe a diferença entre o custo total de comprar e o aluguel.
               Ambos os cenários usam o mesmo orçamento mensal.
             </span>
@@ -234,15 +234,15 @@ export default function HabitarPage() {
       </button>
 
       {result && (
-        <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-          <div className="text-sm font-semibold text-gray-800">Critério do veredito principal</div>
+        <div className="border border-gray-200 rounded-lg p-4 space-y-3 dark:border-zinc-700 dark:bg-zinc-900/40">
+          <div className="text-sm font-semibold text-gray-800 dark:text-zinc-100">Critério do veredito principal</div>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setDecisionCriterion('cashFlow')}
               className={`px-3 py-2 text-sm rounded-md border transition-colors ${
                 decisionCriterion === 'cashFlow'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                  ? 'bg-blue-50 border-blue-400 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
+                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'
               }`}
             >
               Saldo líquido (mais justo no caixa)
@@ -251,8 +251,8 @@ export default function HabitarPage() {
               onClick={() => setDecisionCriterion('netWorth')}
               className={`px-3 py-2 text-sm rounded-md border transition-colors ${
                 decisionCriterion === 'netWorth'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                  ? 'bg-blue-50 border-blue-400 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
+                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'
               }`}
             >
               Patrimônio final (acumulação)
@@ -263,13 +263,13 @@ export default function HabitarPage() {
 
       {/* TABS */}
       {result && (
-        <div className="flex gap-0 border-b border-gray-200">
+        <div className="flex gap-0 border-b border-gray-200 dark:border-zinc-700">
           <button
             onClick={() => setTab('comparativo')}
             className={`px-6 py-3 text-sm font-semibold transition-colors ${
               tab === 'comparativo'
                 ? 'border-b-2 border-blue-600 text-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
+                : 'text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200'
             }`}
           >
             Comparativo
@@ -279,7 +279,7 @@ export default function HabitarPage() {
             className={`px-6 py-3 text-sm font-semibold transition-colors ${
               tab === 'equilibrio'
                 ? 'border-b-2 border-blue-600 text-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
+                : 'text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200'
             }`}
           >
             Equilíbrio
@@ -290,24 +290,24 @@ export default function HabitarPage() {
       {/* TAB: EQUILÍBRIO */}
       {result && equilibrium && tab === 'equilibrio' && (
         <div className="space-y-6 pt-4">
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-zinc-400">
             Pontos de equilíbrio calculados a partir dos seus parâmetros. Mostra os limites onde a decisão muda.
           </p>
 
           {/* Aluguel máximo */}
-          <div className="border border-gray-200 rounded-xl p-6 space-y-2">
-            <h3 className="font-bold text-gray-800">Aluguel de Equilíbrio</h3>
-            <p className="text-sm text-gray-500">
+          <div className="border border-gray-200 rounded-xl p-6 space-y-2 dark:border-zinc-700 dark:bg-zinc-900/40">
+            <h3 className="font-bold text-gray-800 dark:text-zinc-100">Aluguel de Equilíbrio</h3>
+            <p className="text-sm text-gray-500 dark:text-zinc-400">
               Com estas condições de financiamento, qual o aluguel máximo em que alugar empata com comprar?
             </p>
             {equilibrium.maxRent !== null ? (
               <div className="mt-3">
                 <div className="text-3xl font-bold text-blue-700">{formatBRL(equilibrium.maxRent)}</div>
-                <p className="text-sm text-gray-600 mt-1">
+                <p className="text-sm text-gray-600 mt-1 dark:text-zinc-300">
                   Se o aluguel for <strong>menor</strong> que {formatBRL(equilibrium.maxRent)}, alugar é mais vantajoso.
                   Se for <strong>maior</strong>, comprar vale mais a pena.
                 </p>
-                <p className="text-xs text-gray-400 mt-2">
+                <p className="text-xs text-gray-400 mt-2 dark:text-zinc-400">
                   Seu aluguel atual: {formatBRL(input.rentValue)} — {
                     input.rentValue < equilibrium.maxRent
                       ? 'alugar está vantajoso'
@@ -318,26 +318,26 @@ export default function HabitarPage() {
                 </p>
               </div>
             ) : (
-              <p className="text-sm text-yellow-700 mt-3">
+              <p className="text-sm text-yellow-700 mt-3 dark:text-amber-200">
                 Não foi possível encontrar um ponto de equilíbrio no intervalo analisado.
               </p>
             )}
           </div>
 
           {/* Taxa de juros máxima */}
-          <div className="border border-gray-200 rounded-xl p-6 space-y-2">
-            <h3 className="font-bold text-gray-800">Taxa de Juros de Equilíbrio</h3>
-            <p className="text-sm text-gray-500">
+          <div className="border border-gray-200 rounded-xl p-6 space-y-2 dark:border-zinc-700 dark:bg-zinc-900/40">
+            <h3 className="font-bold text-gray-800 dark:text-zinc-100">Taxa de Juros de Equilíbrio</h3>
+            <p className="text-sm text-gray-500 dark:text-zinc-400">
               Até qual taxa de juros comprar ainda é mais vantajoso que alugar?
             </p>
             {equilibrium.maxInterestRate !== null ? (
               <div className="mt-3">
                 <div className="text-3xl font-bold text-green-700">{equilibrium.maxInterestRate.toFixed(2)}% a.a.</div>
-                <p className="text-sm text-gray-600 mt-1">
+                <p className="text-sm text-gray-600 mt-1 dark:text-zinc-300">
                   Comprar vale a pena se a taxa for <strong>até {equilibrium.maxInterestRate.toFixed(2)}%</strong> ao ano.
                   Acima disso, alugar se torna mais vantajoso.
                 </p>
-                <p className="text-xs text-gray-400 mt-2">
+                <p className="text-xs text-gray-400 mt-2 dark:text-zinc-400">
                   Sua taxa atual: {input.annualInterestRate}% a.a. — {
                     input.annualInterestRate < equilibrium.maxInterestRate
                       ? 'comprar está vantajoso'
@@ -348,26 +348,26 @@ export default function HabitarPage() {
                 </p>
               </div>
             ) : (
-              <p className="text-sm text-yellow-700 mt-3">
+              <p className="text-sm text-yellow-700 mt-3 dark:text-amber-200">
                 Não foi possível encontrar um ponto de equilíbrio no intervalo analisado.
               </p>
             )}
           </div>
 
           {/* Entrada mínima */}
-          <div className="border border-gray-200 rounded-xl p-6 space-y-2">
-            <h3 className="font-bold text-gray-800">Entrada Mínima de Equilíbrio</h3>
-            <p className="text-sm text-gray-500">
+          <div className="border border-gray-200 rounded-xl p-6 space-y-2 dark:border-zinc-700 dark:bg-zinc-900/40">
+            <h3 className="font-bold text-gray-800 dark:text-zinc-100">Entrada Mínima de Equilíbrio</h3>
+            <p className="text-sm text-gray-500 dark:text-zinc-400">
               Qual a entrada mínima necessária para que comprar seja mais vantajoso que alugar?
             </p>
             {equilibrium.minDownPayment !== null ? (
               <div className="mt-3">
                 <div className="text-3xl font-bold text-green-700">{formatBRL(equilibrium.minDownPayment)}</div>
-                <p className="text-sm text-gray-600 mt-1">
+                <p className="text-sm text-gray-600 mt-1 dark:text-zinc-300">
                   Com entrada <strong>acima de {formatBRL(equilibrium.minDownPayment)}</strong> ({((equilibrium.minDownPayment / input.propertyValue) * 100).toFixed(1)}% do imóvel), comprar é mais vantajoso.
                   Abaixo disso, alugar vale mais.
                 </p>
-                <p className="text-xs text-gray-400 mt-2">
+                <p className="text-xs text-gray-400 mt-2 dark:text-zinc-400">
                   Sua entrada atual: {formatBRL(input.downPayment)} ({((input.downPayment / input.propertyValue) * 100).toFixed(1)}%) — {
                     input.downPayment > equilibrium.minDownPayment
                       ? 'comprar está vantajoso'
@@ -440,7 +440,7 @@ export default function HabitarPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* COMPRAR */}
             <div className="space-y-3">
-              <h2 className="text-lg font-bold text-green-800 flex items-center gap-2">
+              <h2 className="text-lg font-bold text-green-800 flex items-center gap-2 dark:text-emerald-200">
                 <span className="w-3 h-3 bg-green-500 rounded-full"></span>
                 Cenário: Comprar
               </h2>
@@ -489,7 +489,7 @@ export default function HabitarPage() {
 
             {/* ALUGAR */}
             <div className="space-y-3">
-              <h2 className="text-lg font-bold text-blue-800 flex items-center gap-2">
+              <h2 className="text-lg font-bold text-blue-800 flex items-center gap-2 dark:text-blue-200">
                 <span className="w-3 h-3 bg-blue-500 rounded-full"></span>
                 Cenário: Alugar + Investir
               </h2>
@@ -564,28 +564,28 @@ export default function HabitarPage() {
 
             {showSchedule && (
               <div className="mt-3 overflow-x-auto">
-                <table className="min-w-full text-xs border-collapse">
+                <table className="min-w-full text-xs border-collapse dark:text-zinc-200">
                   <thead>
-                    <tr className="bg-gray-100">
-                      <th className="border px-2 py-1 text-left">Mês</th>
-                      <th className="border px-2 py-1 text-right">Prestação</th>
-                      <th className="border px-2 py-1 text-right">Juros</th>
-                      <th className="border px-2 py-1 text-right">Amortização</th>
-                      <th className="border px-2 py-1 text-right">Saldo Devedor</th>
-                      <th className="border px-2 py-1 text-right">Amort. Extra</th>
-                      <th className="border px-2 py-1 text-right">Saldo após Extra</th>
+                    <tr className="bg-gray-100 dark:bg-zinc-800 dark:text-zinc-100">
+                      <th className="border px-2 py-1 text-left dark:border-zinc-700">Mês</th>
+                      <th className="border px-2 py-1 text-right dark:border-zinc-700">Prestação</th>
+                      <th className="border px-2 py-1 text-right dark:border-zinc-700">Juros</th>
+                      <th className="border px-2 py-1 text-right dark:border-zinc-700">Amortização</th>
+                      <th className="border px-2 py-1 text-right dark:border-zinc-700">Saldo Devedor</th>
+                      <th className="border px-2 py-1 text-right dark:border-zinc-700">Amort. Extra</th>
+                      <th className="border px-2 py-1 text-right dark:border-zinc-700">Saldo após Extra</th>
                     </tr>
                   </thead>
                   <tbody>
                     {result.buy.schedule.map((row) => (
-                      <tr key={row.month} className={row.month % 2 === 0 ? 'bg-gray-50' : ''}>
-                        <td className="border px-2 py-1">{row.month}</td>
-                        <td className="border px-2 py-1 text-right">{formatBRL(row.payment)}</td>
-                        <td className="border px-2 py-1 text-right">{formatBRL(row.interest)}</td>
-                        <td className="border px-2 py-1 text-right">{formatBRL(row.amortization)}</td>
-                        <td className="border px-2 py-1 text-right">{formatBRL(row.balance)}</td>
-                        <td className="border px-2 py-1 text-right">{row.extraAmortization > 0 ? formatBRL(row.extraAmortization) : '-'}</td>
-                        <td className="border px-2 py-1 text-right font-medium">{formatBRL(row.balanceAfterExtra)}</td>
+                      <tr key={row.month} className={row.month % 2 === 0 ? 'bg-gray-50 dark:bg-zinc-900' : 'dark:bg-zinc-950'}>
+                        <td className="border px-2 py-1 dark:border-zinc-800">{row.month}</td>
+                        <td className="border px-2 py-1 text-right dark:border-zinc-800">{formatBRL(row.payment)}</td>
+                        <td className="border px-2 py-1 text-right dark:border-zinc-800">{formatBRL(row.interest)}</td>
+                        <td className="border px-2 py-1 text-right dark:border-zinc-800">{formatBRL(row.amortization)}</td>
+                        <td className="border px-2 py-1 text-right dark:border-zinc-800">{formatBRL(row.balance)}</td>
+                        <td className="border px-2 py-1 text-right dark:border-zinc-800">{row.extraAmortization > 0 ? formatBRL(row.extraAmortization) : '-'}</td>
+                        <td className="border px-2 py-1 text-right font-medium dark:border-zinc-800">{formatBRL(row.balanceAfterExtra)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -607,22 +607,22 @@ export default function HabitarPage() {
             </button>
 
             <div id="rent-table" className="hidden mt-3 overflow-x-auto">
-              <table className="min-w-full text-xs border-collapse">
+              <table className="min-w-full text-xs border-collapse dark:text-zinc-200">
                 <thead>
-                  <tr className="bg-gray-100">
-                    <th className="border px-2 py-1 text-left">Mês</th>
-                    <th className="border px-2 py-1 text-right">Aluguel</th>
-                    <th className="border px-2 py-1 text-right">Investido no Mês</th>
-                    <th className="border px-2 py-1 text-right">Saldo Investimentos</th>
+                  <tr className="bg-gray-100 dark:bg-zinc-800 dark:text-zinc-100">
+                    <th className="border px-2 py-1 text-left dark:border-zinc-700">Mês</th>
+                    <th className="border px-2 py-1 text-right dark:border-zinc-700">Aluguel</th>
+                    <th className="border px-2 py-1 text-right dark:border-zinc-700">Investido no Mês</th>
+                    <th className="border px-2 py-1 text-right dark:border-zinc-700">Saldo Investimentos</th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.rent.rentSchedule.map((row) => (
-                    <tr key={row.month} className={row.month % 2 === 0 ? 'bg-gray-50' : ''}>
-                      <td className="border px-2 py-1">{row.month}</td>
-                      <td className="border px-2 py-1 text-right">{formatBRL(row.rent)}</td>
-                      <td className="border px-2 py-1 text-right">{formatBRL(row.invested)}</td>
-                      <td className="border px-2 py-1 text-right font-medium">{formatBRL(row.balance)}</td>
+                    <tr key={row.month} className={row.month % 2 === 0 ? 'bg-gray-50 dark:bg-zinc-900' : 'dark:bg-zinc-950'}>
+                      <td className="border px-2 py-1 dark:border-zinc-800">{row.month}</td>
+                      <td className="border px-2 py-1 text-right dark:border-zinc-800">{formatBRL(row.rent)}</td>
+                      <td className="border px-2 py-1 text-right dark:border-zinc-800">{formatBRL(row.invested)}</td>
+                      <td className="border px-2 py-1 text-right font-medium dark:border-zinc-800">{formatBRL(row.balance)}</td>
                     </tr>
                   ))}
                 </tbody>
