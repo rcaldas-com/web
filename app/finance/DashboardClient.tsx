@@ -225,7 +225,7 @@ export default function DashboardClient({
             </h3>
             <Link href="/finance/cards" className="text-sm text-blue-600 hover:underline">Ver parcelas</Link>
           </div>
-          <div className="space-y-1">
+          <div className="divide-y divide-zinc-100">
             {[...cardViews].sort((a, b) => (a.paid === b.paid ? 0 : a.paid ? 1 : -1) || (a.dueDay ?? 99) - (b.dueDay ?? 99)).map(c => (
               <CardInvoiceRow key={c._id} card={c} yearMonth={yearMonth} />
             ))}
@@ -418,7 +418,7 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
 
   return (
     <label
-      className={`flex items-center gap-3 py-2 px-2 rounded-md cursor-pointer transition
+      className={`flex items-center gap-3 py-2 px-2 cursor-pointer transition
         ${card.paid ? 'bg-green-50' : 'hover:bg-zinc-50'}
         ${isPending ? 'opacity-70 pointer-events-none' : ''}`}
     >
@@ -512,11 +512,11 @@ function ExpenseChecklist({
         <h3 className="font-semibold text-zinc-700">{title}</h3>
         <span className="text-xs text-zinc-400">{paidCount}/{expenses.length} pagas</span>
       </div>
-      <div className="space-y-1">
+      <div className="divide-y divide-zinc-100">
         {expenses.map(e => (
           <div
             key={e.id}
-            className={`flex items-center gap-3 py-2 px-2 rounded-md transition
+            className={`flex items-center gap-3 py-2 px-2 transition
               ${e.paid ? 'bg-green-50' : 'hover:bg-zinc-50'}
               ${isPending ? 'opacity-70 pointer-events-none' : ''}`}
           >
