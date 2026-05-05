@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @source not "../habitar";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   *,
@@ -8,5 +9,9 @@
   ::backdrop,
   ::file-selector-button {
     border-color: var(--color-gray-200, currentColor);
+  }
+
+  html.dark {
+    color-scheme: dark;
   }
 }

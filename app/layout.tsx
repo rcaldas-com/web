@@ -32,15 +32,24 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const user = await getCurrentUser();
+  const userTheme = user?.theme === 'dark' ? 'dark' : 'light';
 
   return (
-    <html lang="pt">
-      <body className={`${inter.className} min-h-screen bg-zinc-100 text-zinc-900`}>
+    <html lang="pt" className={userTheme === 'dark' ? 'dark' : undefined} data-user-theme={user ? userTheme : ''} suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(() => { try { const root = document.documentElement; const serverTheme = root.dataset.userTheme; const storedTheme = localStorage.getItem('theme'); const theme = serverTheme || storedTheme || 'light'; root.classList.toggle('dark', theme === 'dark'); } catch (_) {} })();`,
+          }}
+        />
+      </head>
+      <body className={`${inter.className} min-h-screen bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100`}>
         <Container>
           <Header
             userName={user?.name}
             canAccessWallet={hasRole(user, 'wallet')}
             canAccessAdmin={hasRole(user, 'admin')}
+            theme={userTheme}
           />
           {children}
           <Footer />

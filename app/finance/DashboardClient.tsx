@@ -139,7 +139,7 @@ export default function DashboardClient({
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-4">
       {/* Guest mode banner */}
       {isGuest && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-sm text-amber-800 flex justify-between items-center">
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-sm text-amber-800 flex justify-between items-center dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
           <span>Modo offline — dados salvos no navegador.
             <Link href="/login" className="text-blue-600 hover:underline ml-1">Faça login</Link> para sincronizar.
           </span>
@@ -149,10 +149,10 @@ export default function DashboardClient({
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-3">
           <Link href={`/finance?month=${prevMonth}`}
-            className="text-zinc-400 hover:text-zinc-700 text-xl px-2">←</Link>
-          <h1 className="text-2xl font-bold capitalize">{monthLabel}</h1>
+            className="text-zinc-400 hover:text-zinc-700 text-xl px-2 dark:hover:text-zinc-200">←</Link>
+          <h1 className="text-2xl font-bold capitalize text-zinc-950 dark:text-zinc-50">{monthLabel}</h1>
           <Link href={`/finance?month=${nextMonth}`}
-            className="text-zinc-400 hover:text-zinc-700 text-xl px-2">→</Link>
+            className="text-zinc-400 hover:text-zinc-700 text-xl px-2 dark:hover:text-zinc-200">→</Link>
           {!isCurrentMonth && (
             <Link href="/finance" className="text-xs text-blue-600 hover:underline ml-2">Hoje</Link>
           )}
@@ -165,41 +165,41 @@ export default function DashboardClient({
 
       {/* Hero: Saldo Disponível + Saldo Mês na mesma linha */}
       <div className="grid grid-cols-3 gap-4">
-        <div className={`col-span-2 rounded-lg p-5 text-center ${effectiveBalance >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-          <p className="text-sm text-zinc-500">Saldo Disponível</p>
+        <div className={`col-span-2 rounded-lg p-5 text-center ${effectiveBalance >= 0 ? 'bg-green-50 border border-green-200 dark:border-green-900/60 dark:bg-green-950/30' : 'bg-red-50 border border-red-200 dark:border-red-900/60 dark:bg-red-950/30'}`}>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Saldo Disponível</p>
           <p className={`text-3xl font-bold ${effectiveBalance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
             {BRL(effectiveBalance)}
           </p>
-          <p className="text-xs text-zinc-400 mt-1">
+          <p className="text-xs text-zinc-400 mt-1 dark:text-zinc-500">
             {isCurrentMonth
               ? <>saldo {BRL(bankTotal)} − à vista {BRL(unpaidCash)} − faturas {BRL(unpaidInvoices)}{advanceDeducted > 0 && <> − adiant. {BRL(advanceDeducted)}</>}</>
               : <>projeção a partir do saldo atual</>
             }
           </p>
           {pendingSalary > 0 && (
-            <div className="mt-3 rounded-md border border-zinc-200 bg-white/70 px-3 py-2 text-sm">
-              <span className="text-zinc-500">Após salário previsto dia {profile.salary.paymentDay}: </span>
+            <div className="mt-3 rounded-md border border-zinc-200 bg-white/70 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900/70">
+              <span className="text-zinc-500 dark:text-zinc-400">Após salário previsto dia {profile.salary.paymentDay}: </span>
               <span className={`font-mono font-semibold ${projectedAfterSalary >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                 {BRL(projectedAfterSalary)}
               </span>
             </div>
           )}
         </div>
-        <div className={`rounded-lg p-5 text-center border ${monthBalance >= 0 ? 'bg-zinc-50 border-zinc-200' : 'bg-red-50/50 border-red-100'}`}>
-          <p className="text-sm text-zinc-500">Saldo do Mês</p>
-          <p className={`text-xl font-bold ${monthBalance >= 0 ? 'text-zinc-700' : 'text-red-700'}`}>
+        <div className={`rounded-lg p-5 text-center border ${monthBalance >= 0 ? 'bg-zinc-50 border-zinc-200 dark:border-zinc-800 dark:bg-zinc-900' : 'bg-red-50/50 border-red-100 dark:border-red-900/60 dark:bg-red-950/30'}`}>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Saldo do Mês</p>
+          <p className={`text-xl font-bold ${monthBalance >= 0 ? 'text-zinc-700 dark:text-zinc-200' : 'text-red-700'}`}>
             {BRL(monthBalance)}
           </p>
-          <p className="text-xs text-zinc-400 mt-1">receita − despesas</p>
+          <p className="text-xs text-zinc-400 mt-1 dark:text-zinc-500">receita − despesas</p>
         </div>
       </div>
 
       {/* Resumo discreto */}
-      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-zinc-500 px-1">
-        <span>Desp. cartão <span className="font-mono text-zinc-700">{BRL(totals.cardExpensesTotal)}</span></span>
-        <span>À vista <span className="font-mono text-zinc-700">{BRL(totals.cashExpensesTotal)}</span></span>
-        <span>Parcelas <span className="font-mono text-zinc-700">{BRL(totals.installmentsTotal)}</span></span>
-        <span>Faturas <span className="font-mono text-zinc-700">{BRL(totalInvoices)}</span></span>
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-zinc-500 px-1 dark:text-zinc-400">
+        <span>Desp. cartão <span className="font-mono text-zinc-700 dark:text-zinc-200">{BRL(totals.cardExpensesTotal)}</span></span>
+        <span>À vista <span className="font-mono text-zinc-700 dark:text-zinc-200">{BRL(totals.cashExpensesTotal)}</span></span>
+        <span>Parcelas <span className="font-mono text-zinc-700 dark:text-zinc-200">{BRL(totals.installmentsTotal)}</span></span>
+        <span>Faturas <span className="font-mono text-zinc-700 dark:text-zinc-200">{BRL(totalInvoices)}</span></span>
       </div>
 
       {/* Saldos bancários - editáveis */}
@@ -215,9 +215,9 @@ export default function DashboardClient({
 
       {/* Cartões / Faturas do mês */}
       {cardViews.length > 0 && (
-        <div className="bg-white rounded-lg border p-4">
+        <div className="bg-white rounded-lg border p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="font-semibold text-zinc-700">
+            <h3 className="font-semibold text-zinc-700 dark:text-zinc-200">
               Faturas do Mês
               <span className="text-xs text-zinc-400 font-normal ml-2">
                 {cardViews.filter(c => c.paid).length}/{cardViews.filter(c => c.invoiceTotal > 0).length} pagas
@@ -225,12 +225,12 @@ export default function DashboardClient({
             </h3>
             <Link href="/finance/cards" className="text-sm text-blue-600 hover:underline">Ver parcelas</Link>
           </div>
-          <div className="divide-y divide-zinc-100">
+          <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {[...cardViews].sort((a, b) => (a.paid === b.paid ? 0 : a.paid ? 1 : -1) || (a.dueDay ?? 99) - (b.dueDay ?? 99)).map(c => (
               <CardInvoiceRow key={c._id} card={c} yearMonth={yearMonth} />
             ))}
           </div>
-          <div className="flex justify-between mt-3 pt-3 border-t text-sm">
+          <div className="flex justify-between mt-3 pt-3 border-t text-sm dark:border-zinc-800">
             <div>
               <span className="text-zinc-500">Pagas: </span>
               <span className="font-mono text-green-600">
@@ -239,7 +239,7 @@ export default function DashboardClient({
             </div>
             <div>
               <span className="text-zinc-500">Pendentes: </span>
-              <span className="font-mono font-semibold text-zinc-800">{BRL(unpaidInvoices)}</span>
+              <span className="font-mono font-semibold text-zinc-800 dark:text-zinc-100">{BRL(unpaidInvoices)}</span>
             </div>
             <div>
               <span className="text-zinc-500">Total: </span>
@@ -251,11 +251,11 @@ export default function DashboardClient({
 
       {/* Parcelas */}
       {installmentGroups.length > 0 && (
-        <div className="bg-white rounded-lg border p-4">
-          <h3 className="font-semibold text-zinc-700 mb-2">Parcelas</h3>
+        <div className="bg-white rounded-lg border p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <h3 className="font-semibold text-zinc-700 mb-2 dark:text-zinc-200">Parcelas</h3>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-zinc-500 border-b">
+              <tr className="text-left text-zinc-500 border-b dark:border-zinc-800 dark:text-zinc-400">
                 <th className="pb-1">Grupo</th>
                 <th className="pb-1">Itens</th>
                 <th className="pb-1 text-right">Valor/mês</th>
@@ -263,9 +263,9 @@ export default function DashboardClient({
             </thead>
             <tbody>
               {installmentGroups.map(g => (
-                <tr key={g.remaining} className="border-b last:border-b-0">
+                <tr key={g.remaining} className="border-b last:border-b-0 dark:border-zinc-800">
                   <td className="py-1 font-medium">x{g.remaining}</td>
-                  <td className="py-1 text-zinc-600">
+                  <td className="py-1 text-zinc-600 dark:text-zinc-300">
                     {g.items.map(it => `${it.description} (${it.cardName})`).join(', ')}
                   </td>
                   <td className="py-1 text-right font-mono">{BRL(g.total)}</td>
@@ -282,12 +282,12 @@ export default function DashboardClient({
 
       {/* Projeções */}
       {projections.length > 0 && (
-        <div className="bg-white rounded-lg border p-4">
-          <h3 className="font-semibold text-zinc-700 mb-2">Projeções</h3>
+        <div className="bg-white rounded-lg border p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <h3 className="font-semibold text-zinc-700 mb-2 dark:text-zinc-200">Projeções</h3>
           <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
             {projections.map(p => (
-              <div key={p.label} className={`text-center p-2 rounded ${p.value >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-                <p className="text-xs text-zinc-500">{p.label}</p>
+              <div key={p.label} className={`text-center p-2 rounded ${p.value >= 0 ? 'bg-green-50 dark:bg-green-950/30' : 'bg-red-50 dark:bg-red-950/30'}`}>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">{p.label}</p>
                 <p className={`font-mono text-sm font-semibold ${p.value >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                   {BRL(p.value)}
                 </p>
@@ -337,15 +337,15 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
   };
 
   return (
-    <div className={`bg-white rounded-lg border p-4 ${isPending ? 'opacity-70' : ''}`}>
+    <div className={`bg-white rounded-lg border p-4 dark:border-zinc-800 dark:bg-zinc-900 ${isPending ? 'opacity-70' : ''}`}>
       <div className="flex justify-between items-center mb-3">
-        <h3 className="font-semibold text-zinc-700">Saldos</h3>
+        <h3 className="font-semibold text-zinc-700 dark:text-zinc-200">Saldos</h3>
         <Link href="/finance/setup/profile" className="text-xs text-blue-600 hover:underline">Editar perfil</Link>
       </div>
       <div className="flex flex-wrap gap-4">
         {banks.map((b, i) => (
           <div key={i} className="text-center min-w-[80px]">
-            <p className="text-xs text-zinc-500">{b.name}</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">{b.name}</p>
             {editingIdx === i ? (
               <span className="inline-flex items-center gap-1">
                 <input
@@ -353,13 +353,13 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
                   onChange={e => setEditVal(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') saveBank(i); if (e.key === 'Escape') setEditingIdx(null); }}
                   autoFocus
-                  className="w-24 text-center rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500"
+                  className="w-24 text-center rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
                 />
                 <button onClick={() => saveBank(i)} className="text-green-600 text-xs font-bold">✓</button>
               </span>
             ) : (
               <p
-                className="font-mono font-semibold cursor-pointer hover:text-blue-600 transition-colors"
+                className="font-mono font-semibold cursor-pointer hover:text-blue-600 transition-colors dark:text-zinc-100"
                 onClick={() => { setEditVal(b.balance.toString()); setEditingIdx(i); }}
                 title="Clique para atualizar saldo"
               >
@@ -369,7 +369,7 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
           </div>
         ))}
         <div className="text-center min-w-[80px]">
-          <p className="text-xs text-zinc-500">VR/VA</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">VR/VA</p>
           {editingVR ? (
             <span className="inline-flex items-center gap-1">
               <input
@@ -377,13 +377,13 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
                 onChange={e => setVrVal(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') saveVR(); if (e.key === 'Escape') setEditingVR(false); }}
                 autoFocus
-                className="w-24 text-center rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500"
+                className="w-24 text-center rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               />
               <button onClick={() => saveVR()} className="text-green-600 text-xs font-bold">✓</button>
             </span>
           ) : (
             <p
-              className="font-mono font-semibold cursor-pointer hover:text-blue-600 transition-colors"
+              className="font-mono font-semibold cursor-pointer hover:text-blue-600 transition-colors dark:text-zinc-100"
               onClick={() => { setVrVal(foodVoucher.toString()); setEditingVR(true); }}
               title="Clique para atualizar saldo VR/VA"
             >
@@ -419,7 +419,7 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
   return (
     <label
       className={`flex items-center gap-3 py-2 px-2 cursor-pointer transition
-        ${card.paid ? 'bg-green-50' : 'hover:bg-zinc-50'}
+        ${card.paid ? 'bg-green-50 dark:bg-green-950/30' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/70'}
         ${isPending ? 'opacity-70 pointer-events-none' : ''}`}
     >
       <input
@@ -428,7 +428,7 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
         onChange={handleToggle}
         className="h-4 w-4 rounded border-zinc-300 text-green-600 focus:ring-green-500"
       />
-      <span className={`flex-1 text-sm ${card.paid ? 'line-through text-zinc-400' : 'text-zinc-800'}`}>
+      <span className={`flex-1 text-sm ${card.paid ? 'line-through text-zinc-400 dark:text-zinc-500' : 'text-zinc-800 dark:text-zinc-200'}`}>
         {card.name}
         <span className="text-xs text-zinc-400 ml-1">dia {card.dueDay}</span>
         {card.installmentsTotal > 0 && (
@@ -446,14 +446,14 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
             onChange={e => setVal(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false); }}
             autoFocus
-            className="w-28 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500"
+            className="w-28 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
           />
           <button onClick={handleSave} className="text-green-600 hover:text-green-800 text-xs font-bold">✓</button>
           <button onClick={() => setEditing(false)} className="text-zinc-400 hover:text-zinc-600 text-xs">✕</button>
         </span>
       ) : (
         <span
-          className={`font-mono text-sm cursor-pointer hover:text-blue-600 transition-colors ${card.paid ? 'text-green-600' : 'text-zinc-700'}`}
+          className={`font-mono text-sm cursor-pointer hover:text-blue-600 transition-colors ${card.paid ? 'text-green-600' : 'text-zinc-700 dark:text-zinc-200'}`}
           onClick={e => { e.preventDefault(); setVal(card.invoiceTotal.toString()); setEditing(true); }}
           title="Clique para editar fatura"
         >
@@ -507,17 +507,17 @@ function ExpenseChecklist({
   if (expenses.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-lg border p-4">
+    <div className="bg-white rounded-lg border p-4 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex justify-between items-center mb-3">
-        <h3 className="font-semibold text-zinc-700">{title}</h3>
+        <h3 className="font-semibold text-zinc-700 dark:text-zinc-200">{title}</h3>
         <span className="text-xs text-zinc-400">{paidCount}/{expenses.length} pagas</span>
       </div>
-      <div className="divide-y divide-zinc-100">
+      <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
         {expenses.map(e => (
           <div
             key={e.id}
             className={`flex items-center gap-3 py-2 px-2 transition
-              ${e.paid ? 'bg-green-50' : 'hover:bg-zinc-50'}
+              ${e.paid ? 'bg-green-50 dark:bg-green-950/30' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/70'}
               ${isPending ? 'opacity-70 pointer-events-none' : ''}`}
           >
             <label className="flex items-center cursor-pointer p-1">
@@ -528,7 +528,7 @@ function ExpenseChecklist({
                 className="h-4 w-4 rounded border-zinc-300 text-green-600 focus:ring-green-500"
               />
             </label>
-            <span className={`flex-1 text-sm ${e.paid ? 'line-through text-zinc-400' : 'text-zinc-800'}`}>
+            <span className={`flex-1 text-sm ${e.paid ? 'line-through text-zinc-400 dark:text-zinc-500' : 'text-zinc-800 dark:text-zinc-200'}`}>
               <span className="text-xs mr-1">{e.category === 'card' ? '💳' : '💵'}</span>
               {e.name}
               {e.proportional && (
@@ -547,14 +547,14 @@ function ExpenseChecklist({
                   onChange={ev => setEditVal(ev.target.value)}
                   onKeyDown={ev => { if (ev.key === 'Enter') handleSaveValue(e); if (ev.key === 'Escape') setEditingId(null); }}
                   autoFocus
-                  className="w-24 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500"
+                  className="w-24 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
                 />
                 <button onClick={() => handleSaveValue(e)} className="text-green-600 text-xs font-bold">✓</button>
                 <button onClick={() => setEditingId(null)} className="text-zinc-400 text-xs">✕</button>
               </span>
             ) : (
               <span
-                className={`font-mono text-sm cursor-pointer hover:text-blue-600 transition-colors ${e.paid ? 'text-green-600' : 'text-zinc-700'}`}
+                className={`font-mono text-sm cursor-pointer hover:text-blue-600 transition-colors ${e.paid ? 'text-green-600' : 'text-zinc-700 dark:text-zinc-200'}`}
                 onClick={() => { setEditVal(e.baseValue.toString()); setEditingId(e.id); }}
                 title="Clique para alterar valor deste mês"
               >
@@ -564,14 +564,14 @@ function ExpenseChecklist({
           </div>
         ))}
       </div>
-      <div className="flex justify-between mt-3 pt-3 border-t text-sm">
+      <div className="flex justify-between mt-3 pt-3 border-t text-sm dark:border-zinc-800">
         <div>
           <span className="text-zinc-500">Pago: </span>
           <span className="font-mono text-green-600">{BRL(paidTotal)}</span>
         </div>
         <div>
           <span className="text-zinc-500">Pendente: </span>
-          <span className="font-mono font-semibold text-zinc-800">{BRL(pendingTotal)}</span>
+          <span className="font-mono font-semibold text-zinc-800 dark:text-zinc-100">{BRL(pendingTotal)}</span>
         </div>
         <div>
           <span className="text-zinc-500">Total: </span>

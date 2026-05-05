@@ -21,6 +21,10 @@ function normalizeRoles(user: Record<string, unknown>): UserRole[] {
   return roles;
 }
 
+function normalizeTheme(user: Record<string, unknown>) {
+  return user.theme === 'dark' ? 'dark' : 'light';
+}
+
 export async function getUserById(userId: string): Promise<AuthUser | null> {
   try {
     const client = await clientPromise;
@@ -44,6 +48,7 @@ export async function getUserById(userId: string): Promise<AuthUser | null> {
       emailVerified: user.emailVerified ?? false,
       verificationToken: user.verificationToken || null,
       verificationTokenExpires: user.verificationTokenExpires || null,
+      theme: normalizeTheme(user),
     };
   } catch (error) {
     console.error('Database Error:', error);
@@ -75,6 +80,7 @@ export async function getUserByEmail(email: string): Promise<AuthUser | null> {
       emailVerified: user.emailVerified ?? true,
       verificationToken: user.verificationToken ?? null,
       verificationTokenExpires: user.verificationTokenExpires ?? null,
+      theme: normalizeTheme(user),
     };
   } catch (error) {
     console.error('Database Error:', error);
@@ -102,6 +108,7 @@ export async function authenticateUser(email: string, password: string): Promise
       roles: user.roles,
       isActive: user.isActive,
       emailVerified: user.emailVerified,
+      theme: user.theme,
     };
   } catch (error) {
     console.error('Authentication Error:', error);

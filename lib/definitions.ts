@@ -1,4 +1,5 @@
 export type UserRole = 'admin' | 'wallet' | 'digitar';
+export type ThemePreference = 'light' | 'dark';
 
 export type AuthUser = {
   _id: string;
@@ -12,6 +13,7 @@ export type AuthUser = {
   emailVerified: boolean;
   verificationToken: string | null;
   verificationTokenExpires: Date | null;
+  theme?: ThemePreference;
 };
 
 export type UserSession = {
@@ -22,4 +24,5 @@ export type UserSession = {
   roles: UserRole[];
   isActive: boolean;
   emailVerified: boolean;
+  theme?: ThemePreference;
 };

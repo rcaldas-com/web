@@ -40,8 +40,8 @@ export default function CardsClient({
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold">Cartões & Parcelas</h1>
-          <p className="text-xs text-zinc-400">Referência: próximo mês</p>
+          <h1 className="text-2xl font-bold text-zinc-950 dark:text-zinc-50">Cartões & Parcelas</h1>
+          <p className="text-xs text-zinc-400 dark:text-zinc-400">Referência: próximo mês</p>
         </div>
         <Link href="/finance" className="text-sm text-blue-600 hover:underline">
           ← Dashboard
@@ -50,17 +50,17 @@ export default function CardsClient({
 
       {/* Totals */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-lg border p-3 text-center">
-          <p className="text-xs text-zinc-500">Total Faturas</p>
-          <p className="text-lg font-mono font-semibold">{BRL(totalInvoice)}</p>
+        <div className="bg-white rounded-lg border p-3 text-center dark:border-zinc-700 dark:bg-zinc-800">
+          <p className="text-xs text-zinc-500 dark:text-zinc-300">Total Faturas</p>
+          <p className="text-lg font-mono font-semibold text-zinc-900 dark:text-zinc-50">{BRL(totalInvoice)}</p>
         </div>
-        <div className="bg-white rounded-lg border p-3 text-center">
-          <p className="text-xs text-zinc-500">Total Parcelas</p>
-          <p className="text-lg font-mono font-semibold">{BRL(totalInstallments)}</p>
+        <div className="bg-white rounded-lg border p-3 text-center dark:border-zinc-700 dark:bg-zinc-800">
+          <p className="text-xs text-zinc-500 dark:text-zinc-300">Total Parcelas</p>
+          <p className="text-lg font-mono font-semibold text-zinc-900 dark:text-zinc-50">{BRL(totalInstallments)}</p>
         </div>
-        <div className="bg-white rounded-lg border p-3 text-center">
-          <p className="text-xs text-zinc-500">Extras</p>
-          <p className="text-lg font-mono font-semibold">{BRL(totalExtras)}</p>
+        <div className="bg-white rounded-lg border p-3 text-center dark:border-zinc-700 dark:bg-zinc-800">
+          <p className="text-xs text-zinc-500 dark:text-zinc-300">Extras</p>
+          <p className="text-lg font-mono font-semibold text-zinc-900 dark:text-zinc-50">{BRL(totalExtras)}</p>
         </div>
       </div>
 
@@ -71,24 +71,24 @@ export default function CardsClient({
 
       {/* Add new installment */}
       {cards.length > 0 && (
-        <div className="bg-white rounded-lg border p-4">
-          <h3 className="font-semibold text-zinc-700 mb-3">Nova Parcela</h3>
+        <div className="bg-white rounded-lg border p-4 dark:border-zinc-700 dark:bg-zinc-800">
+          <h3 className="font-semibold text-zinc-700 mb-3 dark:text-zinc-100">Nova Parcela</h3>
           <form ref={formRef} action={handleAdd} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-zinc-700">Descrição</label>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-200">Descrição</label>
                 <input
                   ref={descRef}
                   type="text"
                   name="description"
-                  className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-zinc-700">Cartão</label>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-200">Cartão</label>
                 <select
                   name="cardId"
-                  className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
                 >
                   {cards.map((c) => (
                     <option key={c._id} value={c._id}>
@@ -100,20 +100,20 @@ export default function CardsClient({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-zinc-700">Valor/mês</label>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-200">Valor/mês</label>
                 <input
                   type="text"
                   inputMode="decimal"
                   name="monthlyValue"
-                  className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-zinc-700">Restantes</label>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-200">Restantes</label>
                 <input
                   type="number"
                   name="remainingInstallments"
-                  className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
                 />
               </div>
             </div>
@@ -145,15 +145,15 @@ function CardSection({ card, yearMonth }: { card: CardView; yearMonth: string })
 
   return (
     <div
-      className={`bg-white rounded-lg border p-4 space-y-3 ${isPending ? 'opacity-70' : ''}`}
+      className={`bg-white rounded-lg border p-4 space-y-3 dark:border-zinc-700 dark:bg-zinc-800 ${isPending ? 'opacity-70' : ''}`}
     >
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-lg font-semibold">{card.name}</h2>
-          <p className="text-xs text-zinc-400">Vencimento dia {card.dueDay}</p>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{card.name}</h2>
+          <p className="text-xs text-zinc-400 dark:text-zinc-400">Vencimento dia {card.dueDay}</p>
         </div>
         <div className="text-right">
-          <p className="text-xs text-zinc-500">Fatura</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-300">Fatura</p>
           {editingInvoice ? (
             <div className="flex items-center gap-1">
               <input
@@ -166,7 +166,7 @@ function CardSection({ card, yearMonth }: { card: CardView; yearMonth: string })
                   if (e.key === 'Escape') setEditingInvoice(false);
                 }}
                 autoFocus
-                className="w-32 text-right rounded-md border-zinc-300 shadow-sm text-sm font-mono focus:border-blue-500 focus:ring-blue-500"
+                className="w-32 text-right rounded-md border-zinc-300 shadow-sm text-sm font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
               />
               <button
                 onClick={handleInvoiceSave}
@@ -176,14 +176,14 @@ function CardSection({ card, yearMonth }: { card: CardView; yearMonth: string })
               </button>
               <button
                 onClick={() => setEditingInvoice(false)}
-                className="text-zinc-400 hover:text-zinc-600 text-sm px-1"
+                className="text-zinc-400 hover:text-zinc-600 text-sm px-1 dark:hover:text-zinc-200"
               >
                 ✕
               </button>
             </div>
           ) : (
             <p
-              className="text-lg font-mono font-semibold cursor-pointer hover:text-blue-600 transition-colors"
+              className="text-lg font-mono font-semibold text-zinc-900 cursor-pointer hover:text-blue-600 transition-colors dark:text-zinc-50 dark:hover:text-blue-400"
               onClick={() => {
                 setInvoiceVal(card.invoiceTotal.toString());
                 setEditingInvoice(true);
@@ -199,7 +199,7 @@ function CardSection({ card, yearMonth }: { card: CardView; yearMonth: string })
       {card.items.length > 0 && (
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-zinc-500 border-b">
+            <tr className="text-left text-zinc-500 border-b dark:border-zinc-700 dark:text-zinc-300">
               <th className="pb-1">Compra</th>
               <th className="pb-1 text-right">Restantes</th>
               <th className="pb-1 text-right">Valor/mês</th>
@@ -212,13 +212,13 @@ function CardSection({ card, yearMonth }: { card: CardView; yearMonth: string })
             ))}
           </tbody>
           <tfoot>
-            <tr className="font-semibold border-t">
+            <tr className="font-semibold border-t text-zinc-800 dark:border-zinc-700 dark:text-zinc-100">
               <td className="pt-1">Parcelas</td>
               <td></td>
               <td className="pt-1 text-right font-mono">{BRL(card.installmentsTotal)}</td>
               <td></td>
             </tr>
-            <tr className="text-zinc-500">
+            <tr className="text-zinc-500 dark:text-zinc-300">
               <td>Extras (fatura - parcelas)</td>
               <td></td>
               <td className="text-right font-mono">{BRL(card.extras)}</td>
@@ -267,7 +267,7 @@ function InstallmentRow({
 
   if (editing) {
     return (
-      <tr className={`border-b last:border-b-0 ${isPending ? 'opacity-50' : ''}`}>
+      <tr className={`border-b last:border-b-0 dark:border-zinc-700 ${isPending ? 'opacity-50' : ''}`}>
         <td className="py-1">
           <input
             type="text"
@@ -278,7 +278,7 @@ function InstallmentRow({
               if (e.key === 'Escape') setEditing(false);
             }}
             autoFocus
-            className="w-full rounded border-zinc-300 text-sm px-1 py-0.5 focus:border-blue-500 focus:ring-blue-500"
+            className="w-full rounded border-zinc-300 text-sm px-1 py-0.5 focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
           />
         </td>
         <td className="py-1 text-right">
@@ -290,7 +290,7 @@ function InstallmentRow({
               if (e.key === 'Enter') handleSave();
               if (e.key === 'Escape') setEditing(false);
             }}
-            className="w-16 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500"
+            className="w-16 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
           />
         </td>
         <td className="py-1 text-right">
@@ -303,7 +303,7 @@ function InstallmentRow({
               if (e.key === 'Enter') handleSave();
               if (e.key === 'Escape') setEditing(false);
             }}
-            className="w-24 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500"
+            className="w-24 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
           />
         </td>
         <td className="py-1 text-right flex gap-1 justify-end">
@@ -315,7 +315,7 @@ function InstallmentRow({
           </button>
           <button
             onClick={() => setEditing(false)}
-            className="text-zinc-400 hover:text-zinc-600 text-xs"
+            className="text-zinc-400 hover:text-zinc-600 text-xs dark:hover:text-zinc-200"
           >
             ✕
           </button>
@@ -326,7 +326,7 @@ function InstallmentRow({
 
   return (
     <tr
-      className={`border-b last:border-b-0 cursor-pointer hover:bg-zinc-50 transition ${isPending ? 'opacity-50' : ''}`}
+      className={`border-b last:border-b-0 cursor-pointer text-zinc-700 hover:bg-zinc-50 transition dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-700/60 ${isPending ? 'opacity-50' : ''}`}
       onClick={() => setEditing(true)}
       title="Clique para editar"
     >

@@ -13,6 +13,100 @@ import type {
   CardView,
 } from './types';
 
+const INSTALLMENT_ROLLOVER_CONTROL_ID = 'installment-rollover';
+
+interface FinanceControl {
+  _id: string;
+  processedThrough?: string;
+  lockedUntil?: Date | null;
+  lockedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+function yearMonth(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function addMonthsToYearMonth(value: string, months: number): string {
+  const [year, month] = value.split('-').map(Number);
+  return yearMonth(new Date(year, month - 1 + months, 1));
+}
+
+function diffYearMonths(from: string, to: string): number {
+  const [fromYear, fromMonth] = from.split('-').map(Number);
+  const [toYear, toMonth] = to.split('-').map(Number);
+  return (toYear * 12 + toMonth) - (fromYear * 12 + fromMonth);
+}
+
+export async function ensureInstallmentRollover() {
+  const client = await clientPromise;
+  const db = client.db();
+  const control = db.collection<FinanceControl>('financeControl');
+  const now = new Date();
+  const currentYearMonth = yearMonth(now);
+  const previousYearMonth = addMonthsToYearMonth(currentYearMonth, -1);
+
+  await control.updateOne(
+    { _id: INSTALLMENT_ROLLOVER_CONTROL_ID },
+    {
+      $setOnInsert: {
+        processedThrough: previousYearMonth,
+        updatedAt: now,
+        createdAt: now,
+      },
+    },
+    { upsert: true }
+  );
+
+  const currentControl = await control.findOne({ _id: INSTALLMENT_ROLLOVER_CONTROL_ID });
+  const processedThrough = currentControl?.processedThrough as string | undefined;
+  if (!processedThrough) return;
+
+  const monthsToRoll = diffYearMonths(processedThrough, currentYearMonth);
+  if (monthsToRoll <= 0) return;
+
+  const lockUntil = new Date(now.getTime() + 2 * 60 * 1000);
+  const locked = await control.findOneAndUpdate(
+    {
+      _id: INSTALLMENT_ROLLOVER_CONTROL_ID,
+      processedThrough,
+      $or: [
+        { lockedUntil: { $exists: false } },
+        { lockedUntil: null },
+        { lockedUntil: { $lt: now } },
+      ],
+    },
+    { $set: { lockedUntil: lockUntil, lockedAt: now } },
+    { returnDocument: 'after' }
+  );
+
+  if (!locked) return;
+
+  try {
+    await db.collection('financeInstallment').updateMany(
+      { remainingInstallments: { $gt: 0 } },
+      { $inc: { remainingInstallments: -monthsToRoll } }
+    );
+    await db.collection('financeInstallment').deleteMany(
+      { remainingInstallments: { $lte: 0 } }
+    );
+    await control.updateOne(
+      { _id: INSTALLMENT_ROLLOVER_CONTROL_ID },
+      {
+        $set: { processedThrough: currentYearMonth, updatedAt: new Date() },
+        $unset: { lockedUntil: '', lockedAt: '' },
+      }
+    );
+  } catch (error) {
+    await control.updateOne(
+      { _id: INSTALLMENT_ROLLOVER_CONTROL_ID },
+      { $unset: { lockedUntil: '', lockedAt: '' }, $set: { updatedAt: new Date() } }
+    );
+    throw error;
+  }
+}
+
 // ==================== Profile ====================
 
 export async function getProfile(userId: string): Promise<FinanceProfile | null> {
@@ -115,6 +209,7 @@ export async function saveExpenses(userId: string, expenses: (Omit<RecurringExpe
 // ==================== Installments ====================
 
 export async function getInstallments(userId: string): Promise<Installment[]> {
+  await ensureInstallmentRollover();
   const client = await clientPromise;
   const db = client.db();
   const docs = await db.collection('financeInstallment')

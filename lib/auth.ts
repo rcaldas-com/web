@@ -33,6 +33,7 @@ export async function getCurrentUser(): Promise<UserSession | null> {
       roles: user.roles,
       isActive: user.isActive,
       emailVerified: user.emailVerified,
+      theme: user.theme,
     };
   } catch (error) {
     console.error('Error getting current user:', error);
