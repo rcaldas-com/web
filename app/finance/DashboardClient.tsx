@@ -226,7 +226,7 @@ export default function DashboardClient({
             <Link href="/finance/cards" className="text-sm text-blue-600 hover:underline">Ver parcelas</Link>
           </div>
           <div className="space-y-1">
-            {cardViews.map(c => (
+            {[...cardViews].sort((a, b) => (a.paid === b.paid ? 0 : a.paid ? 1 : -1) || (a.dueDay ?? 99) - (b.dueDay ?? 99)).map(c => (
               <CardInvoiceRow key={c._id} card={c} yearMonth={yearMonth} />
             ))}
           </div>
