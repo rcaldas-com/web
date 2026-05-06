@@ -7,14 +7,13 @@ import Container from "@/components/container"
 import { getCurrentUser, hasRole } from "@/lib/auth"
 
 export const dynamic = 'force-dynamic';
-  const userTheme = user?.theme === 'dark' || user?.theme === 'light' ? user.theme : undefined;
+
 const inter = localFont({
   src: '../public/fonts/Inter-Variable.woff2',
-    <html lang="pt" className={userTheme === 'dark' ? 'dark' : undefined} data-user-theme={user ? (userTheme ?? 'auto') : ''} suppressHydrationWarning>
   display: 'swap',
 });
 
-            __html: `(() => { try { const root = document.documentElement; const serverTheme = root.dataset.userTheme; const storedTheme = localStorage.getItem('theme'); const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; const theme = serverTheme === 'dark' || serverTheme === 'light' ? serverTheme : serverTheme === 'auto' ? systemTheme : storedTheme || systemTheme; root.classList.toggle('dark', theme === 'dark'); } catch (_) {} })();`,
+const title = process.env.TITLE || '';
 const public_host = process.env.AUTH_TRUST_HOST || 'http://localhost:3000';
 
 export const metadata: Metadata = {
@@ -32,14 +31,19 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const user = await getCurrentUser();
-  const userTheme = user?.theme === 'dark' ? 'dark' : 'light';
+  const userTheme = user?.theme === 'dark' || user?.theme === 'light' ? user.theme : undefined;
 
   return (
-    <html lang="pt" className={userTheme === 'dark' ? 'dark' : undefined} data-user-theme={user ? userTheme : ''} suppressHydrationWarning>
+    <html
+      lang="pt"
+      className={userTheme === 'dark' ? 'dark' : undefined}
+      data-user-theme={user ? (userTheme ?? 'auto') : ''}
+      suppressHydrationWarning
+    >
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(() => { try { const root = document.documentElement; const serverTheme = root.dataset.userTheme; const storedTheme = localStorage.getItem('theme'); const theme = serverTheme || storedTheme || 'light'; root.classList.toggle('dark', theme === 'dark'); } catch (_) {} })();`,
+            __html: `(() => { try { const root = document.documentElement; const serverTheme = root.dataset.userTheme; const storedTheme = localStorage.getItem('theme'); const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; const theme = serverTheme === 'dark' || serverTheme === 'light' ? serverTheme : serverTheme === 'auto' ? systemTheme : storedTheme || systemTheme; root.classList.toggle('dark', theme === 'dark'); } catch (_) {} })();`,
           }}
         />
       </head>
