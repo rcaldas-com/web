@@ -22,7 +22,7 @@ function normalizeRoles(user: Record<string, unknown>): UserRole[] {
 }
 
 function normalizeTheme(user: Record<string, unknown>) {
-  return user.theme === 'dark' ? 'dark' : 'light';
+  return user.theme === 'dark' || user.theme === 'light' ? user.theme : undefined;
 }
 
 export async function getUserById(userId: string): Promise<AuthUser | null> {

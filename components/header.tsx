@@ -26,10 +26,14 @@ interface HeaderProps {
     theme?: ThemePreference;
 }
 
-export default function Header({ userName, canAccessWallet = false, canAccessAdmin = false, theme = 'light' }: HeaderProps) {
+function getSystemTheme(): ThemePreference {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+export default function Header({ userName, canAccessWallet = false, canAccessAdmin = false, theme }: HeaderProps) {
     const pathname = usePathname()
     const [open, setOpen] = useState(false)
-    const [currentTheme, setCurrentTheme] = useState<ThemePreference>(theme)
+    const [currentTheme, setCurrentTheme] = useState<ThemePreference>(theme ?? 'light')
     const [, startTransition] = useTransition()
     const links = publicLinks.filter(link => {
         if (link.requires === 'wallet') return canAccessWallet;
@@ -41,8 +45,14 @@ export default function Header({ userName, canAccessWallet = false, canAccessAdm
     const currentLabel = links.find(link => isActive(link.href))?.label || 'Menu';
 
     useEffect(() => {
-        const savedTheme = userName ? theme : (localStorage.getItem('theme') as ThemePreference | null);
-        const nextTheme = savedTheme === 'dark' ? 'dark' : theme;
+        const rootTheme = document.documentElement.dataset.userTheme;
+        const storedTheme = localStorage.getItem('theme') as ThemePreference | null;
+        const savedTheme = userName
+            ? rootTheme === 'dark' || rootTheme === 'light'
+                ? rootTheme
+                : undefined
+            : storedTheme;
+        const nextTheme = savedTheme === 'dark' || savedTheme === 'light' ? savedTheme : getSystemTheme();
         setCurrentTheme(nextTheme);
         document.documentElement.classList.toggle('dark', nextTheme === 'dark');
     }, [theme, userName]);
