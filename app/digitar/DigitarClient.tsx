@@ -116,9 +116,9 @@ export default function DigitarClient({ canUseExternalAi }: { canUseExternalAi: 
   return (
     <main className="mx-auto w-full max-w-5xl px-5 py-10 space-y-6">
       <div className="space-y-1">
-        <h1 className="text-3xl font-bold text-zinc-900">DigitaR</h1>
-        <p className="text-zinc-500 text-sm">
-          Selecione um arquivo, arraste ou <kbd className="rounded border border-zinc-300 bg-zinc-100 px-1 py-0.5 text-xs font-mono">Ctrl+V</kbd> para colar da area de transferencia.
+        <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">DigitaR</h1>
+        <p className="text-zinc-500 text-sm dark:text-zinc-400">
+          Selecione um arquivo, arraste ou <kbd className="rounded border border-zinc-300 bg-zinc-100 px-1 py-0.5 text-xs font-mono dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100">Ctrl+V</kbd> para colar da area de transferencia.
         </p>
       </div>
 
@@ -128,7 +128,7 @@ export default function DigitarClient({ canUseExternalAi }: { canUseExternalAi: 
         onDrop={onDrop}
         onClick={() => fileInputRef.current?.click()}
         className={`relative cursor-pointer rounded-xl border-2 border-dashed transition-colors
-          ${dragging ? 'border-zinc-500 bg-zinc-100' : 'border-zinc-300 bg-zinc-50 hover:bg-zinc-100'}
+          ${dragging ? 'border-zinc-500 bg-zinc-100 dark:border-blue-400 dark:bg-blue-500/10' : 'border-zinc-300 bg-zinc-50 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700/70'}
           ${file ? 'min-h-[320px]' : 'min-h-[200px]'}
           flex flex-col items-center justify-center gap-3`}
       >
@@ -145,26 +145,26 @@ export default function DigitarClient({ canUseExternalAi }: { canUseExternalAi: 
             src={previewUrl}
             alt="Preview"
             onClick={e => e.stopPropagation()}
-            className="max-h-[60vh] max-w-full rounded-lg border border-zinc-200 object-contain shadow-sm"
+            className="max-h-[60vh] max-w-full rounded-lg border border-zinc-200 object-contain shadow-sm dark:border-zinc-700"
           />
         ) : (
           <>
             <span className="text-4xl">🧾</span>
-            <p className="text-zinc-500 text-sm text-center px-4">
+            <p className="text-zinc-500 text-sm text-center px-4 dark:text-zinc-300">
               Clique para selecionar, arraste uma imagem ou pressione <strong>Ctrl+V</strong>
             </p>
-            <p className="text-xs text-zinc-400">JPG · PNG · WEBP · max 10MB</p>
+            <p className="text-xs text-zinc-400 dark:text-zinc-500">JPG · PNG · WEBP · max 10MB</p>
           </>
         )}
       </div>
 
       {file && (
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm text-zinc-600">
+          <span className="text-sm text-zinc-600 dark:text-zinc-300">
             <strong>{file.name}</strong> - {formatBytes(file.size)}
           </span>
           {canUseExternalAi && (
-            <label className="flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700">
+            <label className="flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-200">
               <input
                 type="checkbox"
                 checked={enginePreference === 'openai'}
@@ -178,14 +178,14 @@ export default function DigitarClient({ canUseExternalAi }: { canUseExternalAi: 
             type="button"
             onClick={onProcess}
             disabled={status === 'loading'}
-            className="rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-zinc-700 disabled:opacity-60 transition-colors"
+            className="rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-zinc-700 disabled:opacity-60 transition-colors dark:bg-blue-600 dark:hover:bg-blue-500"
           >
             {status === 'loading' ? 'Processando...' : 'Extrair texto'}
           </button>
           <button
             type="button"
             onClick={onClear}
-            className="rounded-lg border border-zinc-300 px-4 py-2.5 text-sm text-zinc-600 hover:bg-zinc-50 transition-colors"
+            className="rounded-lg border border-zinc-300 px-4 py-2.5 text-sm text-zinc-600 hover:bg-zinc-50 transition-colors dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             Limpar
           </button>
@@ -199,13 +199,13 @@ export default function DigitarClient({ canUseExternalAi }: { canUseExternalAi: 
       )}
 
       {(status === 'success' || text) && (
-        <section className="rounded-xl border bg-white p-5 space-y-3">
+        <section className="rounded-xl border bg-white p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-800">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold text-zinc-900">Texto extraido (Markdown)</h2>
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Texto extraido (Markdown)</h2>
               {engine && (
                 <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                  engine === 'openai' ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-500'
+                  engine === 'openai' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-300'
                 }`}>
                   {engine === 'openai' ? 'GPT-4.1 Vision' : 'Tesseract'}
                 </span>
@@ -214,7 +214,7 @@ export default function DigitarClient({ canUseExternalAi }: { canUseExternalAi: 
             <button
               type="button"
               onClick={onCopy}
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors"
+              className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-700"
             >
               {copied ? 'Copiado!' : 'Copiar'}
             </button>
@@ -222,7 +222,7 @@ export default function DigitarClient({ canUseExternalAi }: { canUseExternalAi: 
           <textarea
             value={text}
             readOnly
-            className="h-[420px] w-full rounded-lg border border-zinc-200 bg-zinc-50 p-3 font-mono text-sm leading-6 text-zinc-800 outline-none"
+            className="h-[420px] w-full rounded-lg border border-zinc-200 bg-zinc-50 p-3 font-mono text-sm leading-6 text-zinc-800 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
           />
         </section>
       )}

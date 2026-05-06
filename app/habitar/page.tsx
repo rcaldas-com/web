@@ -391,11 +391,11 @@ export default function HabitarPage() {
         <div className="space-y-6 pt-4 border-t">
           {/* Veredicto */}
           <div className={`rounded-xl p-6 text-center ${
-            verdictData?.verdict === 'BUY' ? 'bg-green-100 border-2 border-green-400' :
-            verdictData?.verdict === 'RENT' ? 'bg-blue-100 border-2 border-blue-400' :
-            'bg-yellow-100 border-2 border-yellow-400'
+            verdictData?.verdict === 'BUY' ? 'bg-green-100 border-2 border-green-400 text-green-950 dark:bg-emerald-500/15 dark:border-emerald-400 dark:text-emerald-50' :
+            verdictData?.verdict === 'RENT' ? 'bg-blue-100 border-2 border-blue-400 text-blue-950 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-50' :
+            'bg-yellow-100 border-2 border-yellow-400 text-yellow-950 dark:bg-amber-500/15 dark:border-amber-400 dark:text-amber-50'
           }`}>
-            <div className="text-sm uppercase tracking-widest opacity-75">
+            <div className="text-sm uppercase tracking-widest opacity-85">
               {verdictData?.verdict === 'BUY' ? 'Comprar é mais vantajoso' :
                verdictData?.verdict === 'RENT' ? 'Alugar é mais vantajoso' :
                'Praticamente equivalentes'}
@@ -406,10 +406,10 @@ export default function HabitarPage() {
               )}
               {verdictData?.verdict === 'EQUIVALENT' && 'Diferença menor que R$ 1.000'}
             </div>
-            <div className="text-sm mt-2 opacity-75">
+            <div className="text-sm mt-2 opacity-85">
               Critério ativo: {verdictData?.criterion}
             </div>
-            <div className="text-sm mt-1 opacity-75">
+            <div className="text-sm mt-1 opacity-85">
               Em {formatMonths(input.analysisMonths)} de análise
               {result.breakEvenMonth && ` • Break-even no mês ${result.breakEvenMonth} (${formatMonths(result.breakEvenMonth)})`}
             </div>

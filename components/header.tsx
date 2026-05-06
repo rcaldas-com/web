@@ -77,7 +77,7 @@ export default function Header({ userName, canAccessWallet = false, canAccessAdm
     );
 
     return (
-        <header className="relative border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95 sm:px-7">
+        <header className="relative z-50 border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95 sm:px-7">
             <div className="flex items-center justify-between gap-3">
             <Link href="/" className="shrink-0" aria-label="RCaldas">
                 <Image
@@ -139,7 +139,7 @@ export default function Header({ userName, canAccessWallet = false, canAccessAdm
             </div>
 
             {open && (
-                <nav className="absolute left-3 right-3 top-[calc(100%+8px)] z-50 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-600 dark:bg-zinc-800 md:hidden">
+                <nav className="absolute left-3 right-3 top-[calc(100%+8px)] z-[100] rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-600 dark:bg-zinc-800 md:hidden">
                     <div className="grid gap-1">
                         {links.map(link => (
                             <Link

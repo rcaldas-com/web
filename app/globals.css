@@ -15,3 +15,44 @@
     color-scheme: dark;
   }
 }
+
+html.dark .finance-setup .bg-white {
+  background-color: var(--color-zinc-800);
+}
+
+html.dark .finance-setup .border,
+html.dark .finance-setup .border-b {
+  border-color: var(--color-zinc-700);
+}
+
+html.dark .finance-setup input,
+html.dark .finance-setup select,
+html.dark .finance-setup textarea {
+  background-color: var(--color-zinc-900);
+  border-color: var(--color-zinc-600);
+  color: var(--color-zinc-100);
+}
+
+html.dark .finance-setup input::placeholder,
+html.dark .finance-setup textarea::placeholder {
+  color: var(--color-zinc-500);
+}
+
+html.dark .finance-setup h2,
+html.dark .finance-setup label,
+html.dark .finance-setup .text-zinc-900,
+html.dark .finance-setup .text-zinc-700,
+html.dark .finance-setup .text-zinc-600 {
+  color: var(--color-zinc-100);
+}
+
+html.dark .finance-setup .text-zinc-500,
+html.dark .finance-setup .text-zinc-400 {
+  color: var(--color-zinc-400);
+}
+
+html.dark .finance-setup .hover\:bg-zinc-50:hover,
+html.dark .finance-setup .hover\:bg-blue-50:hover,
+html.dark .finance-setup .hover\:bg-red-50:hover {
+  background-color: var(--color-zinc-700);
+}
