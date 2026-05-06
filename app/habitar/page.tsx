@@ -95,11 +95,13 @@ function ResultCard({
   value,
   sub,
   color = 'gray',
+  highlight = false,
 }: {
   title: string;
   value: string;
   sub?: string;
   color?: 'green' | 'red' | 'blue' | 'gray' | 'yellow';
+  highlight?: boolean;
 }) {
   const colors = {
     green: 'bg-green-50 border-green-200 text-green-800 dark:bg-emerald-500/12 dark:border-emerald-500/35 dark:text-emerald-100',
@@ -109,9 +111,9 @@ function ResultCard({
     yellow: 'bg-yellow-50 border-yellow-200 text-yellow-800 dark:bg-amber-500/12 dark:border-amber-500/35 dark:text-amber-100',
   };
   return (
-    <div className={`rounded-lg border p-4 ${colors[color]}`}>
-      <div className="text-xs uppercase tracking-wide opacity-75">{title}</div>
-      <div className="text-lg font-bold mt-1">{value}</div>
+    <div className={`rounded-lg border ${highlight ? 'p-5' : 'p-4'} ${colors[color]}`}>
+      <div className={`${highlight ? 'text-sm' : 'text-xs'} uppercase tracking-wide opacity-75`}>{title}</div>
+      <div className={`${highlight ? 'text-3xl md:text-4xl' : 'text-lg'} font-bold mt-1`}>{value}</div>
       {sub && <div className="text-xs mt-1 opacity-60">{sub}</div>}
     </div>
   );
@@ -123,7 +125,6 @@ export default function HabitarPage() {
   const [equilibrium, setEquilibrium] = useState<EquilibriumResult | null>(null);
   const [showSchedule, setShowSchedule] = useState(false);
   const [tab, setTab] = useState<'comparativo' | 'equilibrio'>('comparativo');
-  const [decisionCriterion, setDecisionCriterion] = useState<'netWorth' | 'cashFlow'>('cashFlow');
 
   const handleChange = (name: string, value: number) => {
     setInput((prev) => ({ ...prev, [name]: value }));
@@ -142,19 +143,13 @@ export default function HabitarPage() {
 
   const financedAmount = input.propertyValue - input.downPayment;
   const verdictData = result
-    ? (decisionCriterion === 'cashFlow'
-      ? { verdict: result.verdictCashFlow, advantage: result.advantageCashFlow, criterion: 'Saldo líquido (patrimônio - desembolso)' }
-      : { verdict: result.verdict, advantage: result.advantage, criterion: 'Patrimônio final' })
+    ? { verdict: result.verdictCashFlow, advantage: result.advantageCashFlow, criterion: 'Saldo líquido (patrimônio - desembolso)' }
     : null;
-
-  const efficiencyBuy = result ? (result.buy.totalCashOutflow > 0 ? result.buy.netWorthAtEnd / result.buy.totalCashOutflow : 0) : 0;
-  const efficiencyRent = result ? (result.rent.totalCashOutflow > 0 ? result.rent.netWorthAtEnd / result.rent.totalCashOutflow : 0) : 0;
-  const efficiencyDiff = efficiencyBuy - efficiencyRent;
 
   return (
     <main className="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-zinc-50">Habitar</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-zinc-50">HabitaR</h1>
         <p className="text-gray-500 text-sm mt-1 dark:text-zinc-400">
           Simulador: Alugar vs Comprar — Compare cenários com financiamento, amortização e investimentos
         </p>
@@ -233,34 +228,6 @@ export default function HabitarPage() {
         Calcular Comparação
       </button>
 
-      {result && (
-        <div className="border border-gray-200 rounded-lg p-4 space-y-3 dark:border-zinc-700 dark:bg-zinc-900/40">
-          <div className="text-sm font-semibold text-gray-800 dark:text-zinc-100">Critério do veredito principal</div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setDecisionCriterion('cashFlow')}
-              className={`px-3 py-2 text-sm rounded-md border transition-colors ${
-                decisionCriterion === 'cashFlow'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
-                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'
-              }`}
-            >
-              Saldo líquido (mais justo no caixa)
-            </button>
-            <button
-              onClick={() => setDecisionCriterion('netWorth')}
-              className={`px-3 py-2 text-sm rounded-md border transition-colors ${
-                decisionCriterion === 'netWorth'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
-                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'
-              }`}
-            >
-              Patrimônio final (acumulação)
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* TABS */}
       {result && (
         <div className="flex gap-0 border-b border-gray-200 dark:border-zinc-700">
@@ -291,14 +258,14 @@ export default function HabitarPage() {
       {result && equilibrium && tab === 'equilibrio' && (
         <div className="space-y-6 pt-4">
           <p className="text-sm text-gray-500 dark:text-zinc-400">
-            Pontos de equilíbrio calculados a partir dos seus parâmetros. Mostra os limites onde a decisão muda.
+            Pontos de equilíbrio calculados pelo saldo líquido: patrimônio acumulado menos todo o desembolso do período.
           </p>
 
           {/* Aluguel máximo */}
           <div className="border border-gray-200 rounded-xl p-6 space-y-2 dark:border-zinc-700 dark:bg-zinc-900/40">
             <h3 className="font-bold text-gray-800 dark:text-zinc-100">Aluguel de Equilíbrio</h3>
             <p className="text-sm text-gray-500 dark:text-zinc-400">
-              Com estas condições de financiamento, qual o aluguel máximo em que alugar empata com comprar?
+              Com estas condições, qual aluguel faz alugar empatar com comprar no saldo líquido?
             </p>
             {equilibrium.maxRent !== null ? (
               <div className="mt-3">
@@ -328,7 +295,7 @@ export default function HabitarPage() {
           <div className="border border-gray-200 rounded-xl p-6 space-y-2 dark:border-zinc-700 dark:bg-zinc-900/40">
             <h3 className="font-bold text-gray-800 dark:text-zinc-100">Taxa de Juros de Equilíbrio</h3>
             <p className="text-sm text-gray-500 dark:text-zinc-400">
-              Até qual taxa de juros comprar ainda é mais vantajoso que alugar?
+              Até qual taxa de juros comprar ainda mantém melhor saldo líquido que alugar?
             </p>
             {equilibrium.maxInterestRate !== null ? (
               <div className="mt-3">
@@ -358,7 +325,7 @@ export default function HabitarPage() {
           <div className="border border-gray-200 rounded-xl p-6 space-y-2 dark:border-zinc-700 dark:bg-zinc-900/40">
             <h3 className="font-bold text-gray-800 dark:text-zinc-100">Entrada Mínima de Equilíbrio</h3>
             <p className="text-sm text-gray-500 dark:text-zinc-400">
-              Qual a entrada mínima necessária para que comprar seja mais vantajoso que alugar?
+              Qual entrada mínima deixa comprar mais vantajoso pelo saldo líquido?
             </p>
             {equilibrium.minDownPayment !== null ? (
               <div className="mt-3">
@@ -411,144 +378,79 @@ export default function HabitarPage() {
             </div>
             <div className="text-sm mt-1 opacity-85">
               Em {formatMonths(input.analysisMonths)} de análise
-              {result.breakEvenMonth && ` • Break-even no mês ${result.breakEvenMonth} (${formatMonths(result.breakEvenMonth)})`}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <ResultCard
-              title="Veredito por Patrimônio"
-              value={result.verdict === 'BUY' ? 'Comprar' : result.verdict === 'RENT' ? 'Alugar' : 'Equivalente'}
-              sub={`Diferença: ${formatBRL(result.advantage)}`}
-              color={result.verdict === 'BUY' ? 'green' : result.verdict === 'RENT' ? 'blue' : 'yellow'}
-            />
-            <ResultCard
-              title="Veredito por Saldo Líquido"
-              value={result.verdictCashFlow === 'BUY' ? 'Comprar' : result.verdictCashFlow === 'RENT' ? 'Alugar' : 'Equivalente'}
-              sub={`Diferença: ${formatBRL(result.advantageCashFlow)}`}
-              color={result.verdictCashFlow === 'BUY' ? 'green' : result.verdictCashFlow === 'RENT' ? 'blue' : 'yellow'}
-            />
-            <ResultCard
-              title="Eficiência de Capital"
-              value={efficiencyDiff >= 0 ? 'Comprar' : 'Alugar'}
-              sub={`Índice compra ${efficiencyBuy.toFixed(3)} vs aluguel ${efficiencyRent.toFixed(3)}`}
-              color={efficiencyDiff >= 0 ? 'green' : 'blue'}
-            />
-          </div>
-
           {/* Comparação lado a lado */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* COMPRAR */}
-            <div className="space-y-3">
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               <h2 className="text-lg font-bold text-green-800 flex items-center gap-2 dark:text-emerald-200">
                 <span className="w-3 h-3 bg-green-500 rounded-full"></span>
                 Cenário: Comprar
               </h2>
+              <h2 className="text-lg font-bold text-blue-800 flex items-center gap-2 dark:text-blue-200">
+                <span className="w-3 h-3 bg-blue-500 rounded-full"></span>
+                Cenário: Alugar + Investir
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <ResultCard
-                title="Patrimônio Final"
+                title="Patrimônio no Imóvel"
                 value={formatBRL(result.buy.netWorthAtEnd)}
-                sub={`Imóvel valorizado: ${formatBRL(result.buy.propertyValueAtEnd)}`}
+                sub={'Valor do Imóvel'}
                 color="green"
               />
               <ResultCard
-                title="Total Pago em Prestações"
-                value={formatBRL(result.buy.totalPaid)}
-                sub={`Juros: ${formatBRL(result.buy.totalInterest)}`}
-                color="red"
+                title="Saldo Investido"
+                value={formatBRL(result.rent.netWorthAtEnd)}
+                sub={`Rendimentos: ${formatBRL(result.rent.totalInvestmentReturns)}`}
+                color="blue"
               />
-              <ResultCard
-                title="Custos de Aquisição"
-                value={formatBRL(result.buy.acquisitionCosts)}
-                sub={`Entrada + ITBI + cartório`}
-                color="gray"
-              />
-              <ResultCard
-                title="Custos de Propriedade"
-                value={formatBRL(result.buy.totalOwnershipCosts)}
-                sub={`IPTU + condo + manutenção (${formatMonths(input.analysisMonths)})`}
-                color="gray"
-              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <ResultCard
                 title="Desembolso Total no Período"
                 value={formatBRL(result.buy.totalCashOutflow)}
-                sub="Tudo que saiu do bolso para chegar ao patrimônio final"
+                sub="Entrada, financiamento, amortizações e custos do imóvel"
                 color="red"
               />
+              <ResultCard
+                title="Desembolso Total no Período"
+                value={formatBRL(result.rent.totalCashOutflow)}
+                sub={`Aluguel: ${formatBRL(result.rent.totalRentPaid)} • Aportes: ${formatBRL(result.rent.totalInvestedContributions)}${input.initialInvestmentRent > 0 ? ` • Capital inicial: ${formatBRL(input.initialInvestmentRent)}` : ''}`}
+                color="red"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <ResultCard
                 title="Saldo Líquido (Patrimônio - Desembolso)"
                 value={formatBRL(result.buy.netAfterCashOutflow)}
                 color={result.buy.netAfterCashOutflow >= 0 ? 'green' : 'yellow'}
+                highlight
               />
+              <ResultCard
+                title="Saldo Líquido (Patrimônio - Desembolso)"
+                value={formatBRL(result.rent.netAfterCashOutflow)}
+                color={result.rent.netAfterCashOutflow >= 0 ? 'green' : 'yellow'}
+                highlight
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <ResultCard
                 title="Prazo para Quitar"
                 value={formatMonths(result.buy.effectiveMonthsToPayOff)}
                 sub={`${result.buy.effectiveMonthsToPayOff} parcelas (com amortizações extras)`}
                 color="blue"
               />
-            </div>
-
-            {/* ALUGAR */}
-            <div className="space-y-3">
-              <h2 className="text-lg font-bold text-blue-800 flex items-center gap-2 dark:text-blue-200">
-                <span className="w-3 h-3 bg-blue-500 rounded-full"></span>
-                Cenário: Alugar + Investir
-              </h2>
-              <ResultCard
-                title="Patrimônio Final (Investimentos)"
-                value={formatBRL(result.rent.netWorthAtEnd)}
-                sub={`Saldo acumulado investindo a diferença`}
-                color="blue"
-              />
-              <ResultCard
-                title="Total Pago em Aluguel"
-                value={formatBRL(result.rent.totalRentPaid)}
-                color="red"
-              />
               <ResultCard
                 title="Renda Passiva Mensal"
                 value={formatBRL(result.rent.monthlyPassiveIncome)}
                 sub="Rendimento mensal ao final do período"
                 color="green"
-              />
-              <ResultCard
-                title="Aluguel Coberto pela Renda Passiva?"
-                value={result.rent.monthsUntilRentCovered
-                  ? `Sim, a partir do mês ${result.rent.monthsUntilRentCovered}`
-                  : 'Não alcançado no período'}
-                sub={result.rent.monthsUntilRentCovered
-                  ? formatMonths(result.rent.monthsUntilRentCovered)
-                  : 'Rendimento ainda não cobre o aluguel'}
-                color={result.rent.monthsUntilRentCovered ? 'green' : 'yellow'}
-              />
-              <ResultCard
-                title="Capital Inicial Investido"
-                value={formatBRL(input.initialInvestmentRent)}
-                sub={input.initialInvestmentRent === 0 ? 'Começa do zero (entrada via FGTS)' : 'Capital inicial informado'}
-                color="gray"
-              />
-              <ResultCard
-                title="Aportes em Investimentos"
-                value={formatBRL(result.rent.totalInvestedContributions)}
-                sub="Soma dos aportes mensais ao longo do período"
-                color="gray"
-              />
-              <ResultCard
-                title="Rendimento dos Investimentos"
-                value={formatBRL(result.rent.totalInvestmentReturns)}
-                sub="Juros compostos gerados — já incluídos no Patrimônio Final"
-                color="green"
-              />
-              <ResultCard
-                title="Desembolso Total no Período"
-                value={formatBRL(result.rent.totalCashOutflow)}
-                sub="Aluguel + aportes + capital inicial"
-                color="red"
-              />
-              <ResultCard
-                title="Saldo Líquido (Patrimônio - Desembolso)"
-                value={formatBRL(result.rent.netAfterCashOutflow)}
-                sub="Patrimônio já inclui os rendimentos dos investimentos"
-                color={result.rent.netAfterCashOutflow >= 0 ? 'green' : 'yellow'}
               />
             </div>
           </div>

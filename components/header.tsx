@@ -13,7 +13,7 @@ type HeaderLink = { href: string; label: string; requires?: 'wallet' | 'admin' }
 const publicLinks: HeaderLink[] = [
     { href: "/", label: "Home" },
     { href: "/finance", label: "Finance" },
-    { href: "/habitar", label: "Habitar" },
+    { href: "/habitar", label: "HabitaR" },
     { href: "/digitar", label: "DigitaR" },
     { href: "/wallet", label: "Wallet", requires: "wallet" },
     { href: "/configuracoes/usuarios", label: "Configurações", requires: "admin" },

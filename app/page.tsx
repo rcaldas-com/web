@@ -23,7 +23,7 @@ const modules = [
   {
     href: '/habitar',
     icon: '🏠',
-    title: 'Habitar',
+    title: 'HabitaR',
     description: 'Simulador: alugar vs comprar — compare cenários com financiamento e investimentos.',
     color: 'from-amber-500 to-amber-600',
     bg: 'bg-amber-50',

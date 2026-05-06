@@ -409,8 +409,10 @@ export interface EquilibriumResult {
 
 function getAdvantage(input: HabitarInput): number {
   const r = calculateHabitar(input);
-  // Positivo = comprar melhor, negativo = alugar melhor
-  return r.buy.netWorthAtEnd - r.rent.netWorthAtEnd;
+  // Positivo = comprar melhor, negativo = alugar melhor.
+  // O equilíbrio usa o mesmo critério principal da UI: saldo líquido
+  // (patrimônio acumulado - desembolso total no período).
+  return r.buy.netAfterCashOutflow - r.rent.netAfterCashOutflow;
 }
 
 function bisect(
@@ -440,9 +442,9 @@ function bisect(
 }
 
 export function calculateEquilibrium(input: HabitarInput): EquilibriumResult {
-  // 1. Aluguel máximo: varia rentValue até advantage = 0
-  // Aluguel alto → locatário investe pouco → comprar vence (advantage > 0)
-  // Aluguel baixo → locatário investe mais → alugar vence (advantage < 0)
+  // 1. Aluguel máximo: varia rentValue até advantage = 0 usando saldo líquido.
+  // Aluguel alto → locatário investe pouco e desembolsa mais → comprar vence.
+  // Aluguel baixo → locatário preserva/investe mais caixa → alugar vence.
   const maxRent = bisect(
     (rent) => getAdvantage({ ...input, rentValue: rent }),
     0,
