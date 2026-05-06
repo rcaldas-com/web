@@ -417,17 +417,19 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
   };
 
   return (
-    <label
-      className={`flex items-center gap-3 py-2 px-2 cursor-pointer transition
+    <div
+      className={`flex items-center gap-3 py-2 px-2 transition
         ${card.paid ? 'bg-green-50 dark:bg-green-950/30' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/70'}
         ${isPending ? 'opacity-70 pointer-events-none' : ''}`}
     >
-      <input
-        type="checkbox"
-        checked={card.paid}
-        onChange={handleToggle}
-        className="h-4 w-4 rounded border-zinc-300 text-green-600 focus:ring-green-500"
-      />
+      <label className="flex items-center cursor-pointer p-1">
+        <input
+          type="checkbox"
+          checked={card.paid}
+          onChange={handleToggle}
+          className="h-4 w-4 rounded border-zinc-300 text-green-600 focus:ring-green-500"
+        />
+      </label>
       <span className={`flex-1 text-sm ${card.paid ? 'line-through text-zinc-400 dark:text-zinc-500' : 'text-zinc-800 dark:text-zinc-200'}`}>
         {card.name}
         <span className="text-xs text-zinc-400 ml-1">dia {card.dueDay}</span>
@@ -438,7 +440,7 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
         )}
       </span>
       {editing ? (
-        <span className="inline-flex items-center gap-1" onClick={e => e.preventDefault()}>
+        <span className="inline-flex items-center gap-1" onClick={e => e.stopPropagation()}>
           <input
             type="text"
             inputMode="decimal"
@@ -454,13 +456,13 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
       ) : (
         <span
           className={`font-mono text-sm cursor-pointer hover:text-blue-600 transition-colors ${card.paid ? 'text-green-600' : 'text-zinc-700 dark:text-zinc-200'}`}
-          onClick={e => { e.preventDefault(); setVal(card.invoiceTotal.toString()); setEditing(true); }}
+          onClick={() => { setVal(card.invoiceTotal.toString()); setEditing(true); }}
           title="Clique para editar fatura"
         >
           {BRL(card.invoiceTotal)}
         </span>
       )}
-    </label>
+    </div>
   );
 }
 
