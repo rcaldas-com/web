@@ -2,11 +2,12 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getProfile, getCards, getInstallments, getOrInitMonthCardInvoices, buildCardViews } from '@/lib/finance/data';
 import CardsClient from './CardsClient';
+import CardsGuest from './CardsGuest';
 
 export default async function CardsPage() {
   const cookieStore = await cookies();
   const userId = cookieStore.get('userId')?.value;
-  if (!userId) redirect('/login');
+  if (!userId) return <CardsGuest />;
 
   const profile = await getProfile(userId);
   if (!profile) redirect('/finance/setup');

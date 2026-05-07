@@ -143,7 +143,9 @@ export default function FinanceGuest() {
       availableBalance -= profile.salary.advance;
     }
   } else {
-    // Simplified future projection
+    // Future months: project cash availability from current available balance.
+    // Cash impact comes from invoices due in each projected month plus card expenses
+    // generated in the previous month that are not yet reflected in a closed invoice.
     const curMonthData = getLocalMonthData(currentYearMonth);
     const curPaidIds = new Set((curMonthData?.payments || []).map(p => p.expenseId));
     const curCardInvoices = initMonthCardInvoices(cards, installments, 0);
@@ -151,36 +153,67 @@ export default function FinanceGuest() {
     const curDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const curPropDays = curDays - now.getDate() + 1;
 
-    const calcVal = (e: typeof expenses[0], d: number) =>
-      e.proportional === 'daily' ? e.value * d : e.proportional === 'weekly' ? e.value * (d / 7) : e.value;
+    const calcVal = (e: typeof expenses[0], d: number, overrides?: Map<string, number>) => {
+      const baseValue = overrides?.get(e._id!) ?? e.value;
+      if (e.proportional === 'daily') return baseValue * d;
+      if (e.proportional === 'weekly') return baseValue * (d / 7);
+      return baseValue;
+    };
 
+    const curOverrides = getLocalExpenseOverrides(currentYearMonth);
     const curUnpaidCash = expenses.filter(e => e.category === 'cash' && !curPaidIds.has(e._id!))
-      .reduce((s, e) => s + calcVal(e, curPropDays), 0);
+      .reduce((s, e) => s + calcVal(e, curPropDays, curOverrides), 0);
     const curUnpaidInvoices = curCardViews.filter(c => !c.paid)
       .reduce((s, c) => s + c.invoiceTotal, 0);
 
-    // curAvailable: bankTotal (includes current VR) minus current-month unpaid items
-    const curAvailable = bankTotal - curUnpaidCash - curUnpaidInvoices;
+    const curAdvanceDeducted = now.getDate() >= profile.salary.advanceDay ? profile.salary.advance : 0;
+    const curAvailable = bankTotal - curUnpaidCash - curUnpaidInvoices - curAdvanceDeducted;
 
     const curUnpaidCard = expenses.filter(e => e.category === 'card' && !curPaidIds.has(e._id!))
-      .reduce((s, e) => s + calcVal(e, curPropDays), 0);
+      .reduce((s, e) => s + calcVal(e, curPropDays, curOverrides), 0);
 
     const { payment, advance, advanceDay } = profile.salary;
     const salaryForNextMonth = now.getDate() >= advanceDay ? payment : (payment + advance);
-    const futureCashTotal = cashExpenses.reduce((s, e) => s + e.value, 0);
-    const futureInvoicesTotal = cardViews.reduce((s, c) => s + c.invoiceTotal, 0);
     const vrMonthly = profile.foodVoucherMonthly ?? profile.foodVoucher;
+    const fullSalary = payment + advance;
 
-    availableBalance = curAvailable + salaryForNextMonth + vrMonthly
-      - futureCashTotal - futureInvoicesTotal - curUnpaidCard;
+    const yearMonthFromOffset = (offset: number) => {
+      const date = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    };
 
-    if (monthOffset > 1) {
-      const fullSalary = payment + advance;
-      const allCardExp = expenses.filter(e => e.category === 'card')
-        .reduce((s, e) => s + calcVal(e, daysInMonth), 0);
-      for (let i = 2; i <= monthOffset; i++) {
-        availableBalance += fullSalary + vrMonthly - futureCashTotal - allCardExp;
-      }
+    const daysForOffset = (offset: number) => {
+      const date = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+      return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    };
+
+    const categoryTotalForMonth = (category: 'cash' | 'card', offset: number) => {
+      const ym = yearMonthFromOffset(offset);
+      const overrides = getLocalExpenseOverrides(ym);
+      const monthDays = daysForOffset(offset);
+      return expenses
+        .filter(e => e.category === category)
+        .reduce((sum, e) => sum + calcVal(e, monthDays, overrides), 0);
+    };
+
+    const invoiceTotalForMonth = (offset: number) => {
+      const ym = yearMonthFromOffset(offset);
+      const monthData = getLocalMonthData(ym);
+      const invoices: MonthCardInvoice[] = monthData?.cardInvoices?.length
+        ? monthData.cardInvoices
+        : initMonthCardInvoices(cards, installments, offset);
+      return buildCardViews(cards, installments, invoices, offset)
+        .filter(c => !c.paid)
+        .reduce((sum, c) => sum + c.invoiceTotal, 0);
+    };
+
+    availableBalance = curAvailable;
+    for (let i = 1; i <= monthOffset; i++) {
+      const salaryForMonth = i === 1 ? salaryForNextMonth : fullSalary;
+      const cashForMonth = categoryTotalForMonth('cash', i);
+      const invoicesForMonth = invoiceTotalForMonth(i);
+      const cardFromPreviousMonth = i === 1 ? curUnpaidCard : categoryTotalForMonth('card', i - 1);
+      availableBalance += salaryForMonth + vrMonthly - cashForMonth - invoicesForMonth - cardFromPreviousMonth;
     }
   }
 

@@ -8,6 +8,12 @@ import {
   editInstallment,
   updateMonthInvoice,
 } from '@/lib/finance/actions';
+import {
+  addLocalInstallment,
+  deleteLocalInstallment,
+  updateLocalInstallment,
+  updateLocalMonthCardInvoice,
+} from '@/lib/finance/local-storage';
 import { evalExpression } from '@/lib/finance/eval-expression';
 import type { CardView, CreditCard } from '@/lib/finance/types';
 
@@ -18,16 +24,36 @@ export default function CardsClient({
   cardViews,
   cards,
   nextYearMonth,
+  isGuest,
+  onGuestAction,
 }: {
   cardViews: CardView[];
   cards: CreditCard[];
   nextYearMonth: string;
+  isGuest?: boolean;
+  onGuestAction?: () => void;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const descRef = useRef<HTMLInputElement>(null);
 
   const handleAdd = async (formData: FormData) => {
-    await addNewInstallment(formData);
+    if (isGuest) {
+      const cardId = formData.get('cardId') as string;
+      const description = (formData.get('description') as string)?.trim();
+      const monthlyValue = evalExpression(formData.get('monthlyValue') as string);
+      const remainingInstallments = parseInt(formData.get('remainingInstallments') as string) || 0;
+      if (cardId && description && monthlyValue && remainingInstallments) {
+        addLocalInstallment({
+          cardId,
+          description,
+          monthlyValue,
+          remainingInstallments: remainingInstallments + 1,
+        });
+        onGuestAction?.();
+      }
+    } else {
+      await addNewInstallment(formData);
+    }
     formRef.current?.reset();
     descRef.current?.focus();
   };
@@ -66,7 +92,7 @@ export default function CardsClient({
 
       {/* Per card */}
       {cardViews.map((card) => (
-        <CardSection key={card._id} card={card} yearMonth={nextYearMonth} />
+        <CardSection key={card._id} card={card} yearMonth={nextYearMonth} isGuest={isGuest} onGuestAction={onGuestAction} />
       ))}
 
       {/* Add new installment */}
@@ -130,7 +156,17 @@ export default function CardsClient({
   );
 }
 
-function CardSection({ card, yearMonth }: { card: CardView; yearMonth: string }) {
+function CardSection({
+  card,
+  yearMonth,
+  isGuest,
+  onGuestAction,
+}: {
+  card: CardView;
+  yearMonth: string;
+  isGuest?: boolean;
+  onGuestAction?: () => void;
+}) {
   const [isPending, startTransition] = useTransition();
   const [editingInvoice, setEditingInvoice] = useState(false);
   const [invoiceVal, setInvoiceVal] = useState(card.invoiceTotal.toString());
@@ -138,7 +174,12 @@ function CardSection({ card, yearMonth }: { card: CardView; yearMonth: string })
   const handleInvoiceSave = () => {
     const val = evalExpression(invoiceVal);
     startTransition(async () => {
-      await updateMonthInvoice(card._id, val, yearMonth);
+      if (isGuest) {
+        updateLocalMonthCardInvoice(yearMonth, card._id, val);
+        onGuestAction?.();
+      } else {
+        await updateMonthInvoice(card._id, val, yearMonth);
+      }
       setEditingInvoice(false);
     });
   };
@@ -208,7 +249,7 @@ function CardSection({ card, yearMonth }: { card: CardView; yearMonth: string })
           </thead>
           <tbody>
             {card.items.map((item) => (
-              <InstallmentRow key={item._id} item={item} />
+              <InstallmentRow key={item._id} item={item} isGuest={isGuest} onGuestAction={onGuestAction} />
             ))}
           </tbody>
           <tfoot>
@@ -233,8 +274,12 @@ function CardSection({ card, yearMonth }: { card: CardView; yearMonth: string })
 
 function InstallmentRow({
   item,
+  isGuest,
+  onGuestAction,
 }: {
   item: { _id: string; description: string; remaining: number; monthlyValue: number };
+  isGuest?: boolean;
+  onGuestAction?: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -255,14 +300,28 @@ function InstallmentRow({
       return;
     }
     startTransition(async () => {
-      await editInstallment(item._id, updates);
+      if (isGuest) {
+        updateLocalInstallment(item._id, updates.remainingInstallments != null
+          ? { ...updates, remainingInstallments: updates.remainingInstallments + 1 }
+          : updates);
+        onGuestAction?.();
+      } else {
+        await editInstallment(item._id, updates);
+      }
       setEditing(false);
     });
   };
 
   const handleDelete = () => {
     if (!confirm(`Remover "${item.description}"?`)) return;
-    startTransition(() => removeInstallment(item._id));
+    startTransition(() => {
+      if (isGuest) {
+        deleteLocalInstallment(item._id);
+        onGuestAction?.();
+      } else {
+        removeInstallment(item._id);
+      }
+    });
   };
 
   if (editing) {

@@ -125,6 +125,17 @@ export function addLocalInstallment(data: Omit<Installment, '_id' | 'userId' | '
   write(KEYS.installments, installments);
 }
 
+export function updateLocalInstallment(
+  id: string,
+  data: { monthlyValue?: number; remainingInstallments?: number; description?: string },
+) {
+  const installments = getLocalInstallments();
+  const idx = installments.findIndex(i => i._id === id);
+  if (idx < 0) return;
+  installments[idx] = { ...installments[idx], ...data };
+  write(KEYS.installments, installments);
+}
+
 export function saveLocalInstallments(installments: (Omit<Installment, 'userId' | 'createdAt'> & { _id?: string })[]) {
   const result = installments.map(inst => ({
     ...inst,
