@@ -10,6 +10,7 @@ const modules = [
     description: 'Controle de receitas, despesas, cartões e projeções mensais.',
     color: 'from-blue-500 to-blue-600',
     bg: 'bg-blue-50',
+    darkBg: 'dark:bg-blue-950/30 dark:hover:bg-blue-950/45 dark:border-blue-900/60',
   },
   {
     href: '/wallet',
@@ -18,6 +19,7 @@ const modules = [
     description: 'Carteira digital para transações e pagamentos.',
     color: 'from-emerald-500 to-emerald-600',
     bg: 'bg-emerald-50',
+    darkBg: 'dark:bg-emerald-950/30 dark:hover:bg-emerald-900/35 dark:border-emerald-900/60 dark:hover:border-emerald-800',
     requires: 'wallet',
   },
   {
@@ -27,6 +29,7 @@ const modules = [
     description: 'Simulador: alugar vs comprar — compare cenários com financiamento e investimentos.',
     color: 'from-amber-500 to-amber-600',
     bg: 'bg-amber-50',
+    darkBg: 'dark:bg-amber-950/30 dark:hover:bg-amber-950/45 dark:border-amber-900/60',
   },
   {
     href: '/digitar',
@@ -35,6 +38,7 @@ const modules = [
     description: 'Extraia texto de fotos de documentos com alta precisão e preservação de formatação.',
     color: 'from-rose-500 to-orange-500',
     bg: 'bg-rose-50',
+    darkBg: 'dark:bg-rose-950/30 dark:hover:bg-rose-950/45 dark:border-rose-900/60',
   },
   {
     href: '/configuracoes/usuarios',
@@ -43,6 +47,7 @@ const modules = [
     description: 'Gerencie usuários e permissões dos módulos do RCaldas.',
     color: 'from-zinc-700 to-zinc-900',
     bg: 'bg-zinc-50',
+    darkBg: 'dark:bg-zinc-800 dark:hover:bg-zinc-800/90 dark:border-zinc-700',
     requires: 'admin',
   },
 ];
@@ -73,7 +78,7 @@ async function ModuleCards() {
           <Link
             key={mod.href}
             href={mod.href}
-            className={`group rounded-xl border border-zinc-200 p-6 space-y-3 text-center hover:shadow-lg hover:border-zinc-300 transition-all duration-200 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:border-zinc-600 dark:hover:bg-zinc-800/90 ${mod.bg}`}
+            className={`group rounded-xl border border-zinc-200 p-6 space-y-3 text-center hover:shadow-lg hover:border-zinc-300 transition-all duration-200 dark:hover:border-zinc-600 dark:hover:shadow-none ${mod.bg} ${mod.darkBg}`}
           >
             <div className={`h-12 w-12 mx-auto rounded-lg bg-gradient-to-br ${mod.color} flex items-center justify-center text-2xl`}>
               {mod.icon}
