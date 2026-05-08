@@ -120,7 +120,14 @@ export default function DashboardClient({
   const [y, m] = yearMonth.split('-').map(Number);
   const monthLabel = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 
-  const allExpenses = [...cardExpenses, ...cashExpenses].sort((a, b) => (a.dueDay ?? 99) - (b.dueDay ?? 99));
+  const expenseSortGroup = (expense: ExpenseItem) => {
+    if (expense.paid) return 2;
+    if (expense.proportional) return 1;
+    return 0;
+  };
+  const allExpenses = [...cardExpenses, ...cashExpenses].sort((a, b) =>
+    expenseSortGroup(a) - expenseSortGroup(b) || (a.dueDay ?? 99) - (b.dueDay ?? 99)
+  );
   const totalInvoices = cardViews.reduce((s, c) => s + c.invoiceTotal, 0);
   const unpaidInvoices = cardViews.filter(c => !c.paid).reduce((s, c) => s + c.invoiceTotal, 0);
   const unpaidCash = cashExpenses.filter(e => !e.paid).reduce((s, e) => s + e.value, 0);
