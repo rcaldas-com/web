@@ -1,16 +1,21 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useRef, useState, useTransition } from 'react';
+import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/20/solid';
+import ExpressionOperatorPad, { insertExpressionToken } from '../ExpressionOperatorPad';
 import {
   addNewInstallment,
   removeInstallment,
   editInstallment,
   updateMonthInvoice,
+  reorderCards,
 } from '@/lib/finance/actions';
 import {
   addLocalInstallment,
   deleteLocalInstallment,
+  updateLocalCardOrder,
   updateLocalInstallment,
   updateLocalMonthCardInvoice,
 } from '@/lib/finance/local-storage';
@@ -33,8 +38,12 @@ export default function CardsClient({
   isGuest?: boolean;
   onGuestAction?: () => void;
 }) {
+  const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const descRef = useRef<HTMLInputElement>(null);
+  const monthlyValueRef = useRef<HTMLInputElement>(null);
+  const [monthlyValue, setMonthlyValue] = useState('');
+  const [, startReorderTransition] = useTransition();
 
   const handleAdd = async (formData: FormData) => {
     if (isGuest) {
@@ -55,7 +64,27 @@ export default function CardsClient({
       await addNewInstallment(formData);
     }
     formRef.current?.reset();
+    setMonthlyValue('');
     descRef.current?.focus();
+  };
+
+  const handleMoveCard = (cardId: string, direction: -1 | 1) => {
+    const ids = cardViews.map(card => card._id);
+    const index = ids.indexOf(cardId);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= ids.length) return;
+    [ids[index], ids[nextIndex]] = [ids[nextIndex], ids[index]];
+
+    if (isGuest) {
+      updateLocalCardOrder(ids);
+      onGuestAction?.();
+      return;
+    }
+
+    startReorderTransition(async () => {
+      await reorderCards(ids);
+      router.refresh();
+    });
   };
 
   const totalInvoice = cardViews.reduce((sum, c) => sum + c.invoiceTotal, 0);
@@ -90,11 +119,6 @@ export default function CardsClient({
         </div>
       </div>
 
-      {/* Per card */}
-      {cardViews.map((card) => (
-        <CardSection key={card._id} card={card} yearMonth={nextYearMonth} isGuest={isGuest} onGuestAction={onGuestAction} />
-      ))}
-
       {/* Add new installment */}
       {cards.length > 0 && (
         <div className="bg-white rounded-lg border p-4 dark:border-zinc-700 dark:bg-zinc-800">
@@ -128,11 +152,15 @@ export default function CardsClient({
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-200">Valor/mês</label>
                 <input
+                  ref={monthlyValueRef}
                   type="text"
                   inputMode="decimal"
                   name="monthlyValue"
+                  value={monthlyValue}
+                  onChange={(e) => setMonthlyValue(e.target.value)}
                   className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
                 />
+                <ExpressionOperatorPad onInsert={token => insertExpressionToken(monthlyValueRef.current, monthlyValue, setMonthlyValue, token)} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-200">Restantes</label>
@@ -152,6 +180,19 @@ export default function CardsClient({
           </form>
         </div>
       )}
+
+      {/* Per card */}
+      {cardViews.map((card, index) => (
+        <CardSection
+          key={card._id}
+          card={card}
+          yearMonth={nextYearMonth}
+          isGuest={isGuest}
+          onGuestAction={onGuestAction}
+          onMoveUp={index > 0 ? () => handleMoveCard(card._id, -1) : undefined}
+          onMoveDown={index < cardViews.length - 1 ? () => handleMoveCard(card._id, 1) : undefined}
+        />
+      ))}
     </div>
   );
 }
@@ -161,13 +202,18 @@ function CardSection({
   yearMonth,
   isGuest,
   onGuestAction,
+  onMoveUp,
+  onMoveDown,
 }: {
   card: CardView;
   yearMonth: string;
   isGuest?: boolean;
   onGuestAction?: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
+  const invoiceInputRef = useRef<HTMLInputElement>(null);
   const [editingInvoice, setEditingInvoice] = useState(false);
   const [invoiceVal, setInvoiceVal] = useState(card.invoiceTotal.toString());
 
@@ -188,40 +234,67 @@ function CardSection({
     <div
       className={`bg-white rounded-lg border p-4 space-y-3 dark:border-zinc-700 dark:bg-zinc-800 ${isPending ? 'opacity-70' : ''}`}
     >
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center gap-3">
         <div>
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{card.name}</h2>
           <p className="text-xs text-zinc-400 dark:text-zinc-400">Vencimento dia {card.dueDay}</p>
         </div>
-        <div className="text-right">
-          <p className="text-xs text-zinc-500 dark:text-zinc-300">Fatura</p>
-          {editingInvoice ? (
-            <div className="flex items-center gap-1">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={invoiceVal}
-                onChange={(e) => setInvoiceVal(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleInvoiceSave();
-                  if (e.key === 'Escape') setEditingInvoice(false);
-                }}
-                autoFocus
-                className="w-32 text-right rounded-md border-zinc-300 shadow-sm text-sm font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
-              />
-              <button
-                onClick={handleInvoiceSave}
-                className="text-green-600 hover:text-green-800 text-sm font-bold px-1"
-              >
-                ✓
-              </button>
-              <button
-                onClick={() => setEditingInvoice(false)}
-                className="text-zinc-400 hover:text-zinc-600 text-sm px-1 dark:hover:text-zinc-200"
-              >
-                ✕
-              </button>
-            </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1" aria-label="Ordenar cartão">
+            <button
+              type="button"
+              onClick={onMoveUp}
+              disabled={!onMoveUp}
+              className="rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+              title="Mover para cima"
+              aria-label={`Mover ${card.name} para cima`}
+            >
+              <ChevronUpIcon className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onMoveDown}
+              disabled={!onMoveDown}
+              className="rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+              title="Mover para baixo"
+              aria-label={`Mover ${card.name} para baixo`}
+            >
+              <ChevronDownIcon className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-zinc-500 dark:text-zinc-300">Fatura</p>
+            {editingInvoice ? (
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex items-center gap-1">
+                  <input
+                    ref={invoiceInputRef}
+                    type="text"
+                    inputMode="decimal"
+                    value={invoiceVal}
+                    onChange={(e) => setInvoiceVal(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleInvoiceSave();
+                      if (e.key === 'Escape') setEditingInvoice(false);
+                    }}
+                    autoFocus
+                    className="w-32 text-right rounded-md border-zinc-300 shadow-sm text-sm font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+                  />
+                  <button
+                    onClick={handleInvoiceSave}
+                    className="text-green-600 hover:text-green-800 text-sm font-bold px-1"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    onClick={() => setEditingInvoice(false)}
+                    className="text-zinc-400 hover:text-zinc-600 text-sm px-1 dark:hover:text-zinc-200"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <ExpressionOperatorPad onInsert={token => insertExpressionToken(invoiceInputRef.current, invoiceVal, setInvoiceVal, token)} />
+              </div>
           ) : (
             <p
               className="text-lg font-mono font-semibold text-zinc-900 cursor-pointer hover:text-blue-600 transition-colors dark:text-zinc-50 dark:hover:text-blue-400"
@@ -233,7 +306,8 @@ function CardSection({
             >
               {BRL(card.invoiceTotal)}
             </p>
-          )}
+            )}
+          </div>
         </div>
       </div>
 

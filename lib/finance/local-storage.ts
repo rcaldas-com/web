@@ -64,17 +64,29 @@ export function saveLocalProfile(data: Omit<FinanceProfile, '_id' | 'userId' | '
 // ==================== Cards ====================
 
 export function getLocalCards(): CreditCard[] {
-  return read<CreditCard[]>(KEYS.cards, []);
+  return read<CreditCard[]>(KEYS.cards, [])
+    .map((card, index) => ({ ...card, sortOrder: card.sortOrder ?? index }))
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
 
 export function saveLocalCards(cards: Omit<CreditCard, 'userId'>[]) {
-  const withIds: CreditCard[] = cards.map(c => ({
+  const withIds: CreditCard[] = cards.map((c, index) => ({
     ...c,
     _id: c._id || localId(),
     userId: 'guest',
+    sortOrder: c.sortOrder ?? index,
   }));
   write(KEYS.cards, withIds);
   return withIds;
+}
+
+export function updateLocalCardOrder(cardIds: string[]) {
+  const order = new Map(cardIds.map((cardId, index) => [cardId, index]));
+  const cards = getLocalCards().map((card, index) => ({
+    ...card,
+    sortOrder: order.get(card._id!) ?? index,
+  }));
+  write(KEYS.cards, cards);
 }
 
 export function updateLocalCardInvoice(cardId: string, invoiceTotal: number) {

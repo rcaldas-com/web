@@ -8,6 +8,7 @@ import {
   upsertCard,
   deleteCard as deleteCardData,
   updateCardInvoice,
+  updateCardOrder,
   saveExpenses,
   addInstallment,
   saveInstallments,
@@ -87,6 +88,7 @@ export async function saveCards(formData: FormData) {
       name,
       dueDay,
       invoiceTotal: evalExpression(cardInvoiceTotals[i] || '0'),
+      sortOrder: i,
     });
   }
 
@@ -113,6 +115,13 @@ export async function updateInvoice(cardId: string, amount: number) {
   await getUserId();
   await updateCardInvoice(cardId, amount);
   revalidatePath('/finance');
+}
+
+export async function reorderCards(cardIds: string[]) {
+  const userId = await getUserId();
+  await updateCardOrder(userId, cardIds);
+  revalidatePath('/finance');
+  revalidatePath('/finance/cards');
 }
 
 // ==================== Expenses ====================

@@ -25,6 +25,7 @@ export interface CreditCard {
   name: string;        // BB, ITAU, MP, Renner, NB
   dueDay: number;      // dia vencimento fatura
   invoiceTotal: number; // valor atual da fatura (atualizado manualmente)
+  sortOrder?: number;  // ordem preferida na tela de cartões e selects
 }
 
 export interface RecurringExpense {

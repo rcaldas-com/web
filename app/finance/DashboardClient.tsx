@@ -1,7 +1,8 @@
 'use client';
 
-import { createContext, useContext, useState, useTransition } from 'react';
+import { createContext, useContext, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
+import ExpressionOperatorPad, { insertExpressionToken } from './ExpressionOperatorPad';
 import { togglePaid, updateMonthInvoice, toggleInvoicePaid, updateBankBalance, updateExpenseValue } from '@/lib/finance/actions';
 import {
   toggleLocalExpensePayment,
@@ -313,6 +314,8 @@ export default function DashboardClient({
 function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foodVoucher: number }) {
   const actions = useActions();
   const [isPending, startTransition] = useTransition();
+  const bankInputRef = useRef<HTMLInputElement>(null);
+  const vrInputRef = useRef<HTMLInputElement>(null);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editVal, setEditVal] = useState('');
   const [editingVR, setEditingVR] = useState(false);
@@ -354,15 +357,19 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
           <div key={i} className="text-center min-w-[80px]">
             <p className="text-xs text-zinc-500 dark:text-zinc-400">{b.name}</p>
             {editingIdx === i ? (
-              <span className="inline-flex items-center gap-1">
-                <input
-                  type="text" inputMode="decimal" value={editVal}
-                  onChange={e => setEditVal(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') saveBank(i); if (e.key === 'Escape') setEditingIdx(null); }}
-                  autoFocus
-                  className="w-24 text-center rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-                />
-                <button onClick={() => saveBank(i)} className="text-green-600 text-xs font-bold">✓</button>
+              <span className="inline-flex flex-col items-center gap-1">
+                <span className="inline-flex items-center gap-1">
+                  <input
+                    ref={bankInputRef}
+                    type="text" inputMode="decimal" value={editVal}
+                    onChange={e => setEditVal(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveBank(i); if (e.key === 'Escape') setEditingIdx(null); }}
+                    autoFocus
+                    className="w-24 text-center rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                  />
+                  <button onClick={() => saveBank(i)} className="text-green-600 text-xs font-bold">✓</button>
+                </span>
+                <ExpressionOperatorPad onInsert={token => insertExpressionToken(bankInputRef.current, editVal, setEditVal, token)} />
               </span>
             ) : (
               <p
@@ -378,15 +385,19 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
         <div className="text-center min-w-[80px]">
           <p className="text-xs text-zinc-500 dark:text-zinc-400">VR/VA</p>
           {editingVR ? (
-            <span className="inline-flex items-center gap-1">
-              <input
-                type="text" inputMode="decimal" value={vrVal}
-                onChange={e => setVrVal(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') saveVR(); if (e.key === 'Escape') setEditingVR(false); }}
-                autoFocus
-                className="w-24 text-center rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-              />
-              <button onClick={() => saveVR()} className="text-green-600 text-xs font-bold">✓</button>
+            <span className="inline-flex flex-col items-center gap-1">
+              <span className="inline-flex items-center gap-1">
+                <input
+                  ref={vrInputRef}
+                  type="text" inputMode="decimal" value={vrVal}
+                  onChange={e => setVrVal(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveVR(); if (e.key === 'Escape') setEditingVR(false); }}
+                  autoFocus
+                  className="w-24 text-center rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                />
+                <button onClick={() => saveVR()} className="text-green-600 text-xs font-bold">✓</button>
+              </span>
+              <ExpressionOperatorPad onInsert={token => insertExpressionToken(vrInputRef.current, vrVal, setVrVal, token)} />
             </span>
           ) : (
             <p
@@ -406,6 +417,7 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
 function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string }) {
   const actions = useActions();
   const [isPending, startTransition] = useTransition();
+  const inputRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(card.invoiceTotal.toString());
 
@@ -447,18 +459,22 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
         )}
       </span>
       {editing ? (
-        <span className="inline-flex items-center gap-1" onClick={e => e.stopPropagation()}>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={val}
-            onChange={e => setVal(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false); }}
-            autoFocus
-            className="w-28 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-          />
-          <button onClick={handleSave} className="text-green-600 hover:text-green-800 text-xs font-bold">✓</button>
-          <button onClick={() => setEditing(false)} className="text-zinc-400 hover:text-zinc-600 text-xs">✕</button>
+        <span className="inline-flex flex-col items-end gap-1" onClick={e => e.stopPropagation()}>
+          <span className="inline-flex items-center gap-1">
+            <input
+              ref={inputRef}
+              type="text"
+              inputMode="decimal"
+              value={val}
+              onChange={e => setVal(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false); }}
+              autoFocus
+              className="w-28 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+            />
+            <button onClick={handleSave} className="text-green-600 hover:text-green-800 text-xs font-bold">✓</button>
+            <button onClick={() => setEditing(false)} className="text-zinc-400 hover:text-zinc-600 text-xs">✕</button>
+          </span>
+          <ExpressionOperatorPad onInsert={token => insertExpressionToken(inputRef.current, val, setVal, token)} />
         </span>
       ) : (
         <span

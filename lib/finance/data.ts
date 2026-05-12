@@ -137,15 +137,18 @@ export async function getCards(userId: string): Promise<CreditCard[]> {
   const client = await clientPromise;
   const db = client.db();
   const docs = await db.collection('financeCard').find({ userId }).toArray();
-  return docs.map(d => ({ ...d, _id: d._id.toString() })) as CreditCard[];
+  return docs
+    .map((d, index) => ({ ...d, _id: d._id.toString(), sortOrder: d.sortOrder ?? index }))
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)) as CreditCard[];
 }
 
-export async function upsertCard(userId: string, card: { _id?: string; name: string; dueDay: number; invoiceTotal?: number }) {
+export async function upsertCard(userId: string, card: { _id?: string; name: string; dueDay: number; invoiceTotal?: number; sortOrder?: number }) {
   const client = await clientPromise;
   const db = client.db();
   if (card._id) {
     const $set: Record<string, unknown> = { name: card.name, dueDay: card.dueDay };
     if (card.invoiceTotal != null) $set.invoiceTotal = card.invoiceTotal;
+    if (card.sortOrder != null) $set.sortOrder = card.sortOrder;
     await db.collection('financeCard').updateOne(
       { _id: new ObjectId(card._id) },
       { $set }
@@ -153,10 +156,20 @@ export async function upsertCard(userId: string, card: { _id?: string; name: str
     return card._id;
   } else {
     const result = await db.collection('financeCard').insertOne({
-      userId, name: card.name, dueDay: card.dueDay, invoiceTotal: card.invoiceTotal ?? 0,
+      userId, name: card.name, dueDay: card.dueDay, invoiceTotal: card.invoiceTotal ?? 0, sortOrder: card.sortOrder ?? 0,
     });
     return result.insertedId.toString();
   }
+}
+
+export async function updateCardOrder(userId: string, cardIds: string[]) {
+  const client = await clientPromise;
+  const db = client.db();
+  const ops = cardIds.map((cardId, index) => db.collection('financeCard').updateOne(
+    { _id: new ObjectId(cardId), userId },
+    { $set: { sortOrder: index } }
+  ));
+  await Promise.all(ops);
 }
 
 export async function deleteCard(cardId: string) {
