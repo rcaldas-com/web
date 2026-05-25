@@ -172,10 +172,10 @@ export default function FinanceGuest() {
     const curUnpaidCard = expenses.filter(e => e.category === 'card' && !curPaidIds.has(e._id!))
       .reduce((s, e) => s + calcVal(e, curPropDays, curOverrides), 0);
 
-    const { payment, advance, advanceDay } = profile.salary;
-    const salaryForNextMonth = now.getDate() >= advanceDay ? payment : (payment + advance);
+    const { payment, advance } = profile.salary;
     const vrMonthly = profile.foodVoucherMonthly ?? profile.foodVoucher;
     const fullSalary = payment + advance;
+    const salaryForNextMonth = fullSalary;
 
     const yearMonthFromOffset = (offset: number) => {
       const date = new Date(now.getFullYear(), now.getMonth() + offset, 1);

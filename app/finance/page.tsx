@@ -183,14 +183,13 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     const curAdvanceDeducted = now.getDate() >= profile.salary.advanceDay ? profile.salary.advance : 0;
     const curAvailable = bankTotal - curUnpaidCash - curUnpaidInvoices - curAdvanceDeducted;
 
-    const { payment, advance, advanceDay } = profile.salary;
-
-    // 2. Salary: if advance already received (day >= advanceDay), only payment
-    //    (advance is already in bankTotal); otherwise full salary
-    const salaryForNextMonth = now.getDate() >= advanceDay ? payment : (payment + advance);
+    const { payment, advance } = profile.salary;
 
     const vrMonthly = profile.foodVoucherMonthly ?? profile.foodVoucher;
     const fullSalary = payment + advance;
+    // The current base reserves/subtracts an already received advance, so the next
+    // month projection still receives the full salary cycle.
+    const salaryForNextMonth = fullSalary;
 
     const yearMonthFromOffset = (offset: number) => {
       const date = new Date(now.getFullYear(), now.getMonth() + offset, 1);
