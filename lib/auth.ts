@@ -76,10 +76,11 @@ export async function setUserSessionCookie(userId: string) {
   const cookieStore = await cookies();
   cookieStore.set('userId', userId, {
     httpOnly: true,
-    secure: false,
-    sameSite: 'strict',
-    maxAge: 60 * 60 * 24 * 7, // 7 days
+    secure: true,
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 24 * 30, // 30 days
     path: '/',
+    domain: '.rcaldas.com',
   });
 }
 
@@ -87,9 +88,10 @@ export async function clearUserSessionCookie() {
   const cookieStore = await cookies();
   cookieStore.set('userId', '', {
     httpOnly: true,
-    secure: false,
-    sameSite: 'strict',
+    secure: true,
+    sameSite: 'lax',
     maxAge: 0,
     path: '/',
+    domain: '.rcaldas.com',
   });
 }

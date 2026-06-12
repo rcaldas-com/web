@@ -1,6 +1,8 @@
 FROM node:22
 LABEL maintainer="RCaldas <docker@rcaldas.com>"
 
+RUN npm install -g npm@latest
+
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
