@@ -51,6 +51,7 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
     const validExpenses = rows
       .filter(r => r.name.trim())
       .map((r, i) => ({
+        ...(r.id ? { _id: r.id } : {}),
         name: r.name.trim(),
         value: typeof r.value === 'string' ? parseFloat(String(r.value).replace(',', '.')) || 0 : r.value,
         category: r.category,

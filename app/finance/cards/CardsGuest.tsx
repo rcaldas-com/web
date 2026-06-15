@@ -8,6 +8,7 @@ import {
   getLocalInstallments,
   getLocalMonthData,
 } from '@/lib/finance/local-storage';
+import { addMonthsToYearMonth, getFinanceToday } from '@/lib/finance/date';
 import { buildCardViews, initMonthCardInvoices } from '@/lib/finance/compute';
 import type { CardView, CreditCard } from '@/lib/finance/types';
 
@@ -28,9 +29,7 @@ export default function CardsGuest() {
       return;
     }
 
-    const now = new Date();
-    const nextDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const nextYearMonth = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
+    const nextYearMonth = addMonthsToYearMonth(getFinanceToday().yearMonth, 1);
     const monthData = getLocalMonthData(nextYearMonth);
     const invoices = monthData?.cardInvoices?.length
       ? monthData.cardInvoices

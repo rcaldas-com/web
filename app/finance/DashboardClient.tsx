@@ -13,6 +13,7 @@ import {
   updateLocalFoodVoucher,
 } from '@/lib/finance/local-storage';
 import { evalExpression } from '@/lib/finance/eval-expression';
+import { monthLabelPtBr } from '@/lib/finance/date';
 import type { InstallmentGroup, CardView, BankAccount } from '@/lib/finance/types';
 
 const BRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -118,8 +119,7 @@ export default function DashboardClient({
         updateExpenseValue: async (id, value, ym) => { await updateExpenseValue(id, value, ym); },
       };
 
-  const [y, m] = yearMonth.split('-').map(Number);
-  const monthLabel = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const monthLabel = monthLabelPtBr(yearMonth);
 
   const expenseSortGroup = (expense: ExpenseItem) => {
     if (expense.paid) return 2;
@@ -132,7 +132,7 @@ export default function DashboardClient({
   const totalInvoices = cardViews.reduce((s, c) => s + c.invoiceTotal, 0);
   const unpaidInvoices = cardViews.filter(c => !c.paid).reduce((s, c) => s + c.invoiceTotal, 0);
   const unpaidCash = cashExpenses.filter(e => !e.paid).reduce((s, e) => s + e.value, 0);
-  const advanceDeducted = isCurrentMonth && new Date().getDate() >= profile.salary.advanceDay
+  const advanceDeducted = isCurrentMonth && dayOfMonth >= profile.salary.advanceDay
     ? profile.salary.advance : 0;
 
   // Current month: original formula (bank - unpaid). Future: server-computed projection.

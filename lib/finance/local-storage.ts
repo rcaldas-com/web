@@ -12,6 +12,7 @@ import type {
   MonthCardInvoice,
   MonthExpenseOverride,
 } from './types';
+import { getFinanceToday } from './date';
 
 const KEYS = {
   profile: 'finance_profile',
@@ -101,21 +102,35 @@ export function updateLocalCardInvoice(cardId: string, invoiceTotal: number) {
 // ==================== Expenses ====================
 
 export function getLocalExpenses(): RecurringExpense[] {
+  return getAllLocalExpenses().filter(expense => !expense.activeUntil);
+}
+
+export function getAllLocalExpenses(): RecurringExpense[] {
   return read<RecurringExpense[]>(KEYS.expenses, []);
 }
 
 export function saveLocalExpenses(expenses: Omit<RecurringExpense, '_id' | 'userId'>[]) {
-  const existing = getLocalExpenses();
-  const result: RecurringExpense[] = expenses.map((e, i) => {
-    // Try to match by existing _id (for updates) or assign new
-    const prev = existing[i];
+  const existing = getAllLocalExpenses();
+  const currentYearMonth = getFinanceToday().yearMonth;
+  const activeExpenses = expenses.map((e, i) => {
+    const typedExpense = e as RecurringExpense;
+    const prev = typedExpense._id
+      ? existing.find(item => item._id === typedExpense._id)
+      : existing.filter(item => !item.activeUntil)[i];
     return {
       ...e,
-      _id: (e as RecurringExpense)._id || prev?._id || localId(),
+      _id: typedExpense._id || prev?._id || localId(),
       userId: 'guest',
       order: i,
     };
   });
+
+  const activeIds = new Set(activeExpenses.map(expense => expense._id));
+  const endedExpenses = existing
+    .filter(expense => !activeIds.has(expense._id!))
+    .map(expense => expense.activeUntil ? expense : { ...expense, activeUntil: currentYearMonth });
+
+  const result: RecurringExpense[] = [...activeExpenses, ...endedExpenses];
   write(KEYS.expenses, result);
   return result;
 }
@@ -329,7 +344,7 @@ export function getAllLocalData() {
   return {
     profile: getLocalProfile(),
     cards: getLocalCards(),
-    expenses: getLocalExpenses(),
+    expenses: getAllLocalExpenses(),
     installments: getLocalInstallments(),
     months: getMonths(),
   };

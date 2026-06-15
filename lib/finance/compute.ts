@@ -13,6 +13,14 @@ import type {
   CardView,
 } from './types';
 
+export function isExpenseActiveInMonth(expense: RecurringExpense, yearMonth: string) {
+  return !expense.activeUntil || expense.activeUntil >= yearMonth;
+}
+
+export function filterExpensesForMonth(expenses: RecurringExpense[], yearMonth: string) {
+  return expenses.filter(expense => isExpenseActiveInMonth(expense, yearMonth));
+}
+
 export function groupInstallments(installments: Installment[], cards: CreditCard[], monthOffset = 0): InstallmentGroup[] {
   const cardMap = new Map(cards.map(c => [c._id!, c.name]));
   const groups = new Map<number, InstallmentGroup>();

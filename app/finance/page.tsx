@@ -3,13 +3,14 @@ import { redirect } from 'next/navigation';
 import {
   getProfile,
   getCards,
-  getExpenses,
+  getAllExpenses,
   getInstallments,
   getMonthData,
   getOrInitMonthCardInvoices,
   getExpenseOverrides,
 } from '@/lib/finance/data';
-import { groupInstallments, buildCardViews, calculateMonthBalance } from '@/lib/finance/compute';
+import { filterExpensesForMonth, groupInstallments, buildCardViews, calculateMonthBalance } from '@/lib/finance/compute';
+import { addMonthsToYearMonth, daysInYearMonth, getFinanceToday, yearMonthIndex } from '@/lib/finance/date';
 import DashboardClient from './DashboardClient';
 import FinanceGuest from './FinanceGuest';
 import MigrateGuestData from './MigrateGuestData';
@@ -27,24 +28,23 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
 
   const [cards, expenses, installments] = await Promise.all([
     getCards(userId),
-    getExpenses(userId),
+    getAllExpenses(userId),
     getInstallments(userId),
   ]);
 
   const params = await searchParams;
-  const now = new Date();
-  const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const today = getFinanceToday();
+  const currentYearMonth = today.yearMonth;
 
   // Use month from URL or default to current
   const yearMonth = params.month && /^\d{4}-\d{2}$/.test(params.month) ? params.month : currentYearMonth;
-  const [year, month] = yearMonth.split('-').map(Number);
-  const daysInMonth = new Date(year, month, 0).getDate();
+  const daysInMonth = daysInYearMonth(yearMonth);
   const isCurrentMonth = yearMonth === currentYearMonth;
-  const dayOfMonth = isCurrentMonth ? now.getDate() : daysInMonth;
+  const dayOfMonth = isCurrentMonth ? today.day : daysInMonth;
 
   // Month offset from current (0=current, 1=next, -1=prev)
-  const currentMonthIndex = now.getFullYear() * 12 + now.getMonth();
-  const viewMonthIndex = year * 12 + (month - 1);
+  const currentMonthIndex = yearMonthIndex(currentYearMonth);
+  const viewMonthIndex = yearMonthIndex(yearMonth);
   const monthOffset = viewMonthIndex - currentMonthIndex;
 
   // Proportional: remaining days for current month, full month otherwise
@@ -55,6 +55,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
 
   // Month-specific expense value overrides (uses most recent override <= this month)
   const expenseOverrides = await getExpenseOverrides(userId, yearMonth);
+  const monthExpenses = filterExpensesForMonth(expenses, yearMonth);
 
   // Month-specific card invoices
   const monthCardInvoices = await getOrInitMonthCardInvoices(
@@ -76,34 +77,32 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   const cardViews = buildCardViews(cards, installments, monthCardInvoices, offset);
 
   // Saldo do Mês: always uses full month (not proportional days)
-  const monthCalc = calculateMonthBalance(profile, expenses, installmentGroups, daysInMonth, expenseOverrides);
+  const monthCalc = calculateMonthBalance(profile, monthExpenses, installmentGroups, daysInMonth, expenseOverrides);
 
   // Projections: compute each future month with its own days, overrides, and installments
   const projMonths = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(year, month + i, 1);
+    const ym = addMonthsToYearMonth(yearMonth, i + 1);
     return {
       idx: i + 1,
-      ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      days: new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(),
+      ym,
+      days: daysInYearMonth(ym),
     };
   });
   const projOverrides = await Promise.all(projMonths.map(m => getExpenseOverrides(userId, m.ym)));
   const projections = projMonths.map((m, i) => {
     const ig = groupInstallments(installments, cards, Math.max(0, monthOffset + m.idx));
-    const calc = calculateMonthBalance(profile, expenses, ig, m.days, projOverrides[i]);
+    const calc = calculateMonthBalance(profile, filterExpensesForMonth(expenses, m.ym), ig, m.days, projOverrides[i]);
     return { label: `M+${m.idx}`, value: calc.monthBalance };
   });
 
   // Month navigation
-  const prevDate = new Date(year, month - 2, 1);
-  const nextDate = new Date(year, month, 1);
-  const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
-  const nextMonth = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
+  const prevMonth = addMonthsToYearMonth(yearMonth, -1);
+  const nextMonth = addMonthsToYearMonth(yearMonth, 1);
 
   const sortByDueDay = (a: { dueDay?: number }, b: { dueDay?: number }) =>
     (a.dueDay ?? 99) - (b.dueDay ?? 99);
 
-  const cardExpenses = expenses
+  const cardExpenses = monthExpenses
     .filter(e => e.category === 'card')
     .map(e => ({
       id: e._id!,
@@ -117,7 +116,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     }))
     .sort(sortByDueDay);
 
-  const cashExpenses = expenses
+  const cashExpenses = monthExpenses
     .filter(e => e.category === 'cash')
     .map(e => ({
       id: e._id!,
@@ -153,13 +152,14 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
 
     // 1. Current month available — must match client-side hero (uses cardViews, not monthCardInvoices)
     const curMonthData = await getMonthData(userId, currentYearMonth);
+    const currentExpenses = filterExpensesForMonth(expenses, currentYearMonth);
     const curPaidIds = new Set((curMonthData?.payments || []).map((p: { expenseId?: string }) => p.expenseId));
     const curCardInvoices = await getOrInitMonthCardInvoices(userId, currentYearMonth, cards, installments, 0);
     // buildCardViews includes ALL cards (falls back to card.invoiceTotal for missing entries)
     const curCardViews = buildCardViews(cards, installments, curCardInvoices, 0);
 
-    const curDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const curPropDays = curDays - now.getDate() + 1;
+    const curDays = daysInYearMonth(currentYearMonth);
+    const curPropDays = curDays - today.day + 1;
     const calcVal = (e: typeof expenses[0], d: number, overrides?: Map<string, number>) => {
       const baseValue = overrides?.get(e._id!) ?? e.value;
       if (e.proportional === 'daily') return baseValue * d;
@@ -169,9 +169,9 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
 
     // Current month unpaid cash (proportional remaining days)
     const curOverrides = await getExpenseOverrides(userId, currentYearMonth);
-    const curUnpaidCash = expenses.filter(e => e.category === 'cash' && !curPaidIds.has(e._id!))
+    const curUnpaidCash = currentExpenses.filter(e => e.category === 'cash' && !curPaidIds.has(e._id!))
       .reduce((s, e) => s + calcVal(e, curPropDays, curOverrides), 0);
-    const curUnpaidCard = expenses.filter(e => e.category === 'card' && !curPaidIds.has(e._id!))
+    const curUnpaidCard = currentExpenses.filter(e => e.category === 'card' && !curPaidIds.has(e._id!))
       .reduce((s, e) => s + calcVal(e, curPropDays, curOverrides), 0);
     // Use cardViews (all 5 cards) — same as client-side DashboardClient
     const curUnpaidInvoices = curCardViews.filter(c => !c.paid)
@@ -180,7 +180,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     // curAvailable: bankTotal (includes current VR) minus current-month unpaid items.
     // If the advance has already been received, keep it out of the projected base;
     // it belongs to next month's income and should not be counted twice.
-    const curAdvanceDeducted = now.getDate() >= profile.salary.advanceDay ? profile.salary.advance : 0;
+    const curAdvanceDeducted = today.day >= profile.salary.advanceDay ? profile.salary.advance : 0;
     const curAvailable = bankTotal - curUnpaidCash - curUnpaidInvoices - curAdvanceDeducted;
 
     const { payment, advance } = profile.salary;
@@ -192,20 +192,18 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     const salaryForNextMonth = fullSalary;
 
     const yearMonthFromOffset = (offset: number) => {
-      const date = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      return addMonthsToYearMonth(currentYearMonth, offset);
     };
 
     const daysForOffset = (offset: number) => {
-      const date = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-      return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+      return daysInYearMonth(yearMonthFromOffset(offset));
     };
 
     const categoryTotalForMonth = async (category: 'cash' | 'card', offset: number) => {
       const ym = yearMonthFromOffset(offset);
       const overrides = await getExpenseOverrides(userId, ym);
       const monthDays = daysForOffset(offset);
-      return expenses
+      return filterExpensesForMonth(expenses, ym)
         .filter(e => e.category === category)
         .reduce((sum, e) => sum + calcVal(e, monthDays, overrides), 0);
     };

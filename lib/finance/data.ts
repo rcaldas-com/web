@@ -1,5 +1,6 @@
 import clientPromise from '../mongodb';
 import { ObjectId } from 'mongodb';
+import { addMonthsToYearMonth, getFinanceToday, yearMonthIndex } from './date';
 import type {
   FinanceProfile,
   CreditCard,
@@ -24,19 +25,8 @@ interface FinanceControl {
   updatedAt?: Date;
 }
 
-function yearMonth(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function addMonthsToYearMonth(value: string, months: number): string {
-  const [year, month] = value.split('-').map(Number);
-  return yearMonth(new Date(year, month - 1 + months, 1));
-}
-
 function diffYearMonths(from: string, to: string): number {
-  const [fromYear, fromMonth] = from.split('-').map(Number);
-  const [toYear, toMonth] = to.split('-').map(Number);
-  return (toYear * 12 + toMonth) - (fromYear * 12 + fromMonth);
+  return yearMonthIndex(to) - yearMonthIndex(from);
 }
 
 export async function ensureInstallmentRollover() {
@@ -44,7 +34,7 @@ export async function ensureInstallmentRollover() {
   const db = client.db();
   const control = db.collection<FinanceControl>('financeControl');
   const now = new Date();
-  const currentYearMonth = yearMonth(now);
+  const currentYearMonth = getFinanceToday(now).yearMonth;
   const previousYearMonth = addMonthsToYearMonth(currentYearMonth, -1);
 
   await control.updateOne(
@@ -193,6 +183,13 @@ export async function updateCardInvoice(cardId: string, invoiceTotal: number) {
 export async function getExpenses(userId: string): Promise<RecurringExpense[]> {
   const client = await clientPromise;
   const db = client.db();
+  const docs = await db.collection('financeExpense').find({ userId, activeUntil: { $exists: false } }).sort({ order: 1 }).toArray();
+  return docs.map(d => ({ ...d, _id: d._id.toString() })) as RecurringExpense[];
+}
+
+export async function getAllExpenses(userId: string): Promise<RecurringExpense[]> {
+  const client = await clientPromise;
+  const db = client.db();
   const docs = await db.collection('financeExpense').find({ userId }).sort({ order: 1 }).toArray();
   return docs.map(d => ({ ...d, _id: d._id.toString() })) as RecurringExpense[];
 }
@@ -202,15 +199,19 @@ export async function saveExpenses(userId: string, expenses: (Omit<RecurringExpe
   const db = client.db();
   const col = db.collection('financeExpense');
 
+  const currentYearMonth = getFinanceToday().yearMonth;
   const keepIds = expenses.filter(e => e._id).map(e => new ObjectId(e._id!));
-  await col.deleteMany({ userId, _id: { $nin: keepIds } });
+  await col.updateMany(
+    { userId, activeUntil: { $exists: false }, ...(keepIds.length ? { _id: { $nin: keepIds } } : {}) },
+    { $set: { activeUntil: currentYearMonth } }
+  );
 
   const ops = expenses.map((e, i) => {
     const { _id, ...fields } = e;
     if (_id) {
       return col.updateOne(
         { _id: new ObjectId(_id), userId },
-        { $set: { ...fields, userId, order: i } }
+        { $set: { ...fields, userId, order: i }, $unset: { activeUntil: '' } }
       );
     } else {
       return col.insertOne({ ...fields, userId, order: i });
