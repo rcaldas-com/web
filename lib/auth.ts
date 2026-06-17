@@ -74,24 +74,26 @@ export async function requireRole(role: UserRole): Promise<UserSession> {
 
 export async function setUserSessionCookie(userId: string) {
   const cookieStore = await cookies();
+  const isProd = process.env.NODE_ENV === 'production';
   cookieStore.set('userId', userId, {
     httpOnly: true,
-    secure: true,
+    secure: isProd,
     sameSite: 'lax',
     maxAge: 60 * 60 * 24 * 30, // 30 days
     path: '/',
-    domain: '.rcaldas.com',
+    ...(isProd ? { domain: '.rcaldas.com' } : {}),
   });
 }
 
 export async function clearUserSessionCookie() {
   const cookieStore = await cookies();
+  const isProd = process.env.NODE_ENV === 'production';
   cookieStore.set('userId', '', {
     httpOnly: true,
-    secure: true,
+    secure: isProd,
     sameSite: 'lax',
     maxAge: 0,
     path: '/',
-    domain: '.rcaldas.com',
+    ...(isProd ? { domain: '.rcaldas.com' } : {}),
   });
 }
