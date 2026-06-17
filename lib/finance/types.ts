@@ -37,6 +37,7 @@ export interface RecurringExpense {
   proportional: false | 'daily' | 'weekly'; // false=fixo, 'daily'=value×dias, 'weekly'=value×(dias/7)
   dueDay?: number;           // dia vencimento
   order: number;
+  activeFrom?: string;       // YYYY-MM inclusivo; sem valor = ativa desde sempre
   activeUntil?: string;      // YYYY-MM inclusivo; sem valor = recorrente ativa
 }
 

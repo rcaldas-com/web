@@ -117,11 +117,13 @@ export function saveLocalExpenses(expenses: Omit<RecurringExpense, '_id' | 'user
     const prev = typedExpense._id
       ? existing.find(item => item._id === typedExpense._id)
       : existing.filter(item => !item.activeUntil)[i];
+    const isNew = !typedExpense._id && !prev?._id;
     return {
       ...e,
       _id: typedExpense._id || prev?._id || localId(),
       userId: 'guest',
       order: i,
+      ...(isNew ? { activeFrom: currentYearMonth } : {}),
     };
   });
 

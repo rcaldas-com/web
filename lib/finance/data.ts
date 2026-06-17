@@ -214,7 +214,7 @@ export async function saveExpenses(userId: string, expenses: (Omit<RecurringExpe
         { $set: { ...fields, userId, order: i }, $unset: { activeUntil: '' } }
       );
     } else {
-      return col.insertOne({ ...fields, userId, order: i });
+      return col.insertOne({ ...fields, userId, order: i, activeFrom: currentYearMonth });
     }
   });
   await Promise.all(ops);

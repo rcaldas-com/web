@@ -14,6 +14,7 @@ import type {
 } from './types';
 
 export function isExpenseActiveInMonth(expense: RecurringExpense, yearMonth: string) {
+  if (expense.activeFrom && expense.activeFrom > yearMonth) return false;
   return !expense.activeUntil || expense.activeUntil >= yearMonth;
 }
 
