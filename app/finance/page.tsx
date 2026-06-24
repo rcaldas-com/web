@@ -135,17 +135,15 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   // Compute available balance
   let availableBalance: number;
 
-  if (monthOffset <= 0) {
-    // Current/past month: bank total minus unpaid items
+  if (monthOffset < 0) {
+    // Past months: bank total minus unpaid items
     const unpaidCashTotal = cashExpenses.filter(e => !e.paid).reduce((s, e) => s + e.value, 0);
     const unpaidInvoicesTotal = monthCardInvoices.filter(c => !c.paid).reduce((s, c) => s + c.invoiceTotal, 0);
     availableBalance = bankTotal - unpaidCashTotal - unpaidInvoicesTotal;
-
-    // If advance already received (day >= advanceDay), subtract it — it belongs to next month's salary
-    if (isCurrentMonth && dayOfMonth >= profile.salary.advanceDay) {
-      availableBalance -= profile.salary.advance;
-    }
   } else {
+    // Current month (monthOffset === 0) and future months:
+    // For current month, project one step ahead to account for this month's card spending
+    // hitting next month's invoice — shows the true available balance.
     // Future months: project cash availability from current available balance.
     // Cash impact comes from invoices due in each projected month plus card expenses
     // generated in the previous month that are not yet reflected in a closed invoice.
@@ -217,7 +215,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     };
 
     availableBalance = curAvailable;
-    for (let i = 1; i <= monthOffset; i++) {
+    for (let i = 1; i <= Math.max(monthOffset, 1); i++) {
       const salaryForMonth = i === 1 ? salaryForNextMonth : fullSalary;
       const cashForMonth = await categoryTotalForMonth('cash', i);
       const invoicesForMonth = await invoiceTotalForMonth(i);
