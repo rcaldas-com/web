@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { ImageResponse } from 'next/og';
 import { readFile } from 'fs/promises';
 import path from 'path';
@@ -8,7 +7,6 @@ export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 export const alt = 'RCaldas – Serviços Web, Blockchain e Segurança';
 
-const appTitle = process.env.TITLE || 'RCaldas';
 const appDescription = process.env.DESCRIPTION || 'Serviços Web, Blockchain e Segurança';
 
 export default async function OgImage() {
@@ -78,7 +76,6 @@ export default async function OgImage() {
         >
           {/* Top: logo + headline */}
           <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '56px' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={logoSrc}
               width={210}
