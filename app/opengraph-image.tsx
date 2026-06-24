@@ -68,62 +68,64 @@ export default async function OgImage() {
         <div
           style={{
             display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            gap: '72px',
             padding: '64px 80px',
             width: '1200px',
-            gap: '64px',
+            height: '630px',
           }}
         >
-          {/* Logo */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={logoSrc}
-            width={170}
-            height={170}
-            style={{ borderRadius: '16px', flexShrink: 0 }}
-            alt="RC"
-          />
-
-          {/* Text */}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span
-              style={{
-                color: '#ffffff',
-                fontSize: '80px',
-                fontWeight: 900,
-                lineHeight: 1.0,
-                letterSpacing: '-3px',
-                display: 'block',
-              }}
-            >
-              Gerencie sua vida
-            </span>
-            <span
-              style={{
-                color: '#34d399',
-                fontSize: '80px',
-                fontWeight: 900,
-                lineHeight: 1.05,
-                letterSpacing: '-3px',
-                display: 'block',
-                marginBottom: '28px',
-              }}
-            >
-              em um so lugar.
-            </span>
-            <span
-              style={{
-                color: '#a1a1aa',
-                fontSize: '36px',
-                fontWeight: 400,
-                lineHeight: 1.3,
-                display: 'block',
-              }}
-            >
-              {appDescription}
-            </span>
+          {/* Top: logo + headline */}
+          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '56px' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={logoSrc}
+              width={210}
+              height={210}
+              style={{ borderRadius: '20px', flexShrink: 0 }}
+              alt="RC"
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+              <span
+                style={{
+                  color: '#ffffff',
+                  fontSize: '99px',
+                  fontWeight: 900,
+                  lineHeight: 1.0,
+                  letterSpacing: '-4px',
+                  display: 'block',
+                }}
+              >
+                Gerencie sua vida
+              </span>
+              <span
+                style={{
+                  color: '#34d399',
+                  fontSize: '99px',
+                  fontWeight: 900,
+                  lineHeight: 1.05,
+                  letterSpacing: '-4px',
+                  display: 'block',
+                }}
+              >
+                em um só lugar.
+              </span>
+            </div>
           </div>
+
+          {/* Bottom: subtitle full width */}
+          <span
+            style={{
+              color: '#a1a1aa',
+              fontSize: '55px',
+              fontWeight: 400,
+              lineHeight: 1.0,
+              display: 'block',
+            }}
+          >
+            {appDescription}
+          </span>
         </div>
       </div>
     ),
