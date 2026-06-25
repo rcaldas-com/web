@@ -23,6 +23,17 @@ export const metadata: Metadata = {
   },
   description: process.env.DESCRIPTION,
   metadataBase: new URL(public_host),
+  alternates: {
+    canonical: '/',
+  },
+  openGraph: {
+    siteName: title,
+    locale: 'pt_BR',
+    url: '/',
+  },
+  icons: {
+    apple: '/logo.png',
+  },
 };
 
 export default async function RootLayout({
