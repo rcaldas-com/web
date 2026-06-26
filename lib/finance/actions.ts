@@ -19,9 +19,12 @@ import {
   updateMonthCardInvoice,
   toggleMonthCardInvoicePaid,
   updateMonthExpenseValue,
+  adjustBankBalance,
+  getCardInvoiceTotalForMonth,
 } from './data';
 import type { RecurringExpense } from './types';
 import { evalExpression } from './eval-expression';
+import { addMonthsToYearMonth } from './date';
 
 async function getUserId(): Promise<string> {
   const cookieStore = await cookies();
@@ -248,9 +251,30 @@ export async function doRollOver() {
   revalidatePath('/finance');
 }
 
-export async function togglePaid(expenseId: string, expenseName: string, amountPaid: number, yearMonth: string) {
+export async function togglePaid(
+  expenseId: string, expenseName: string, amountPaid: number, yearMonth: string,
+  paidFromBank?: string, paidToCard?: string,
+) {
   const userId = await getUserId();
-  await toggleExpensePayment(userId, yearMonth, expenseId, expenseName, amountPaid);
+  const removed = await toggleExpensePayment(userId, yearMonth, expenseId, expenseName, amountPaid, paidFromBank, paidToCard);
+
+  const nextMonth = addMonthsToYearMonth(yearMonth, 1);
+  if (removed) {
+    // Toggled OFF — reverse adjustments
+    if (removed.paidFromBank) await adjustBankBalance(userId, removed.paidFromBank, removed.amountPaid);
+    if (removed.paidToCard) {
+      const current = await getCardInvoiceTotalForMonth(userId, nextMonth, removed.paidToCard);
+      await updateMonthCardInvoice(userId, nextMonth, removed.paidToCard, Math.max(0, current - removed.amountPaid));
+    }
+  } else {
+    // Toggled ON — apply adjustments
+    if (paidFromBank) await adjustBankBalance(userId, paidFromBank, -amountPaid);
+    if (paidToCard) {
+      const current = await getCardInvoiceTotalForMonth(userId, nextMonth, paidToCard);
+      await updateMonthCardInvoice(userId, nextMonth, paidToCard, current + amountPaid);
+    }
+  }
+
   revalidatePath('/finance');
 }
 
@@ -288,9 +312,11 @@ export async function updateMonthInvoice(cardId: string, invoiceTotal: number, y
   revalidatePath('/finance');
 }
 
-export async function toggleInvoicePaid(cardId: string, cardName: string, invoiceTotal: number, yearMonth: string) {
+export async function toggleInvoicePaid(cardId: string, cardName: string, invoiceTotal: number, yearMonth: string, paidFromBank?: string) {
   const userId = await getUserId();
-  await toggleMonthCardInvoicePaid(userId, yearMonth, cardId, cardName, invoiceTotal);
+  const { nowPaid, previousBank } = await toggleMonthCardInvoicePaid(userId, yearMonth, cardId, cardName, invoiceTotal, paidFromBank);
+  if (nowPaid && paidFromBank) await adjustBankBalance(userId, paidFromBank, -invoiceTotal);
+  else if (!nowPaid && previousBank) await adjustBankBalance(userId, previousBank, invoiceTotal);
   revalidatePath('/finance');
 }
 

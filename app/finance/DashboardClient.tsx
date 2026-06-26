@@ -19,9 +19,9 @@ import type { InstallmentGroup, CardView, BankAccount } from '@/lib/finance/type
 const BRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 interface FinanceActions {
-  togglePaid: (id: string, name: string, value: number, ym: string) => Promise<void>;
+  togglePaid: (id: string, name: string, value: number, ym: string, bank?: string, cardId?: string) => Promise<void>;
   updateInvoice: (cardId: string, amount: number, ym: string) => Promise<void>;
-  toggleInvoicePaid: (cardId: string, name: string, total: number, ym: string) => Promise<void>;
+  toggleInvoicePaid: (cardId: string, name: string, total: number, ym: string, bank?: string) => Promise<void>;
   updateBankBalance: (fd: FormData) => Promise<void>;
   updateExpenseValue: (id: string, value: number, ym: string) => Promise<void>;
 }
@@ -98,9 +98,9 @@ export default function DashboardClient({
 
   const actions: FinanceActions = isGuest
     ? {
-        togglePaid: async (id, name, value, ym) => { toggleLocalExpensePayment(ym, id, name, value); guestRefresh(); },
+        togglePaid: async (id, name, value, ym, bank, cardId) => { toggleLocalExpensePayment(ym, id, name, value, bank, cardId); guestRefresh(); },
         updateInvoice: async (cardId, amount, ym) => { updateLocalMonthCardInvoice(ym, cardId, amount); guestRefresh(); },
-        toggleInvoicePaid: async (cardId, name, total, ym) => { toggleLocalCardInvoicePaid(ym, cardId, name, total); guestRefresh(); },
+        toggleInvoicePaid: async (cardId, name, total, ym, bank) => { toggleLocalCardInvoicePaid(ym, cardId, name, total, bank); guestRefresh(); },
         updateBankBalance: async (fd) => {
           const names = fd.getAll('bankName') as string[];
           const balances = fd.getAll('bankBalance') as string[];
@@ -112,9 +112,9 @@ export default function DashboardClient({
         updateExpenseValue: async (id, value, ym) => { updateLocalExpenseOverride(ym, id, value); guestRefresh(); },
       }
     : {
-        togglePaid: async (id, name, value, ym) => { await togglePaid(id, name, value, ym); },
+        togglePaid: async (id, name, value, ym, bank, cardId) => { await togglePaid(id, name, value, ym, bank, cardId); },
         updateInvoice: async (cardId, amount, ym) => { await updateMonthInvoice(cardId, amount, ym); },
-        toggleInvoicePaid: async (cardId, name, total, ym) => { await toggleInvoicePaid(cardId, name, total, ym); },
+        toggleInvoicePaid: async (cardId, name, total, ym, bank) => { await toggleInvoicePaid(cardId, name, total, ym, bank); },
         updateBankBalance: async (fd) => { await updateBankBalance(fd); },
         updateExpenseValue: async (id, value, ym) => { await updateExpenseValue(id, value, ym); },
       };
@@ -219,6 +219,8 @@ export default function DashboardClient({
         expenses={allExpenses}
         yearMonth={yearMonth}
         proportionalDays={proportionalDays}
+        banks={profile.banks}
+        cards={cardViews}
       />
 
       {/* Cartões / Faturas do mês */}
@@ -235,7 +237,7 @@ export default function DashboardClient({
           </div>
           <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {[...cardViews].sort((a, b) => (a.paid === b.paid ? 0 : a.paid ? 1 : -1) || (a.dueDay ?? 99) - (b.dueDay ?? 99)).map(c => (
-              <CardInvoiceRow key={c._id} card={c} yearMonth={yearMonth} />
+              <CardInvoiceRow key={c._id} card={c} yearMonth={yearMonth} banks={profile.banks} />
             ))}
           </div>
           <div className="flex justify-between mt-3 pt-3 border-t text-sm dark:border-zinc-800">
@@ -414,17 +416,92 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
   );
 }
 
-function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string }) {
+function PickerChip({ label, sub, onClick }: { label: string; sub?: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex flex-col items-center px-3 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700/60 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-zinc-600 dark:hover:border-blue-500 transition-colors min-w-[52px]"
+    >
+      <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 leading-tight">{label}</span>
+      {sub && <span className="text-xs font-mono text-zinc-400 leading-tight">{sub}</span>}
+    </button>
+  );
+}
+
+function PaymentPicker({
+  category, banks, cards, onSelect, onDismiss,
+}: {
+  category: 'card' | 'cash';
+  banks: BankAccount[];
+  cards: CardView[];
+  onSelect: (bank?: string, cardId?: string) => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="mx-2 mb-1 px-3 py-2.5 bg-zinc-100 dark:bg-zinc-800/80 rounded-md border border-zinc-200 dark:border-zinc-700">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          {category === 'cash' ? 'Débitar de qual conta?' : 'Adicionar à fatura de qual cartão?'}
+        </p>
+        <button onClick={onDismiss} className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 px-1">✕</button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {category === 'cash'
+          ? banks.map(b => (
+              <PickerChip key={b.name} label={b.name} sub={BRL(b.balance)} onClick={() => onSelect(b.name, undefined)} />
+            ))
+          : cards.map(c => (
+              <PickerChip key={c._id} label={c.name} sub={BRL(c.invoiceTotal)} onClick={() => onSelect(undefined, c._id)} />
+            ))
+        }
+        <PickerChip label={`Sem ${category === 'cash' ? 'conta' : 'cartão'}`} onClick={() => onSelect(undefined, undefined)} />
+      </div>
+    </div>
+  );
+}
+
+function BankPicker({
+  banks, onSelect, onDismiss,
+}: {
+  banks: BankAccount[];
+  onSelect: (bank?: string) => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="mx-2 mb-1 px-3 py-2.5 bg-zinc-100 dark:bg-zinc-800/80 rounded-md border border-zinc-200 dark:border-zinc-700">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">Pagar fatura de qual conta?</p>
+        <button onClick={onDismiss} className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 px-1">✕</button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {banks.map(b => (
+          <PickerChip key={b.name} label={b.name} sub={BRL(b.balance)} onClick={() => onSelect(b.name)} />
+        ))}
+        <PickerChip label="Sem conta" onClick={() => onSelect(undefined)} />
+      </div>
+    </div>
+  );
+}
+
+function CardInvoiceRow({ card, yearMonth, banks }: { card: CardView; yearMonth: string; banks: BankAccount[] }) {
   const actions = useActions();
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(card.invoiceTotal.toString());
+  const [showPicker, setShowPicker] = useState(false);
 
   const handleToggle = () => {
-    startTransition(() => {
-      actions.toggleInvoicePaid(card._id, card.name, card.invoiceTotal, yearMonth);
-    });
+    if (card.paid) {
+      startTransition(() => { actions.toggleInvoicePaid(card._id, card.name, card.invoiceTotal, yearMonth); });
+    } else {
+      setShowPicker(true);
+    }
+  };
+
+  const handlePickBank = (bank?: string) => {
+    setShowPicker(false);
+    startTransition(() => { actions.toggleInvoicePaid(card._id, card.name, card.invoiceTotal, yearMonth, bank); });
   };
 
   const handleSave = () => {
@@ -436,6 +513,7 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
   };
 
   return (
+    <>
     <div
       className={`flex items-center gap-3 py-2 px-2 transition
         ${card.paid ? 'bg-green-50 dark:bg-green-950/30' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/70'}
@@ -486,6 +564,10 @@ function CardInvoiceRow({ card, yearMonth }: { card: CardView; yearMonth: string
         </span>
       )}
     </div>
+    {showPicker && (
+      <BankPicker banks={banks} onSelect={handlePickBank} onDismiss={() => setShowPicker(false)} />
+    )}
+    </>
   );
 }
 
@@ -494,25 +576,37 @@ function ExpenseChecklist({
   expenses,
   yearMonth,
   proportionalDays,
+  banks,
+  cards,
 }: {
   title: string;
   expenses: ExpenseItem[];
   yearMonth: string;
   proportionalDays: number;
+  banks: BankAccount[];
+  cards: CardView[];
 }) {
   const actions = useActions();
   const [isPending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
+  const [pickerId, setPickerId] = useState<string | null>(null);
   const paidCount = expenses.filter(e => e.paid).length;
   const total = expenses.reduce((s, e) => s + e.value, 0);
   const paidTotal = expenses.filter(e => e.paid).reduce((s, e) => s + e.value, 0);
   const pendingTotal = total - paidTotal;
 
   const handleToggle = (e: ExpenseItem) => {
-    startTransition(() => {
-      actions.togglePaid(e.id, e.name, e.value, yearMonth);
-    });
+    if (e.paid) {
+      startTransition(() => { actions.togglePaid(e.id, e.name, e.value, yearMonth); });
+    } else {
+      setPickerId(e.id);
+    }
+  };
+
+  const handlePick = (e: ExpenseItem, bank?: string, cardId?: string) => {
+    setPickerId(null);
+    startTransition(() => { actions.togglePaid(e.id, e.name, e.value, yearMonth, bank, cardId); });
   };
 
   const handleSaveValue = (e: ExpenseItem) => {
@@ -539,8 +633,8 @@ function ExpenseChecklist({
       </div>
       <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
         {expenses.map(e => (
+          <div key={e.id}>
           <div
-            key={e.id}
             className={`flex items-center gap-3 py-2 px-2 transition
               ${e.paid ? 'bg-green-50 dark:bg-green-950/30' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/70'}
               ${isPending ? 'opacity-70 pointer-events-none' : ''}`}
@@ -586,6 +680,16 @@ function ExpenseChecklist({
                 {BRL(e.value)}
               </span>
             )}
+          </div>
+          {pickerId === e.id && !e.paid && (
+            <PaymentPicker
+              category={e.category}
+              banks={banks}
+              cards={cards}
+              onSelect={(bank, cardId) => handlePick(e, bank, cardId)}
+              onDismiss={() => setPickerId(null)}
+            />
+          )}
           </div>
         ))}
       </div>

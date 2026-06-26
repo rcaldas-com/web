@@ -121,6 +121,15 @@ export async function upsertProfile(userId: string, data: Omit<FinanceProfile, '
   );
 }
 
+export async function adjustBankBalance(userId: string, bankName: string, delta: number) {
+  const client = await clientPromise;
+  const db = client.db();
+  await db.collection('financeProfile').updateOne(
+    { userId, 'banks.name': bankName },
+    { $inc: { 'banks.$.balance': delta } }
+  );
+}
+
 // ==================== Credit Cards ====================
 
 export async function getCards(userId: string): Promise<CreditCard[]> {
@@ -323,19 +332,21 @@ export async function toggleExpensePayment(
   expenseId: string,
   expenseName: string,
   amountPaid: number,
-) {
+  paidFromBank?: string,
+  paidToCard?: string,
+): Promise<MonthPayment | null> {
   const client = await clientPromise;
   const db = client.db();
   const doc = await db.collection('financeMonth').findOne({ userId, yearMonth });
   const payments: MonthPayment[] = doc?.payments || [];
 
   const idx = payments.findIndex(p => p.expenseId === expenseId);
+  let removed: MonthPayment | null = null;
   if (idx >= 0) {
-    // Already paid → remove (toggle off)
+    removed = { ...payments[idx] };
     payments.splice(idx, 1);
   } else {
-    // Mark as paid
-    payments.push({ expenseId, expenseName, amountPaid, paidAt: new Date() });
+    payments.push({ expenseId, expenseName, amountPaid, paidAt: new Date(), paidFromBank, paidToCard });
   }
 
   await db.collection('financeMonth').updateOne(
@@ -343,6 +354,7 @@ export async function toggleExpensePayment(
     { $set: { payments, userId, yearMonth } },
     { upsert: true }
   );
+  return removed;
 }
 
 // ==================== Month Expense Overrides ====================
@@ -461,23 +473,36 @@ export async function updateMonthCardInvoice(
   );
 }
 
+export async function getCardInvoiceTotalForMonth(userId: string, yearMonth: string, cardId: string): Promise<number> {
+  const monthData = await getMonthData(userId, yearMonth);
+  return monthData?.cardInvoices?.find(ci => ci.cardId === cardId)?.invoiceTotal ?? 0;
+}
+
 export async function toggleMonthCardInvoicePaid(
   userId: string,
   yearMonth: string,
   cardId: string,
   cardName: string,
   invoiceTotal: number,
-) {
+  paidFromBank?: string,
+): Promise<{ nowPaid: boolean; previousBank?: string }> {
   const client = await clientPromise;
   const db = client.db();
   const doc = await db.collection('financeMonth').findOne({ userId, yearMonth });
   const invoices: MonthCardInvoice[] = doc?.cardInvoices || [];
 
   const idx = invoices.findIndex(ci => ci.cardId === cardId);
+  let nowPaid: boolean;
+  let previousBank: string | undefined;
   if (idx >= 0) {
-    invoices[idx].paid = !invoices[idx].paid;
+    nowPaid = !invoices[idx].paid;
+    previousBank = invoices[idx].paidFromBank;
+    invoices[idx].paid = nowPaid;
+    if (nowPaid) invoices[idx].paidFromBank = paidFromBank;
+    else delete invoices[idx].paidFromBank;
   } else {
-    invoices.push({ cardId, cardName, invoiceTotal, paid: true });
+    nowPaid = true;
+    invoices.push({ cardId, cardName, invoiceTotal, paid: true, paidFromBank });
   }
 
   await db.collection('financeMonth').updateOne(
@@ -485,6 +510,7 @@ export async function toggleMonthCardInvoicePaid(
     { $set: { cardInvoices: invoices, userId, yearMonth } },
     { upsert: true }
   );
+  return { nowPaid, previousBank };
 }
 
 // ==================== Computed Views ====================

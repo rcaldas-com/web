@@ -12,7 +12,7 @@ import type {
   MonthCardInvoice,
   MonthExpenseOverride,
 } from './types';
-import { getFinanceToday } from './date';
+import { getFinanceToday, addMonthsToYearMonth } from './date';
 
 const KEYS = {
   profile: 'finance_profile',
@@ -212,11 +212,32 @@ export function getLocalMonthData(yearMonth: string): MonthData | null {
   return getMonths()[yearMonth] || null;
 }
 
+function adjustLocalBankBalance(bankName: string, delta: number) {
+  const profile = getLocalProfile();
+  if (!profile) return;
+  const idx = profile.banks.findIndex(b => b.name === bankName);
+  if (idx >= 0) profile.banks[idx].balance += delta;
+  write(KEYS.profile, profile);
+}
+
+function adjustLocalCardInvoice(yearMonth: string, cardId: string, delta: number) {
+  const months = getMonths();
+  const month = months[yearMonth] || ensureMonth(yearMonth);
+  const invoices: MonthCardInvoice[] = month.cardInvoices || [];
+  const idx = invoices.findIndex(ci => ci.cardId === cardId);
+  if (idx >= 0) invoices[idx].invoiceTotal = Math.max(0, invoices[idx].invoiceTotal + delta);
+  month.cardInvoices = invoices;
+  months[yearMonth] = month;
+  setMonths(months);
+}
+
 export function toggleLocalExpensePayment(
   yearMonth: string,
   expenseId: string,
   expenseName: string,
   amountPaid: number,
+  paidFromBank?: string,
+  paidToCard?: string,
 ) {
   const months = getMonths();
   const month = months[yearMonth] || ensureMonth(yearMonth);
@@ -224,9 +245,14 @@ export function toggleLocalExpensePayment(
 
   const idx = payments.findIndex(p => p.expenseId === expenseId);
   if (idx >= 0) {
+    const removed = payments[idx];
     payments.splice(idx, 1);
+    if (removed.paidFromBank) adjustLocalBankBalance(removed.paidFromBank, removed.amountPaid);
+    if (removed.paidToCard) adjustLocalCardInvoice(addMonthsToYearMonth(yearMonth, 1), removed.paidToCard, -removed.amountPaid);
   } else {
-    payments.push({ expenseId, expenseName, amountPaid, paidAt: new Date() });
+    payments.push({ expenseId, expenseName, amountPaid, paidAt: new Date(), paidFromBank, paidToCard });
+    if (paidFromBank) adjustLocalBankBalance(paidFromBank, -amountPaid);
+    if (paidToCard) adjustLocalCardInvoice(addMonthsToYearMonth(yearMonth, 1), paidToCard, amountPaid);
   }
 
   month.payments = payments;
@@ -260,6 +286,7 @@ export function toggleLocalCardInvoicePaid(
   cardId: string,
   cardName: string,
   invoiceTotal: number,
+  paidFromBank?: string,
 ) {
   const months = getMonths();
   const month = months[yearMonth] || ensureMonth(yearMonth);
@@ -267,9 +294,19 @@ export function toggleLocalCardInvoicePaid(
 
   const idx = invoices.findIndex(ci => ci.cardId === cardId);
   if (idx >= 0) {
-    invoices[idx].paid = !invoices[idx].paid;
+    const nowPaid = !invoices[idx].paid;
+    const previousBank = invoices[idx].paidFromBank;
+    invoices[idx].paid = nowPaid;
+    if (nowPaid) {
+      invoices[idx].paidFromBank = paidFromBank;
+      if (paidFromBank) adjustLocalBankBalance(paidFromBank, -invoices[idx].invoiceTotal);
+    } else {
+      delete invoices[idx].paidFromBank;
+      if (previousBank) adjustLocalBankBalance(previousBank, invoices[idx].invoiceTotal);
+    }
   } else {
-    invoices.push({ cardId, cardName, invoiceTotal, paid: true });
+    invoices.push({ cardId, cardName, invoiceTotal, paid: true, paidFromBank });
+    if (paidFromBank) adjustLocalBankBalance(paidFromBank, -invoiceTotal);
   }
 
   month.cardInvoices = invoices;

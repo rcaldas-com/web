@@ -74,6 +74,7 @@ export interface MonthCardInvoice {
   cardName: string;
   invoiceTotal: number;
   paid: boolean;
+  paidFromBank?: string;     // nome da conta debitada ao pagar a fatura (para reverter)
 }
 
 export interface MonthPayment {
@@ -81,6 +82,8 @@ export interface MonthPayment {
   expenseName: string;
   amountPaid: number;
   paidAt: Date;
+  paidFromBank?: string;     // nome da conta debitada (para reverter no untoggle)
+  paidToCard?: string;       // _id do cartão creditado (para reverter no untoggle)
 }
 
 export interface ExtraExpense {
