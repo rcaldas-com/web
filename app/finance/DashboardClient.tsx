@@ -450,9 +450,14 @@ function PaymentPicker({
           ? banks.map(b => (
               <PickerChip key={b.name} label={b.name} sub={BRL(b.balance)} onClick={() => onSelect(b.name, undefined)} />
             ))
-          : cards.map(c => (
-              <PickerChip key={c._id} label={c.name} sub="→ próx. mês" onClick={() => onSelect(undefined, c._id)} />
-            ))
+          : cards.map(c => {
+              const nextMonthTotal = c.items
+                .filter(i => i.remaining > 1)
+                .reduce((s, i) => s + i.monthlyValue, 0);
+              return (
+                <PickerChip key={c._id} label={c.name} sub={`próx: ${BRL(nextMonthTotal)}`} onClick={() => onSelect(undefined, c._id)} />
+              );
+            })
         }
         <PickerChip label={`Sem ${category === 'cash' ? 'conta' : 'cartão'}`} onClick={() => onSelect(undefined, undefined)} />
       </div>
