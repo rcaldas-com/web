@@ -34,6 +34,15 @@ export const metadata: Metadata = {
   icons: {
     apple: '/logo.png',
   },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title,
+  },
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f4f4f5' },
+    { media: '(prefers-color-scheme: dark)', color: '#18181b' },
+  ],
 };
 
 export default async function RootLayout({
