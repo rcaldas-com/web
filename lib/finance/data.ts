@@ -430,20 +430,22 @@ export async function getOrInitMonthCardInvoices(
   const monthData = await getMonthData(userId, yearMonth);
 
   const adjustments = monthData?.cardExpenseAdjustments || [];
+  const storedMap = new Map((monthData?.cardInvoices || []).map(ci => [ci.cardId, ci]));
 
-  const base: MonthCardInvoice[] = monthData?.cardInvoices?.length
-    ? monthData.cardInvoices
-    : cards.map(card => {
-        const cardInsts = installments.filter(i => i.cardId === card._id);
-        const activeInsts = cardInsts.filter(i => i.remainingInstallments > monthOffset);
-        const installmentsTotal = activeInsts.reduce((sum, i) => sum + i.monthlyValue, 0);
-        return {
-          cardId: card._id!,
-          cardName: card.name,
-          invoiceTotal: monthOffset === 0 ? card.invoiceTotal : installmentsTotal,
-          paid: false,
-        };
-      });
+  const base: MonthCardInvoice[] = cards.map(card => {
+    const stored = storedMap.get(card._id!);
+    const cardInsts = installments.filter(i => i.cardId === card._id);
+    const activeInsts = cardInsts.filter(i => i.remainingInstallments > monthOffset);
+    const installmentsTotal = activeInsts.reduce((sum, i) => sum + i.monthlyValue, 0);
+    const computedTotal = monthOffset === 0 ? card.invoiceTotal : installmentsTotal;
+    return {
+      cardId: card._id!,
+      cardName: card.name,
+      invoiceTotal: stored?.invoiceTotal || computedTotal,
+      paid: stored?.paid ?? false,
+      ...(stored?.paidFromBank ? { paidFromBank: stored.paidFromBank } : {}),
+    };
+  });
 
   if (!adjustments.length) return base;
 
