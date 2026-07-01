@@ -359,6 +359,15 @@ export async function toggleExpensePayment(
 
 // ==================== Month Expense Overrides ====================
 
+export async function updatePaymentAmount(userId: string, yearMonth: string, expenseId: string, newAmount: number) {
+  const client = await clientPromise;
+  const db = client.db();
+  await db.collection('financeMonth').updateOne(
+    { userId, yearMonth, 'payments.expenseId': expenseId },
+    { $set: { 'payments.$.amountPaid': newAmount } }
+  );
+}
+
 export async function updateMonthExpenseValue(
   userId: string,
   yearMonth: string,

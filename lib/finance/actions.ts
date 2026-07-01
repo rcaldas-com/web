@@ -19,6 +19,8 @@ import {
   updateMonthCardInvoice,
   toggleMonthCardInvoicePaid,
   updateMonthExpenseValue,
+  updatePaymentAmount,
+  getMonthData,
   adjustBankBalance,
   adjustCardExpenseInMonth,
 } from './data';
@@ -319,6 +321,22 @@ export async function toggleInvoicePaid(cardId: string, cardName: string, invoic
 
 export async function updateExpenseValue(expenseId: string, value: number, yearMonth: string) {
   const userId = await getUserId();
+
+  const monthData = await getMonthData(userId, yearMonth);
+  const payment = monthData?.payments?.find(p => p.expenseId === expenseId);
+
+  if (payment?.paidToCard) {
+    const delta = value - payment.amountPaid;
+    if (delta !== 0) {
+      const nextMonth = addMonthsToYearMonth(yearMonth, 1);
+      await Promise.all([
+        updatePaymentAmount(userId, yearMonth, expenseId, value),
+        adjustCardExpenseInMonth(userId, nextMonth, payment.paidToCard, delta),
+        ...(payment.paidFromBank ? [adjustBankBalance(userId, payment.paidFromBank, -delta)] : []),
+      ]);
+    }
+  }
+
   await updateMonthExpenseValue(userId, yearMonth, expenseId, value);
   revalidatePath('/finance');
 }
