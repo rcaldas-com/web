@@ -223,10 +223,11 @@ function adjustLocalBankBalance(bankName: string, delta: number) {
 function adjustLocalCardInvoice(yearMonth: string, cardId: string, delta: number) {
   const months = getMonths();
   const month = months[yearMonth] || ensureMonth(yearMonth);
-  const invoices: MonthCardInvoice[] = month.cardInvoices || [];
-  const idx = invoices.findIndex(ci => ci.cardId === cardId);
-  if (idx >= 0) invoices[idx].invoiceTotal = Math.max(0, invoices[idx].invoiceTotal + delta);
-  month.cardInvoices = invoices;
+  const adjustments: { cardId: string; amount: number }[] = month.cardExpenseAdjustments || [];
+  const idx = adjustments.findIndex(a => a.cardId === cardId);
+  if (idx >= 0) adjustments[idx].amount += delta;
+  else adjustments.push({ cardId, amount: delta });
+  month.cardExpenseAdjustments = adjustments.filter(a => a.amount !== 0);
   months[yearMonth] = month;
   setMonths(months);
 }

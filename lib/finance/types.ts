@@ -58,9 +58,10 @@ export interface MonthData {
   yearMonth: string;         // "2026-04"
   daysInMonth: number;
   payments: MonthPayment[];  // despesas pagas/zeradas no mês
-  cardInvoices: MonthCardInvoice[]; // faturas dos cartões neste mês
+  cardInvoices: MonthCardInvoice[]; // faturas dos cartões neste mês (definidas manualmente)
   expenseOverrides: MonthExpenseOverride[]; // valores alterados de despesas neste mês
   extraExpenses: ExtraExpense[]; // gastos pontuais do mês
+  cardExpenseAdjustments?: { cardId: string; amount: number }[]; // ajustes de despesas cartão marcadas como pagas
   notes?: string;
 }
 

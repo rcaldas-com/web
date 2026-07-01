@@ -429,23 +429,45 @@ export async function getOrInitMonthCardInvoices(
 ): Promise<MonthCardInvoice[]> {
   const monthData = await getMonthData(userId, yearMonth);
 
-  if (monthData?.cardInvoices?.length) {
-    return monthData.cardInvoices;
-  }
+  const adjustments = monthData?.cardExpenseAdjustments || [];
 
-  // Initialize: current month uses card's invoiceTotal, future months use installments sum
-  return cards.map(card => {
-    const cardInsts = installments.filter(i => i.cardId === card._id);
-    const activeInsts = cardInsts.filter(i => i.remainingInstallments > monthOffset);
-    const installmentsTotal = activeInsts.reduce((sum, i) => sum + i.monthlyValue, 0);
+  const base: MonthCardInvoice[] = monthData?.cardInvoices?.length
+    ? monthData.cardInvoices
+    : cards.map(card => {
+        const cardInsts = installments.filter(i => i.cardId === card._id);
+        const activeInsts = cardInsts.filter(i => i.remainingInstallments > monthOffset);
+        const installmentsTotal = activeInsts.reduce((sum, i) => sum + i.monthlyValue, 0);
+        return {
+          cardId: card._id!,
+          cardName: card.name,
+          invoiceTotal: monthOffset === 0 ? card.invoiceTotal : installmentsTotal,
+          paid: false,
+        };
+      });
 
-    return {
-      cardId: card._id!,
-      cardName: card.name,
-      invoiceTotal: monthOffset === 0 ? card.invoiceTotal : installmentsTotal,
-      paid: false,
-    };
+  if (!adjustments.length) return base;
+
+  return base.map(inv => {
+    const adj = adjustments.find(a => a.cardId === inv.cardId);
+    return adj ? { ...inv, invoiceTotal: inv.invoiceTotal + adj.amount } : inv;
   });
+}
+
+export async function adjustCardExpenseInMonth(userId: string, yearMonth: string, cardId: string, delta: number) {
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db.collection('financeMonth').findOne({ userId, yearMonth });
+  const adjustments: { cardId: string; amount: number }[] = doc?.cardExpenseAdjustments || [];
+
+  const idx = adjustments.findIndex(a => a.cardId === cardId);
+  if (idx >= 0) adjustments[idx].amount += delta;
+  else adjustments.push({ cardId, amount: delta });
+
+  await db.collection('financeMonth').updateOne(
+    { userId, yearMonth },
+    { $set: { cardExpenseAdjustments: adjustments.filter(a => a.amount !== 0), userId, yearMonth } },
+    { upsert: true }
+  );
 }
 
 export async function updateMonthCardInvoice(

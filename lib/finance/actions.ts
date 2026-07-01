@@ -20,7 +20,7 @@ import {
   toggleMonthCardInvoicePaid,
   updateMonthExpenseValue,
   adjustBankBalance,
-  getCardInvoiceTotalForMonth,
+  adjustCardExpenseInMonth,
 } from './data';
 import type { RecurringExpense } from './types';
 import { evalExpression } from './eval-expression';
@@ -262,17 +262,11 @@ export async function togglePaid(
   if (removed) {
     // Toggled OFF — reverse adjustments
     if (removed.paidFromBank) await adjustBankBalance(userId, removed.paidFromBank, removed.amountPaid);
-    if (removed.paidToCard) {
-      const current = await getCardInvoiceTotalForMonth(userId, nextMonth, removed.paidToCard);
-      await updateMonthCardInvoice(userId, nextMonth, removed.paidToCard, Math.max(0, current - removed.amountPaid));
-    }
+    if (removed.paidToCard) await adjustCardExpenseInMonth(userId, nextMonth, removed.paidToCard, -removed.amountPaid);
   } else {
     // Toggled ON — apply adjustments
     if (paidFromBank) await adjustBankBalance(userId, paidFromBank, -amountPaid);
-    if (paidToCard) {
-      const current = await getCardInvoiceTotalForMonth(userId, nextMonth, paidToCard);
-      await updateMonthCardInvoice(userId, nextMonth, paidToCard, current + amountPaid);
-    }
+    if (paidToCard) await adjustCardExpenseInMonth(userId, nextMonth, paidToCard, amountPaid);
   }
 
   revalidatePath('/finance');
