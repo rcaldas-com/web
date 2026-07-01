@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-const protectedRoutes = ['/dashboard', '/wallet', '/configuracoes'];
+const protectedRoutes = ['/dashboard', '/wallet', '/configuracoes', '/monitor'];
 const authRoutes = ['/login', '/register', '/forgot-password', '/reset-password'];
 
 export function middleware(request: NextRequest) {
@@ -33,6 +33,7 @@ export const config = {
     '/dashboard/:path*',
     '/wallet/:path*',
     '/configuracoes/:path*',
+    '/monitor/:path*',
     '/finance/:path*',
     '/login',
     '/register',

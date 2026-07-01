@@ -16,6 +16,7 @@ const publicLinks: HeaderLink[] = [
     { href: "/habitar", label: "HabitaR" },
     { href: "/digitar", label: "DigitaR" },
     { href: "/wallet", label: "Wallet", requires: "wallet" },
+    { href: "/monitor", label: "Monitor", requires: "admin" },
     { href: "/configuracoes/usuarios", label: "Configurações", requires: "admin" },
 ]
 
