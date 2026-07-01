@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: process.env.TITLE || 'rcaldas',
     short_name: process.env.TITLE || 'rcaldas',
     description: process.env.DESCRIPTION || '',
-    start_url: '/',
+    start_url: '/finance',
     display: 'standalone',
     background_color: '#18181b',
     theme_color: '#18181b',
