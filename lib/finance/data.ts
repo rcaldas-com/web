@@ -441,7 +441,7 @@ export async function getOrInitMonthCardInvoices(
     return {
       cardId: card._id!,
       cardName: card.name,
-      invoiceTotal: stored?.invoiceTotal || computedTotal,
+      invoiceTotal: stored?.invoiceTotal ?? computedTotal,
       paid: stored?.paid ?? false,
       ...(stored?.paidFromBank ? { paidFromBank: stored.paidFromBank } : {}),
     };
@@ -450,6 +450,7 @@ export async function getOrInitMonthCardInvoices(
   if (!adjustments.length) return base;
 
   return base.map(inv => {
+    if (storedMap.has(inv.cardId)) return inv;
     const adj = adjustments.find(a => a.cardId === inv.cardId);
     return adj ? { ...inv, invoiceTotal: inv.invoiceTotal + adj.amount } : inv;
   });

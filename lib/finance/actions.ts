@@ -304,6 +304,7 @@ export async function updateMonthInvoice(cardId: string, invoiceTotal: number, y
   const userId = await getUserId();
   await updateMonthCardInvoice(userId, yearMonth, cardId, invoiceTotal);
   revalidatePath('/finance');
+  revalidatePath('/finance/cards');
 }
 
 export async function toggleInvoicePaid(cardId: string, cardName: string, invoiceTotal: number, yearMonth: string, paidFromBank?: string) {
