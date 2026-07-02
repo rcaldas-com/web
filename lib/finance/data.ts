@@ -459,7 +459,6 @@ export async function getOrInitMonthCardInvoices(
   if (!adjustments.length) return base;
 
   return base.map(inv => {
-    if (storedMap.has(inv.cardId)) return inv;
     const adj = adjustments.find(a => a.cardId === inv.cardId);
     return adj ? { ...inv, invoiceTotal: inv.invoiceTotal + adj.amount } : inv;
   });

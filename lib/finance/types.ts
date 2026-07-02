@@ -133,6 +133,7 @@ export interface CardView {
   installmentsTotal: number; // soma parcelas
   extras: number;            // fatura - parcelas
   paid: boolean;             // fatura paga neste mês
+  nextInvoiceTotal?: number; // total da fatura do próximo mês (inclui ajustes)
   items: {
     _id: string;
     description: string;

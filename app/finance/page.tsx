@@ -74,7 +74,15 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
 
   const offset = Math.max(0, monthOffset);
   const installmentGroups = groupInstallments(installments, cards, offset);
-  const cardViews = buildCardViews(cards, installments, monthCardInvoices, offset);
+
+  const nextMonthCardInvoices = await getOrInitMonthCardInvoices(
+    userId, nextMonth, cards, installments, offset + 1
+  );
+  const nextInvoiceMap = new Map(nextMonthCardInvoices.map(inv => [inv.cardId, inv.invoiceTotal]));
+  const cardViews = buildCardViews(cards, installments, monthCardInvoices, offset).map(cv => ({
+    ...cv,
+    nextInvoiceTotal: nextInvoiceMap.get(cv._id) ?? 0,
+  }));
 
   // Saldo do Mês: always uses full month (not proportional days)
   const monthCalc = calculateMonthBalance(profile, monthExpenses, installmentGroups, daysInMonth, expenseOverrides);

@@ -304,7 +304,12 @@ export async function updateBankBalance(formData: FormData) {
 
 export async function updateMonthInvoice(cardId: string, invoiceTotal: number, yearMonth: string) {
   const userId = await getUserId();
-  await updateMonthCardInvoice(userId, yearMonth, cardId, invoiceTotal);
+  // Store (entered - existingAdj) as base so adjustments always applied on top:
+  // display = base + adj = (entered - existingAdj) + existingAdj = entered
+  // future adj Z: display = entered + Z
+  const monthData = await getMonthData(userId, yearMonth);
+  const existingAdj = monthData?.cardExpenseAdjustments?.find(a => a.cardId === cardId)?.amount ?? 0;
+  await updateMonthCardInvoice(userId, yearMonth, cardId, invoiceTotal - existingAdj);
   revalidatePath('/finance');
   revalidatePath('/finance/cards');
 }
