@@ -13,6 +13,7 @@ import {
   addInstallment,
   saveInstallments,
   deleteInstallment as deleteInstallmentData,
+  getInstallment,
   updateInstallment,
   rollOverMonth,
   toggleExpensePayment,
@@ -26,7 +27,7 @@ import {
 } from './data';
 import type { RecurringExpense } from './types';
 import { evalExpression } from './eval-expression';
-import { addMonthsToYearMonth } from './date';
+import { addMonthsToYearMonth, getFinanceToday } from './date';
 
 async function getUserId(): Promise<string> {
   const cookieStore = await cookies();
@@ -169,6 +170,14 @@ export async function saveExpensesAndFinish(formData: FormData) {
 
 // ==================== Installments ====================
 
+async function adjustNextMonthInvoiceIfStored(userId: string, cardId: string, delta: number) {
+  const nextYearMonth = addMonthsToYearMonth(getFinanceToday().yearMonth, 1);
+  const monthData = await getMonthData(userId, nextYearMonth);
+  if (monthData?.cardInvoices?.some(ci => ci.cardId === cardId)) {
+    await adjustCardExpenseInMonth(userId, nextYearMonth, cardId, delta);
+  }
+}
+
 export async function addNewInstallment(formData: FormData) {
   const userId = await getUserId();
 
@@ -187,7 +196,10 @@ export async function addNewInstallment(formData: FormData) {
     remainingInstallments: remainingInstallments + 1,
   });
 
+  await adjustNextMonthInvoiceIfStored(userId, cardId, monthlyValue);
+
   revalidatePath('/finance');
+  revalidatePath('/finance/cards');
 }
 
 export async function saveInstallmentsList(formData: FormData) {
@@ -223,22 +235,34 @@ export async function saveInstallmentsAndFinish(formData: FormData) {
 }
 
 export async function removeInstallment(installmentId: string) {
-  await getUserId();
+  const userId = await getUserId();
+  const installment = await getInstallment(installmentId);
   await deleteInstallmentData(installmentId);
+  if (installment) {
+    await adjustNextMonthInvoiceIfStored(userId, installment.cardId, -installment.monthlyValue);
+  }
   revalidatePath('/finance');
+  revalidatePath('/finance/cards');
 }
 
 export async function editInstallment(
   installmentId: string,
   data: { monthlyValue?: number; remainingInstallments?: number; description?: string }
 ) {
-  await getUserId();
+  const userId = await getUserId();
+  if (data.monthlyValue !== undefined) {
+    const installment = await getInstallment(installmentId);
+    if (installment && installment.monthlyValue !== data.monthlyValue) {
+      await adjustNextMonthInvoiceIfStored(userId, installment.cardId, data.monthlyValue - installment.monthlyValue);
+    }
+  }
   // User edits from next month's perspective; store +1 for current month base
   const toSave = data.remainingInstallments != null
     ? { ...data, remainingInstallments: data.remainingInstallments + 1 }
     : data;
   await updateInstallment(installmentId, toSave);
   revalidatePath('/finance');
+  revalidatePath('/finance/cards');
 }
 
 export async function finishSetup() {

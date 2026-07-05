@@ -271,6 +271,14 @@ export async function saveInstallments(userId: string, installments: (Omit<Insta
   await Promise.all(ops);
 }
 
+export async function getInstallment(installmentId: string): Promise<Installment | null> {
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db.collection('financeInstallment').findOne({ _id: new ObjectId(installmentId) });
+  if (!doc) return null;
+  return { ...doc, _id: doc._id.toString(), cardId: doc.cardId.toString() } as Installment;
+}
+
 export async function deleteInstallment(installmentId: string) {
   const client = await clientPromise;
   const db = client.db();
