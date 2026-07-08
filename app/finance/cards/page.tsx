@@ -4,6 +4,7 @@ import { getProfile, getCards, getInstallments, getOrInitMonthCardInvoices, buil
 import { addMonthsToYearMonth, getFinanceToday } from '@/lib/finance/date';
 import CardsClient from './CardsClient';
 import CardsGuest from './CardsGuest';
+import AutoRefresh from '../AutoRefresh';
 
 export default async function CardsPage() {
   const cookieStore = await cookies();
@@ -25,5 +26,10 @@ export default async function CardsPage() {
   const nextMonthInvoices = await getOrInitMonthCardInvoices(userId, nextYearMonth, cards, installments, 1);
   const cardViews = buildCardViews(cards, installments, nextMonthInvoices, 1);
 
-  return <CardsClient cardViews={cardViews} cards={cards} nextYearMonth={nextYearMonth} />;
+  return (
+    <>
+      <AutoRefresh />
+      <CardsClient cardViews={cardViews} cards={cards} nextYearMonth={nextYearMonth} />
+    </>
+  );
 }

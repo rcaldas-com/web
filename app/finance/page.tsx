@@ -14,6 +14,7 @@ import { addMonthsToYearMonth, daysInYearMonth, getFinanceToday, yearMonthIndex 
 import DashboardClient from './DashboardClient';
 import FinanceGuest from './FinanceGuest';
 import MigrateGuestData from './MigrateGuestData';
+import AutoRefresh from './AutoRefresh';
 
 export default async function FinancePage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const cookieStore = await cookies();
@@ -234,6 +235,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
 
   return (
     <>
+      <AutoRefresh />
       <MigrateGuestData />
       <DashboardClient
       yearMonth={yearMonth}
