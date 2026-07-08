@@ -121,12 +121,18 @@ export async function upsertProfile(userId: string, data: Omit<FinanceProfile, '
   );
 }
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 export async function adjustBankBalance(userId: string, bankName: string, delta: number) {
   const client = await clientPromise;
   const db = client.db();
+  // Read-modify-write to avoid floating-point accumulation from $inc
+  const profile = await db.collection('financeProfile').findOne({ userId });
+  const bank = (profile?.banks as { name: string; balance: number }[] | undefined)?.find(b => b.name === bankName);
+  const newBalance = round2((bank?.balance ?? 0) + round2(delta));
   await db.collection('financeProfile').updateOne(
     { userId, 'banks.name': bankName },
-    { $inc: { 'banks.$.balance': delta } }
+    { $set: { 'banks.$.balance': newBalance } }
   );
 }
 
@@ -479,8 +485,8 @@ export async function adjustCardExpenseInMonth(userId: string, yearMonth: string
   const adjustments: { cardId: string; amount: number }[] = doc?.cardExpenseAdjustments || [];
 
   const idx = adjustments.findIndex(a => a.cardId === cardId);
-  if (idx >= 0) adjustments[idx].amount += delta;
-  else adjustments.push({ cardId, amount: delta });
+  if (idx >= 0) adjustments[idx].amount = round2(adjustments[idx].amount + round2(delta));
+  else adjustments.push({ cardId, amount: round2(delta) });
 
   await db.collection('financeMonth').updateOne(
     { userId, yearMonth },

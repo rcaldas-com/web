@@ -355,7 +355,7 @@ export async function updateExpenseValue(expenseId: string, value: number, yearM
   const payment = monthData?.payments?.find(p => p.expenseId === expenseId);
 
   if (payment?.paidToCard) {
-    const delta = value - payment.amountPaid;
+    const delta = Math.round((value - payment.amountPaid) * 100) / 100;
     if (delta !== 0) {
       const nextMonth = addMonthsToYearMonth(yearMonth, 1);
       await Promise.all([

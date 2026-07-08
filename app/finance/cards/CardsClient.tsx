@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState, useTransition } from 'react';
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/20/solid';
-import ExpressionOperatorPad, { insertExpressionToken } from '../ExpressionOperatorPad';
+import ExpressionOperatorPad, { insertMoneyToken } from '../ExpressionOperatorPad';
+import MoneyInput from '../MoneyInput';
 import {
   addNewInstallment,
   removeInstallment,
@@ -151,16 +152,14 @@ export default function CardsClient({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-200">Valor/mês</label>
-                <input
+                <MoneyInput
                   ref={monthlyValueRef}
-                  type="text"
-                  inputMode="decimal"
                   name="monthlyValue"
                   value={monthlyValue}
-                  onChange={(e) => setMonthlyValue(e.target.value)}
+                  onChange={setMonthlyValue}
                   className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
                 />
-                <ExpressionOperatorPad onInsert={token => insertExpressionToken(monthlyValueRef.current, monthlyValue, setMonthlyValue, token)} />
+                <ExpressionOperatorPad onInsert={token => insertMoneyToken(monthlyValueRef.current, monthlyValue, setMonthlyValue, token)} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-200">Restantes</label>
@@ -267,16 +266,12 @@ function CardSection({
             {editingInvoice ? (
               <div className="flex flex-col items-end gap-1">
                 <div className="flex items-center gap-1">
-                  <input
+                  <MoneyInput
                     ref={invoiceInputRef}
-                    type="text"
-                    inputMode="decimal"
                     value={invoiceVal}
-                    onChange={(e) => setInvoiceVal(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleInvoiceSave();
-                      if (e.key === 'Escape') setEditingInvoice(false);
-                    }}
+                    onChange={setInvoiceVal}
+                    onEnter={handleInvoiceSave}
+                    onEscape={() => setEditingInvoice(false)}
                     autoFocus
                     className="w-32 text-right rounded-md border-zinc-300 shadow-sm text-sm font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
                   />
@@ -293,7 +288,7 @@ function CardSection({
                     ✕
                   </button>
                 </div>
-                <ExpressionOperatorPad onInsert={token => insertExpressionToken(invoiceInputRef.current, invoiceVal, setInvoiceVal, token)} />
+                <ExpressionOperatorPad onInsert={token => insertMoneyToken(invoiceInputRef.current, invoiceVal, setInvoiceVal, token)} />
               </div>
           ) : (
             <p
@@ -427,15 +422,11 @@ function InstallmentRow({
           />
         </td>
         <td className="py-1 text-right">
-          <input
-            type="text"
-            inputMode="decimal"
+          <MoneyInput
             value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSave();
-              if (e.key === 'Escape') setEditing(false);
-            }}
+            onChange={setValue}
+            onEnter={handleSave}
+            onEscape={() => setEditing(false)}
             className="w-24 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
           />
         </td>

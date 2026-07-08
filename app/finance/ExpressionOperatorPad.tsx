@@ -26,6 +26,28 @@ export function insertExpressionToken(
   });
 }
 
+// Like insertExpressionToken but aware of MoneyInput's number mode:
+// if the current value is a plain number (no operators), appends the token at the end
+// instead of at the cursor (which may be inside the formatted number).
+export function insertMoneyToken(
+  input: HTMLInputElement | null,
+  value: string,
+  setValue: (value: string) => void,
+  token: string,
+) {
+  if (/^-?\d*\.?\d*$/.test(value.trim())) {
+    // Pure number mode — append to end (triggers expression mode in MoneyInput)
+    const next = value.trim() + token;
+    setValue(next);
+    requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(next.length, next.length);
+    });
+  } else {
+    insertExpressionToken(input, value, setValue, token);
+  }
+}
+
 export default function ExpressionOperatorPad({ onInsert }: { onInsert: (token: string) => void }) {
   return (
     <div className="mt-1 grid grid-cols-6 gap-1 md:hidden">

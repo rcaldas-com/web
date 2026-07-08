@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
-import ExpressionOperatorPad, { insertExpressionToken } from './ExpressionOperatorPad';
+import ExpressionOperatorPad, { insertMoneyToken } from './ExpressionOperatorPad';
+import MoneyInput from './MoneyInput';
 import { togglePaid, updateMonthInvoice, toggleInvoicePaid, updateBankBalance, updateExpenseValue } from '@/lib/finance/actions';
 import {
   toggleLocalExpensePayment,
@@ -360,18 +361,20 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
             <p className="text-xs text-zinc-500 dark:text-zinc-400">{b.name}</p>
             {editingIdx === i ? (
               <span className="inline-flex flex-col items-center gap-1">
+                <span className="text-xs text-zinc-400 font-mono">{BRL(b.balance)}</span>
                 <span className="inline-flex items-center gap-1">
-                  <input
+                  <MoneyInput
                     ref={bankInputRef}
-                    type="text" inputMode="decimal" value={editVal}
-                    onChange={e => setEditVal(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') saveBank(i); if (e.key === 'Escape') setEditingIdx(null); }}
+                    value={editVal}
+                    onChange={setEditVal}
+                    onEnter={() => saveBank(i)}
+                    onEscape={() => setEditingIdx(null)}
                     autoFocus
                     className="w-24 text-center rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
                   />
                   <button onClick={() => saveBank(i)} className="text-green-600 text-xs font-bold">✓</button>
                 </span>
-                <ExpressionOperatorPad onInsert={token => insertExpressionToken(bankInputRef.current, editVal, setEditVal, token)} />
+                <ExpressionOperatorPad onInsert={token => insertMoneyToken(bankInputRef.current, editVal, setEditVal, token)} />
               </span>
             ) : (
               <p
@@ -388,18 +391,20 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
           <p className="text-xs text-zinc-500 dark:text-zinc-400">VR/VA</p>
           {editingVR ? (
             <span className="inline-flex flex-col items-center gap-1">
+              <span className="text-xs text-zinc-400 font-mono">{BRL(foodVoucher)}</span>
               <span className="inline-flex items-center gap-1">
-                <input
+                <MoneyInput
                   ref={vrInputRef}
-                  type="text" inputMode="decimal" value={vrVal}
-                  onChange={e => setVrVal(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') saveVR(); if (e.key === 'Escape') setEditingVR(false); }}
+                  value={vrVal}
+                  onChange={setVrVal}
+                  onEnter={saveVR}
+                  onEscape={() => setEditingVR(false)}
                   autoFocus
                   className="w-24 text-center rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
                 />
                 <button onClick={() => saveVR()} className="text-green-600 text-xs font-bold">✓</button>
               </span>
-              <ExpressionOperatorPad onInsert={token => insertExpressionToken(vrInputRef.current, vrVal, setVrVal, token)} />
+              <ExpressionOperatorPad onInsert={token => insertMoneyToken(vrInputRef.current, vrVal, setVrVal, token)} />
             </span>
           ) : (
             <p
@@ -539,20 +544,19 @@ function CardInvoiceRow({ card, yearMonth, banks }: { card: CardView; yearMonth:
       {editing ? (
         <span className="inline-flex flex-col items-end gap-1" onClick={e => e.stopPropagation()}>
           <span className="inline-flex items-center gap-1">
-            <input
+            <MoneyInput
               ref={inputRef}
-              type="text"
-              inputMode="decimal"
               value={val}
-              onChange={e => setVal(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false); }}
+              onChange={setVal}
+              onEnter={handleSave}
+              onEscape={() => setEditing(false)}
               autoFocus
               className="w-28 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
             />
             <button onClick={handleSave} className="text-green-600 hover:text-green-800 text-xs font-bold">✓</button>
             <button onClick={() => setEditing(false)} className="text-zinc-400 hover:text-zinc-600 text-xs">✕</button>
           </span>
-          <ExpressionOperatorPad onInsert={token => insertExpressionToken(inputRef.current, val, setVal, token)} />
+          <ExpressionOperatorPad onInsert={token => insertMoneyToken(inputRef.current, val, setVal, token)} />
         </span>
       ) : (
         <span
@@ -590,6 +594,7 @@ function ExpenseChecklist({
   const [isPending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
+  const editInputRef = useRef<HTMLInputElement>(null);
   const [pickerId, setPickerId] = useState<string | null>(null);
   const paidCount = expenses.filter(e => e.paid).length;
   const total = expenses.reduce((s, e) => s + e.value, 0);
@@ -658,18 +663,21 @@ function ExpenseChecklist({
               )}
             </span>
             {editingId === e.id ? (
-              <span className="inline-flex items-center gap-1" onClick={ev => ev.stopPropagation()}>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={editVal}
-                  onChange={ev => setEditVal(ev.target.value)}
-                  onKeyDown={ev => { if (ev.key === 'Enter') handleSaveValue(e); if (ev.key === 'Escape') setEditingId(null); }}
-                  autoFocus
-                  className="w-24 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-                />
-                <button onClick={() => handleSaveValue(e)} className="text-green-600 text-xs font-bold">✓</button>
-                <button onClick={() => setEditingId(null)} className="text-zinc-400 text-xs">✕</button>
+              <span className="inline-flex flex-col items-end gap-0.5" onClick={ev => ev.stopPropagation()}>
+                <span className="inline-flex items-center gap-1">
+                  <MoneyInput
+                    ref={editInputRef}
+                    value={editVal}
+                    onChange={setEditVal}
+                    onEnter={() => handleSaveValue(e)}
+                    onEscape={() => setEditingId(null)}
+                    autoFocus
+                    className="w-24 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                  />
+                  <button onClick={() => handleSaveValue(e)} className="text-green-600 text-xs font-bold">✓</button>
+                  <button onClick={() => setEditingId(null)} className="text-zinc-400 text-xs">✕</button>
+                </span>
+                <ExpressionOperatorPad onInsert={token => insertMoneyToken(editInputRef.current, editVal, setEditVal, token)} />
               </span>
             ) : (
               <span
