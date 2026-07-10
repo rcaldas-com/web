@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef } from 'react';
+import React, { useRef, useCallback } from 'react';
 import { evalExpression } from '@/lib/finance/eval-expression';
 
 // Pure number if it matches: optional leading minus, digits and at most one decimal point
@@ -27,10 +27,30 @@ export interface MoneyInputProps extends Omit<React.InputHTMLAttributes<HTMLInpu
 //   On blur, auto-evaluates and converts back to number format.
 const MoneyInput = React.forwardRef<HTMLInputElement, MoneyInputProps>(function MoneyInput(
   { value, onChange, onEnter, onEscape, onKeyDown: externalOnKeyDown, onBlur: externalOnBlur, ...rest },
-  ref
+  forwardedRef
 ) {
+  // Internal ref to manage cursor positioning after transitions
+  const internalRef = useRef<HTMLInputElement>(null);
+
+  // Merged ref: keeps both the forwarded ref and our internal ref in sync
+  const mergedRef = useCallback((el: HTMLInputElement | null) => {
+    internalRef.current = el;
+    if (typeof forwardedRef === 'function') forwardedRef(el);
+    else if (forwardedRef) forwardedRef.current = el;
+  }, [forwardedRef]);
+
   // Track whether we're in the "initial" state (first keypress resets value)
   const isInitial = useRef(true);
+
+  // After transitioning to expression mode, explicitly move cursor to end.
+  // Without this, React re-rendering the controlled input can leave the cursor
+  // at position 0, causing the next typed character to insert at the wrong spot.
+  const moveCursorToEnd = (len: number) => {
+    requestAnimationFrame(() => {
+      const el = internalRef.current;
+      if (el) el.setSelectionRange(len, len);
+    });
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     externalOnKeyDown?.(e);
@@ -56,10 +76,12 @@ const MoneyInput = React.forwardRef<HTMLInputElement, MoneyInputProps>(function 
         isInitial.current = false;
         onChange((Math.floor(getCents(value) / 10) / 100).toFixed(2));
       } else if (/^[+\-*/()]$/.test(e.key)) {
-        // Switch to expression mode by appending the operator
+        // Switch to expression mode: append operator and move cursor to end
         e.preventDefault();
         isInitial.current = false;
-        onChange(value + e.key);
+        const next = value + e.key;
+        onChange(next);
+        moveCursorToEnd(next.length);
       } else if (e.key === 'Delete') {
         e.preventDefault();
         isInitial.current = true;
@@ -92,7 +114,7 @@ const MoneyInput = React.forwardRef<HTMLInputElement, MoneyInputProps>(function 
 
   return (
     <input
-      ref={ref}
+      ref={mergedRef}
       type="text"
       inputMode="decimal"
       value={value}
