@@ -55,6 +55,7 @@ export default function ExpressionOperatorPad({ onInsert }: { onInsert: (token: 
         <button
           key={operator.value}
           type="button"
+          onMouseDown={e => e.preventDefault()} // prevent stealing focus from the input
           onClick={() => onInsert(operator.value)}
           className="h-8 rounded border border-zinc-200 bg-zinc-50 px-2 text-sm font-semibold text-zinc-700 shadow-sm transition active:scale-95 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           aria-label={`Inserir ${operator.label}`}

@@ -104,8 +104,10 @@ const MoneyInput = React.forwardRef<HTMLInputElement, MoneyInputProps>(function 
 
   const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
     externalOnBlur?.(e);
-    // Auto-evaluate expression on blur and format as number
-    if (!isPureNumber(value)) {
+    // Only auto-evaluate complete expressions (ending with digit or ')').
+    // Incomplete ones like "0.00+" are left as-is so the user can continue
+    // building via the operator pad without losing the pending operator.
+    if (!isPureNumber(value) && /[\d)]$/.test(value.trim())) {
       const result = evalExpression(value);
       isInitial.current = true;
       onChange(result.toFixed(2));
