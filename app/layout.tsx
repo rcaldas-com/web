@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import Header from "@/components/header"
@@ -7,6 +7,13 @@ import Container from "@/components/container"
 import { getCurrentUser, hasRole } from "@/lib/auth"
 
 export const dynamic = 'force-dynamic';
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f4f4f5' },
+    { media: '(prefers-color-scheme: dark)', color: '#18181b' },
+  ],
+};
 
 const inter = localFont({
   src: '../public/fonts/Inter-Variable.woff2',
@@ -39,10 +46,6 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title,
   },
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#f4f4f5' },
-    { media: '(prefers-color-scheme: dark)', color: '#18181b' },
-  ],
 };
 
 export default async function RootLayout({
