@@ -79,7 +79,7 @@ export default function ResetPasswordForm({ token }: { token: string }) {
             <div className="relative">
               <input
                 className="peer block w-full rounded-md border border-gray-200 py-[9px] pl-10 pr-10 text-sm text-zinc-900 outline-2 placeholder:text-gray-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-                id="confirmPassword" type={showConfirm ? 'text' : 'password'} name="confirmPassword"
+                id="confirmPassword" type={showConfirm ? 'text' : 'password'} name="confirm"
                 placeholder="Confirme a nova senha" required
               />
               <KeyIcon className="pointer-events-none absolute left-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-500 peer-focus:text-gray-900 dark:text-zinc-400 dark:peer-focus:text-white" />
