@@ -214,7 +214,7 @@ function CardSection({
   const [isPending, startTransition] = useTransition();
   const invoiceInputRef = useRef<HTMLInputElement>(null);
   const [editingInvoice, setEditingInvoice] = useState(false);
-  const [invoiceVal, setInvoiceVal] = useState(card.invoiceTotal.toString());
+  const [invoiceVal, setInvoiceVal] = useState(card.invoiceTotal.toFixed(2));
 
   const handleInvoiceSave = () => {
     const val = evalExpression(invoiceVal);
@@ -294,7 +294,7 @@ function CardSection({
             <p
               className="text-lg font-mono font-semibold text-zinc-900 cursor-pointer hover:text-blue-600 transition-colors dark:text-zinc-50 dark:hover:text-blue-400"
               onClick={() => {
-                setInvoiceVal(card.invoiceTotal.toString());
+                setInvoiceVal(card.invoiceTotal.toFixed(2));
                 setEditingInvoice(true);
               }}
               title="Clique para editar"
@@ -354,7 +354,7 @@ function InstallmentRow({
   const [editing, setEditing] = useState(false);
   const [desc, setDesc] = useState(item.description);
   const [remaining, setRemaining] = useState(item.remaining.toString());
-  const [value, setValue] = useState(item.monthlyValue.toString());
+  const [value, setValue] = useState(item.monthlyValue.toFixed(2));
 
   const handleSave = () => {
     const updates: { monthlyValue?: number; remainingInstallments?: number; description?: string } = {};

@@ -322,7 +322,7 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editVal, setEditVal] = useState('');
   const [editingVR, setEditingVR] = useState(false);
-  const [vrVal, setVrVal] = useState(foodVoucher.toString());
+  const [vrVal, setVrVal] = useState(foodVoucher.toFixed(2));
 
   const saveBank = (idx: number) => {
     const formData = new FormData();
@@ -379,7 +379,7 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
             ) : (
               <p
                 className="font-mono font-semibold cursor-pointer hover:text-blue-600 transition-colors dark:text-zinc-100"
-                onClick={() => { setEditVal(b.balance.toString()); setEditingIdx(i); }}
+                onClick={() => { setEditVal(b.balance.toFixed(2)); setEditingIdx(i); }}
                 title="Clique para atualizar saldo"
               >
                 {BRL(b.balance)}
@@ -409,7 +409,7 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
           ) : (
             <p
               className="font-mono font-semibold cursor-pointer hover:text-blue-600 transition-colors dark:text-zinc-100"
-              onClick={() => { setVrVal(foodVoucher.toString()); setEditingVR(true); }}
+              onClick={() => { setVrVal(foodVoucher.toFixed(2)); setEditingVR(true); }}
               title="Clique para atualizar saldo VR/VA"
             >
               {BRL(foodVoucher)}
@@ -493,7 +493,7 @@ function CardInvoiceRow({ card, yearMonth, banks }: { card: CardView; yearMonth:
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState(card.invoiceTotal.toString());
+  const [val, setVal] = useState(card.invoiceTotal.toFixed(2));
   const [showPicker, setShowPicker] = useState(false);
 
   const handleToggle = () => {
@@ -561,7 +561,7 @@ function CardInvoiceRow({ card, yearMonth, banks }: { card: CardView; yearMonth:
       ) : (
         <span
           className={`font-mono text-sm cursor-pointer hover:text-blue-600 transition-colors ${card.paid ? 'text-green-600' : 'text-zinc-700 dark:text-zinc-200'}`}
-          onClick={() => { setVal(card.invoiceTotal.toString()); setEditing(true); }}
+          onClick={() => { setVal(card.invoiceTotal.toFixed(2)); setEditing(true); }}
           title="Clique para editar fatura"
         >
           {BRL(card.invoiceTotal)}
@@ -682,7 +682,7 @@ function ExpenseChecklist({
             ) : (
               <span
                 className={`font-mono text-sm cursor-pointer hover:text-blue-600 transition-colors ${e.paid ? 'text-green-600' : 'text-zinc-700 dark:text-zinc-200'}`}
-                onClick={() => { setEditVal(e.baseValue.toString()); setEditingId(e.id); }}
+                onClick={() => { setEditVal(e.baseValue.toFixed(2)); setEditingId(e.id); }}
                 title="Clique para alterar valor deste mês"
               >
                 {BRL(e.value)}
