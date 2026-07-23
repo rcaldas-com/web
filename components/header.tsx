@@ -25,22 +25,26 @@ interface HeaderProps {
     canAccessWallet?: boolean;
     canAccessAdmin?: boolean;
     theme?: ThemePreference;
+    // O wallet pode estar sob /wallet (dev) ou em domínio próprio (produção).
+    walletUrl?: string;
 }
 
 function getSystemTheme(): ThemePreference {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-export default function Header({ userName, canAccessWallet = false, canAccessAdmin = false, theme }: HeaderProps) {
+export default function Header({ userName, canAccessWallet = false, canAccessAdmin = false, theme, walletUrl = '/wallet' }: HeaderProps) {
     const pathname = usePathname()
     const [open, setOpen] = useState(false)
     const [currentTheme, setCurrentTheme] = useState<ThemePreference>(theme ?? 'light')
     const [, startTransition] = useTransition()
-    const links = publicLinks.filter(link => {
-        if (link.requires === 'wallet') return canAccessWallet;
-        if (link.requires === 'admin') return canAccessAdmin;
-        return true;
-    });
+    const links = publicLinks
+        .filter(link => {
+            if (link.requires === 'wallet') return canAccessWallet;
+            if (link.requires === 'admin') return canAccessAdmin;
+            return true;
+        })
+        .map(link => (link.requires === 'wallet' ? { ...link, href: walletUrl } : link));
     const isActive = (href: string) =>
         href === '/' ? pathname === '/' : pathname.startsWith(href);
     const currentLabel = links.find(link => isActive(link.href))?.label || 'Menu';

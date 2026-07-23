@@ -76,6 +76,7 @@ export default async function RootLayout({
             userName={user?.name}
             canAccessWallet={canAccessWallet(user)}
             canAccessAdmin={hasRole(user, 'admin')}
+            walletUrl={process.env.WALLET_URL || '/wallet'}
             theme={userTheme}
           />
           {children}

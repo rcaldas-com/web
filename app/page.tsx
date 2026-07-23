@@ -2,6 +2,10 @@ import { Suspense } from 'react';
 import Link from 'next/link';
 import { getCurrentUser, hasRole, canAccessWallet } from '@/lib/auth';
 
+// Em produção o wallet roda no próprio domínio (sem basePath); em dev fica sob
+// /wallet no mesmo host. WALLET_URL cobre as duas topologias.
+const WALLET_URL = process.env.WALLET_URL || '/wallet';
+
 const modules = [
   {
     href: '/finance',
@@ -13,7 +17,7 @@ const modules = [
     darkBg: 'dark:bg-blue-950/30 dark:hover:bg-blue-950/45 dark:border-blue-900/60',
   },
   {
-    href: '/wallet',
+    href: WALLET_URL,
     icon: '💰',
     title: 'Wallet',
     description: 'Carteira digital para transações e pagamentos.',
