@@ -43,14 +43,15 @@ export async function POST(request: Request) {
       purpose: 'impersonate-target',
     });
 
-    // Sem `domain` amplo de propósito: fica restrito a este host, não
-    // vazando para os demais subdomínios que compartilham a sessão (SSO).
+    // Mesmo domínio amplo do cookie de sessão (.rcaldas.com): a impersonation
+    // precisa valer também no wallet, que compartilha a sessão via SSO.
     response.cookies.set('impersonate_original_user', originalToken, {
       httpOnly: true,
       secure: isProd,
       sameSite: 'lax',
       maxAge: 60 * 60 * 2,
       path: '/',
+      ...(isProd ? { domain: '.rcaldas.com' } : {}),
     });
     response.cookies.set('impersonate_target_user', targetToken, {
       httpOnly: true,
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
       sameSite: 'lax',
       maxAge: 60 * 60 * 2,
       path: '/',
+      ...(isProd ? { domain: '.rcaldas.com' } : {}),
     });
 
     return response;
