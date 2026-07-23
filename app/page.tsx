@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
-import { getCurrentUser, hasRole } from '@/lib/auth';
+import { getCurrentUser, hasRole, canAccessWallet } from '@/lib/auth';
 
 const modules = [
   {
@@ -66,7 +66,7 @@ function ModuleCardSkeleton() {
 async function ModuleCards() {
   const user = await getCurrentUser();
   const visibleModules = modules.filter((mod) => {
-    if (mod.requires === 'wallet') return hasRole(user, 'wallet');
+    if (mod.requires === 'wallet') return canAccessWallet(user);
     if (mod.requires === 'admin') return hasRole(user, 'admin');
     return true;
   });

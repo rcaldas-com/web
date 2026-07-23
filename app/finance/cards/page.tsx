@@ -1,5 +1,5 @@
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { getSessionUserId } from '@/lib/auth';
 import { getProfile, getCards, getInstallments, getOrInitMonthCardInvoices, buildCardViews } from '@/lib/finance/data';
 import { addMonthsToYearMonth, getFinanceToday } from '@/lib/finance/date';
 import CardsClient from './CardsClient';
@@ -7,8 +7,7 @@ import CardsGuest from './CardsGuest';
 import AutoRefresh from '../AutoRefresh';
 
 export default async function CardsPage() {
-  const cookieStore = await cookies();
-  const userId = cookieStore.get('userId')?.value;
+  const userId = await getSessionUserId();
   if (!userId) return <CardsGuest />;
 
   const profile = await getProfile(userId);

@@ -1,5 +1,5 @@
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { getSessionUserId } from '@/lib/auth';
 import {
   getProfile,
   getCards,
@@ -17,8 +17,7 @@ import MigrateGuestData from './MigrateGuestData';
 import AutoRefresh from './AutoRefresh';
 
 export default async function FinancePage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
-  const cookieStore = await cookies();
-  const userId = cookieStore.get('userId')?.value;
+  const userId = await getSessionUserId();
 
   if (!userId) {
     return <FinanceGuest />;

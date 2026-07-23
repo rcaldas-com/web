@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { getUserById } from './data';
+import { signSessionToken, verifySessionToken } from './session';
 import { UserRole, UserSession } from './definitions';
 
 export const MASTER_ADMIN_EMAIL = 'rclgsm@gmail.com';
@@ -11,10 +12,16 @@ export class AuthError extends Error {
   }
 }
 
+// Id do usuário autenticado, já verificado (cookie assinado). Use isto em vez
+// de ler o cookie 'userId' diretamente — o valor bruto não é mais confiável.
+export async function getSessionUserId(): Promise<string | null> {
+  const cookieStore = await cookies();
+  return verifySessionToken(cookieStore.get('userId')?.value);
+}
+
 export async function getCurrentUser(): Promise<UserSession | null> {
   try {
-    const cookieStore = await cookies();
-    const userId = cookieStore.get('userId')?.value;
+    const userId = await getSessionUserId();
 
     if (!userId) {
       return null;
@@ -48,6 +55,12 @@ export function hasRole(user: UserSession | null | undefined, role: UserRole): b
   return user.roles.includes(role);
 }
 
+// Acesso ao módulo Wallet: quem tem o papel 'wallet' ou é administrador.
+// Mesma regra aplicada dentro do app wallet (canUseWallet).
+export function canAccessWallet(user: UserSession | null | undefined): boolean {
+  return hasRole(user, 'wallet') || hasRole(user, 'admin');
+}
+
 export async function requireAuth(): Promise<UserSession> {
   const user = await getCurrentUser();
   if (!user) {
@@ -75,7 +88,8 @@ export async function requireRole(role: UserRole): Promise<UserSession> {
 export async function setUserSessionCookie(userId: string) {
   const cookieStore = await cookies();
   const isProd = process.env.NODE_ENV === 'production';
-  cookieStore.set('userId', userId, {
+  const token = await signSessionToken(userId);
+  cookieStore.set('userId', token, {
     httpOnly: true,
     secure: isProd,
     sameSite: 'lax',

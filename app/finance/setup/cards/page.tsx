@@ -1,10 +1,9 @@
-import { cookies } from 'next/headers';
+import { getSessionUserId } from '@/lib/auth';
 import { getCards } from '@/lib/finance/data';
 import CardsForm from './CardsForm';
 
 export default async function CardsSetupPage() {
-  const cookieStore = await cookies();
-  const userId = cookieStore.get('userId')?.value;
+  const userId = await getSessionUserId();
   const cards = userId ? await getCards(userId) : [];
 
   return (

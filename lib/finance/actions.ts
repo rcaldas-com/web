@@ -1,7 +1,7 @@
 'use server';
 
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { getSessionUserId } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import {
   upsertProfile,
@@ -30,8 +30,7 @@ import { evalExpression } from './eval-expression';
 import { addMonthsToYearMonth, getFinanceToday } from './date';
 
 async function getUserId(): Promise<string> {
-  const cookieStore = await cookies();
-  const userId = cookieStore.get('userId')?.value;
+  const userId = await getSessionUserId();
   if (!userId) throw new Error('Not authenticated');
   return userId;
 }

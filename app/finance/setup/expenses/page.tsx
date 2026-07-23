@@ -1,10 +1,9 @@
-import { cookies } from 'next/headers';
+import { getSessionUserId } from '@/lib/auth';
 import { getExpenses } from '@/lib/finance/data';
 import ExpensesForm from './ExpensesForm';
 
 export default async function ExpensesSetupPage() {
-  const cookieStore = await cookies();
-  const userId = cookieStore.get('userId')?.value;
+  const userId = await getSessionUserId();
   const expenses = userId ? await getExpenses(userId) : [];
 
   return (

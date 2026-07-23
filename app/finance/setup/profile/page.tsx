@@ -1,10 +1,9 @@
-import { cookies } from 'next/headers';
+import { getSessionUserId } from '@/lib/auth';
 import { getProfile } from '@/lib/finance/data';
 import ProfileForm from './ProfileForm';
 
 export default async function ProfileSetupPage() {
-  const cookieStore = await cookies();
-  const userId = cookieStore.get('userId')?.value;
+  const userId = await getSessionUserId();
   const profile = userId ? await getProfile(userId) : null;
 
   return (

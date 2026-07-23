@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { verifySessionToken } from '@/lib/session';
 
 const protectedRoutes = ['/dashboard', '/wallet', '/configuracoes', '/monitor'];
 const authRoutes = ['/login', '/register', '/forgot-password', '/reset-password'];
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const userId = request.cookies.get('userId')?.value;
+  // Um cookie presente mas adulterado deve contar como "não autenticado".
+  const userId = await verifySessionToken(request.cookies.get('userId')?.value);
 
   // Protect dashboard routes - redirect to login if not authenticated
   if (protectedRoutes.some((route) => pathname.startsWith(route))) {

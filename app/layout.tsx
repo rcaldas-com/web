@@ -4,7 +4,7 @@ import "./globals.css";
 import Header from "@/components/header"
 import Footer from "@/components/footer"
 import Container from "@/components/container"
-import { getCurrentUser, hasRole } from "@/lib/auth"
+import { getCurrentUser, hasRole, canAccessWallet } from "@/lib/auth"
 
 export const dynamic = 'force-dynamic';
 
@@ -74,7 +74,7 @@ export default async function RootLayout({
         <Container>
           <Header
             userName={user?.name}
-            canAccessWallet={hasRole(user, 'wallet')}
+            canAccessWallet={canAccessWallet(user)}
             canAccessAdmin={hasRole(user, 'admin')}
             theme={userTheme}
           />
