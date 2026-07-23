@@ -4,7 +4,7 @@ import Link from 'next/link';
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ message?: string; callbackUrl?: string }>;
+  searchParams: Promise<{ message?: string; callbackUrl?: string; email?: string }>;
 }) {
   const params = await searchParams;
 
@@ -21,7 +21,7 @@ export default async function LoginPage({
           </div>
         )}
 
-        <LoginForm callbackUrl={params.callbackUrl} />
+        <LoginForm callbackUrl={params.callbackUrl} defaultEmail={params.email} />
         <div className="flex justify-between pt-2">
           <Link
             href="/register"

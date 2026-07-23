@@ -9,6 +9,7 @@ export default function VerifyEmailContent() {
   const token = searchParams.get('token');
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
+  const [email, setEmail] = useState('');
 
   useEffect(() => {
     if (!token) {
@@ -27,6 +28,7 @@ export default function VerifyEmailContent() {
         if (res.ok) {
           setStatus('success');
           setMessage(data.message || 'Email verificado com sucesso!');
+          if (data.email) setEmail(data.email);
         } else {
           setStatus('error');
           setMessage(data.message || 'Erro ao verificar email.');
@@ -37,6 +39,8 @@ export default function VerifyEmailContent() {
         setMessage('Erro ao verificar email. Tente novamente.');
       });
   }, [token]);
+
+  const loginHref = email ? `/login?email=${encodeURIComponent(email)}` : '/login';
 
   return (
     <div className="flex-1 rounded-lg bg-white px-6 pb-4 pt-8 shadow-sm dark:border dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none">
@@ -53,7 +57,7 @@ export default function VerifyEmailContent() {
         <div>
           <p className="text-sm text-green-600 mb-4 dark:text-emerald-300">{message}</p>
           <Link
-            href="/login"
+            href={loginHref}
             className="inline-block w-full text-center rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 transition dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
           >
             Ir para o Login

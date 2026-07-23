@@ -87,7 +87,7 @@ export default function RegisterForm() {
                 placeholder="Digite sua senha" minLength={6} required
               />
               <KeyIcon className="pointer-events-none absolute left-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-500 peer-focus:text-gray-900 dark:text-zinc-400 dark:peer-focus:text-white" />
-              <button type="button" className="absolute right-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-500 hover:text-gray-900 dark:text-zinc-400 dark:hover:text-white" onClick={() => setShowPassword(!showPassword)}>
+              <button type="button" tabIndex={-1} className="absolute right-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-500 hover:text-gray-900 dark:text-zinc-400 dark:hover:text-white" onClick={() => setShowPassword(!showPassword)}>
                 {showPassword ? <EyeSlashIcon /> : <EyeIcon />}
               </button>
             </div>
@@ -109,7 +109,7 @@ export default function RegisterForm() {
                 placeholder="Confirme sua senha" required
               />
               <KeyIcon className="pointer-events-none absolute left-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-500 peer-focus:text-gray-900 dark:text-zinc-400 dark:peer-focus:text-white" />
-              <button type="button" className="absolute right-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-500 hover:text-gray-900 dark:text-zinc-400 dark:hover:text-white" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
+              <button type="button" tabIndex={-1} className="absolute right-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-500 hover:text-gray-900 dark:text-zinc-400 dark:hover:text-white" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
                 {showConfirmPassword ? <EyeSlashIcon /> : <EyeIcon />}
               </button>
             </div>

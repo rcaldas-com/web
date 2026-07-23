@@ -53,16 +53,28 @@ export async function getManagedUsers(): Promise<ManagedUser[]> {
   }));
 }
 
-export async function updateManagedUser(formData: FormData) {
+export type UpdateManagedUserState = {
+  success: boolean;
+  message: string;
+};
+
+export async function updateManagedUser(
+  _prevState: UpdateManagedUserState,
+  formData: FormData,
+): Promise<UpdateManagedUserState> {
   await requireAdmin();
 
   const userId = String(formData.get('userId') || '');
-  if (!ObjectId.isValid(userId)) return;
+  if (!ObjectId.isValid(userId)) {
+    return { success: false, message: 'Usuário inválido.' };
+  }
 
   const client = await clientPromise;
   const db = client.db();
   const user = await db.collection('user').findOne({ _id: new ObjectId(userId) });
-  if (!user?.email) return;
+  if (!user?.email) {
+    return { success: false, message: 'Usuário não encontrado.' };
+  }
 
   const email = String(user.email).toLowerCase();
   const requestedRoles = formData.getAll('roles').map(String);
@@ -81,4 +93,5 @@ export async function updateManagedUser(formData: FormData) {
 
   await db.collection('user').updateOne({ _id: user._id }, update);
   revalidatePath('/configuracoes/usuarios');
+  return { success: true, message: 'Salvo com sucesso.' };
 }

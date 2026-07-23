@@ -8,7 +8,7 @@ import {
 import { ArrowRightIcon } from '@heroicons/react/20/solid';
 import { useFormStatus } from 'react-dom';
 import { loginAction } from '@/lib/actions/users';
-import { useActionState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 
 function LoginButton() {
   const { pending } = useFormStatus();
@@ -23,9 +23,20 @@ function LoginButton() {
   );
 }
 
-export default function LoginForm({ callbackUrl }: { callbackUrl?: string }) {
+export default function LoginForm({ callbackUrl, defaultEmail }: { callbackUrl?: string; defaultEmail?: string }) {
   const initialState = { message: '', errors: {} as Record<string, string[]> };
   const [state, dispatch] = useActionState(loginAction, initialState);
+  const [email, setEmail] = useState(defaultEmail || '');
+  // Trocar a key força o React a remontar o campo (senha some); o email fica
+  // de fora dessa troca, então uma tentativa errada nunca apaga o que a
+  // pessoa já digitou ali.
+  const [passwordResetKey, setPasswordResetKey] = useState(0);
+
+  useEffect(() => {
+    if (state.message) {
+      setPasswordResetKey((k) => k + 1);
+    }
+  }, [state]);
 
   return (
     <form action={dispatch} className="space-y-3">
@@ -49,6 +60,8 @@ export default function LoginForm({ callbackUrl }: { callbackUrl?: string }) {
                 type="email"
                 name="email"
                 placeholder="Digite seu email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 required
               />
               <AtSymbolIcon className="pointer-events-none absolute left-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-500 peer-focus:text-gray-900 dark:text-zinc-400 dark:peer-focus:text-white" />
@@ -65,6 +78,7 @@ export default function LoginForm({ callbackUrl }: { callbackUrl?: string }) {
             <div className="relative">
               <input
                 className="peer block w-full rounded-md border border-gray-200 py-[9px] pl-10 text-sm text-zinc-900 outline-2 placeholder:text-gray-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                key={passwordResetKey}
                 id="password"
                 type="password"
                 name="password"

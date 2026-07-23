@@ -116,7 +116,7 @@ export async function authenticateUser(email: string, password: string): Promise
   }
 }
 
-export async function verifyEmail(token: string): Promise<{ success: boolean; message: string }> {
+export async function verifyEmail(token: string): Promise<{ success: boolean; message: string; email?: string }> {
   try {
     const client = await clientPromise;
     const db = client.db();
@@ -142,7 +142,7 @@ export async function verifyEmail(token: string): Promise<{ success: boolean; me
       { $set: { used: new Date() } }
     );
 
-    return { success: true, message: 'Email verificado com sucesso!' };
+    return { success: true, message: 'Email verificado com sucesso!', email: tokenDoc.email };
   } catch (error) {
     console.error('Verify Email Error:', error);
     return { success: false, message: 'Erro ao verificar email' };
