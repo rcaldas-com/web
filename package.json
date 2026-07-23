@@ -12,7 +12,7 @@
     "@heroicons/react": "^2.2.0",
     "bcryptjs": "^2.4.3",
     "ioredis": "^5.10.1",
-    "jose": "^5.9.6",
+    "jose": "^5.10.0",
     "mongodb": "^6.21.0",
     "next": "^15.5.15",
     "react": "^19.2",
