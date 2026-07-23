@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState } from 'react';
 import { updateManagedUser, type ManagedUser, type UpdateManagedUserState } from '@/lib/actions/admin-users';
 import ImpersonateButton from '@/components/impersonate-button';
+import DeleteUserButton from '@/components/delete-user-button';
 
 function formatDate(value: Date | null) {
   if (!value) return '-';
@@ -97,7 +98,10 @@ export default function UserRow({ user, isMaster }: { user: ManagedUser; isMaste
       <td className="px-5 py-4 text-right">
         <div className="flex items-center justify-end gap-1">
           {!isMaster && (
-            <ImpersonateButton userId={user._id} userName={user.name} userEmail={user.email} />
+            <>
+              <ImpersonateButton userId={user._id} userName={user.name} userEmail={user.email} />
+              <DeleteUserButton userId={user._id} userName={user.name} userEmail={user.email} />
+            </>
           )}
           <button
             type="submit"
