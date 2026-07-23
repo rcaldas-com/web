@@ -8,7 +8,21 @@ const authRoutes = ['/login', '/register', '/forgot-password', '/reset-password'
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   // Um cookie presente mas adulterado deve contar como "não autenticado".
-  const userId = await verifySessionToken(request.cookies.get('userId')?.value);
+  let userId = await verifySessionToken(request.cookies.get('userId')?.value, 'session');
+
+  // Impersonation ativa (só vale com os dois tokens válidos) — o usuário
+  // "efetivo" passa a ser o alvo, para toda a lógica de rota abaixo.
+  const impersonateTargetId = await verifySessionToken(
+    request.cookies.get('impersonate_target_user')?.value,
+    'impersonate-target',
+  );
+  const impersonateOriginalId = await verifySessionToken(
+    request.cookies.get('impersonate_original_user')?.value,
+    'impersonate-original',
+  );
+  if (impersonateTargetId && impersonateOriginalId) {
+    userId = impersonateTargetId;
+  }
 
   // Protect dashboard routes - redirect to login if not authenticated
   if (protectedRoutes.some((route) => pathname.startsWith(route))) {

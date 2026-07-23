@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getManagedUsers, updateManagedUser } from '@/lib/actions/admin-users';
 import { AuthError, MASTER_ADMIN_EMAIL } from '@/lib/auth';
+import ImpersonateButton from '@/components/impersonate-button';
 
 function formatDate(value: Date | null) {
   if (!value) return '-';
@@ -109,13 +110,18 @@ export default async function UsersSettingsPage() {
                       {formatDate(user.createdAt)}
                     </td>
                     <td className="px-5 py-4 text-right">
-                      <button
-                        type="submit"
-                        form={`user-${user._id}`}
-                        className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-300"
-                      >
-                        Salvar
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        {!isMaster && (
+                          <ImpersonateButton userId={user._id} userName={user.name} userEmail={user.email} />
+                        )}
+                        <button
+                          type="submit"
+                          form={`user-${user._id}`}
+                          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-300"
+                        >
+                          Salvar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

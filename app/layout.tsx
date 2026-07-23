@@ -4,6 +4,7 @@ import "./globals.css";
 import Header from "@/components/header"
 import Footer from "@/components/footer"
 import Container from "@/components/container"
+import ImpersonateBanner from "@/components/impersonate-banner"
 import { getCurrentUser, hasRole, canAccessWallet } from "@/lib/auth"
 
 export const dynamic = 'force-dynamic';
@@ -71,6 +72,7 @@ export default async function RootLayout({
         />
       </head>
       <body className={`${inter.className} min-h-screen bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100`}>
+        <ImpersonateBanner />
         <Container>
           <Header
             userName={user?.name}
