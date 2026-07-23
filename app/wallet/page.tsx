@@ -1,34 +1,26 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { getCurrentUser, hasRole } from '@/lib/auth';
+import { getCurrentUser, canAccessWallet } from '@/lib/auth';
 
+// Resquício de quando o wallet ainda não era um app separado. Hoje ele vive
+// em WALLET_URL (subdomínio próprio em produção); esta rota só existe para
+// quem cair aqui via link antigo ou fallback (WALLET_URL não configurado).
 export default async function WalletHome() {
   const user = await getCurrentUser();
-  if (!user) redirect('/login?callbackUrl=/wallet');
-  if (!hasRole(user, 'wallet')) redirect('/');
+  if (!user) redirect(`/login?callbackUrl=${encodeURIComponent('/wallet')}`);
+  if (!canAccessWallet(user)) redirect('/');
+
+  const walletUrl = process.env.WALLET_URL;
+  // Sem WALLET_URL configurado, redirecionar cairia nesta mesma página (loop).
+  if (walletUrl && walletUrl !== '/wallet') {
+    redirect(walletUrl);
+  }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50">
-      <div className="text-center space-y-6 p-8">
-        <h1 className="text-4xl font-bold text-emerald-600">💰 Wallet</h1>
-        <p className="text-gray-600 max-w-md">
-          Carteira digital para gerenciar suas finanças de forma simples e segura.
-        </p>
-        <div className="flex gap-4 justify-center">
-          <Link
-            href="/login"
-            className="bg-emerald-600 text-white px-6 py-2 rounded-md hover:bg-emerald-700 transition font-medium"
-          >
-            Entrar
-          </Link>
-          <Link
-            href="/register"
-            className="border border-emerald-600 text-emerald-600 px-6 py-2 rounded-md hover:bg-emerald-50 transition font-medium"
-          >
-            Criar Conta
-          </Link>
-        </div>
-      </div>
-    </div>
+    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+      <p className="text-center text-gray-600">
+        WALLET_URL não está configurada. Peça para o administrador definir a
+        variável de ambiente apontando para o app do Wallet.
+      </p>
+    </main>
   );
 }
