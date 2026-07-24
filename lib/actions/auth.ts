@@ -65,7 +65,8 @@ export async function requestPasswordReset(prevState: State, formData: FormData)
       used: false,
     });
 
-    await sendPasswordResetEmail(parsed.data.email, token, user.name || '');
+    const callbackUrl = (formData.get('callbackUrl') as string | null) || undefined;
+    await sendPasswordResetEmail(parsed.data.email, token, user.name || '', callbackUrl);
 
     return {
       ...prevState,

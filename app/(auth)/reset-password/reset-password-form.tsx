@@ -24,7 +24,7 @@ function SubmitButton() {
   );
 }
 
-export default function ResetPasswordForm({ token }: { token: string }) {
+export default function ResetPasswordForm({ token, callbackUrl }: { token: string; callbackUrl?: string }) {
   const initialState = { message: '', success: false, errors: {} as Record<string, string[]> };
   const boundResetPassword = resetPassword.bind(null, token);
   const [state, dispatch] = useActionState(boundResetPassword, initialState);
@@ -32,12 +32,13 @@ export default function ResetPasswordForm({ token }: { token: string }) {
   const [showConfirm, setShowConfirm] = useState(false);
 
   if (state.success) {
+    const loginHref = callbackUrl ? `/login?callbackUrl=${encodeURIComponent(callbackUrl)}` : '/login';
     return (
       <div className="flex-1 rounded-lg bg-white px-6 pb-4 pt-8 shadow-sm dark:border dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none">
         <h1 className="mb-3 text-2xl font-semibold">Senha Redefinida!</h1>
         <p className="text-sm text-green-600 dark:text-emerald-300">{state.message}</p>
         <a
-          href="/login"
+          href={loginHref}
           className="mt-4 inline-block w-full text-center rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 transition dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
         >
           Ir para o Login

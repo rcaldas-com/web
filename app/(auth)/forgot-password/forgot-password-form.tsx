@@ -22,12 +22,13 @@ function SubmitButton() {
   );
 }
 
-export default function ForgotPasswordForm() {
+export default function ForgotPasswordForm({ callbackUrl }: { callbackUrl?: string }) {
   const initialState = { message: '', success: false, errors: {} as Record<string, string[]> };
   const [state, dispatch] = useActionState(requestPasswordReset, initialState);
 
   return (
     <form action={dispatch} className="space-y-3">
+      {callbackUrl && <input type="hidden" name="callbackUrl" value={callbackUrl} />}
       <div className="flex-1 rounded-lg bg-white px-6 pb-4 pt-8 shadow-sm dark:border dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none">
         <h1 className="mb-3 text-2xl font-semibold">Recuperar Senha</h1>
         <p className="mb-4 text-sm text-gray-600 dark:text-zinc-300">

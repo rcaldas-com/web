@@ -11,8 +11,8 @@ async function enqueueEmail(to: string, subject: string, template: string, varia
   await redis.lpush(QUEUE_NAME, payload);
 }
 
-export async function sendVerificationEmail(email: string, token: string, name: string) {
-  const verifyUrl = `${APP_URL}/verify-email?token=${token}`;
+export async function sendVerificationEmail(email: string, token: string, name: string, callbackUrl?: string) {
+  const verifyUrl = `${APP_URL}/verify-email?token=${token}${callbackUrl ? `&callbackUrl=${encodeURIComponent(callbackUrl)}` : ''}`;
 
   await enqueueEmail(email, 'Verificação de Email', 'verify-email', {
     name,
@@ -21,8 +21,8 @@ export async function sendVerificationEmail(email: string, token: string, name: 
   });
 }
 
-export async function sendPasswordResetEmail(email: string, token: string, name: string) {
-  const resetUrl = `${APP_URL}/reset-password?token=${token}`;
+export async function sendPasswordResetEmail(email: string, token: string, name: string, callbackUrl?: string) {
+  const resetUrl = `${APP_URL}/reset-password?token=${token}${callbackUrl ? `&callbackUrl=${encodeURIComponent(callbackUrl)}` : ''}`;
 
   await enqueueEmail(email, 'Redefinição de Senha', 'reset-password', {
     name,

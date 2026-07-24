@@ -4,7 +4,7 @@ import Link from 'next/link';
 export default async function ResetPasswordPage({
   searchParams,
 }: {
-  searchParams: Promise<{ token?: string }>;
+  searchParams: Promise<{ token?: string; callbackUrl?: string }>;
 }) {
   const params = await searchParams;
   const token = params.token;
@@ -39,10 +39,10 @@ export default async function ResetPasswordPage({
         <div className="flex h-24 w-full items-center justify-center rounded-lg bg-zinc-800 p-3 dark:bg-zinc-100">
           <span className="text-2xl font-bold text-white dark:text-zinc-950">RCaldas</span>
         </div>
-        <ResetPasswordForm token={token} />
+        <ResetPasswordForm token={token} callbackUrl={params.callbackUrl} />
         <div className="flex justify-center pt-2">
           <Link
-            href="/login"
+            href={params.callbackUrl ? `/login?callbackUrl=${encodeURIComponent(params.callbackUrl)}` : '/login'}
             className="text-sm text-zinc-600 hover:underline font-medium transition dark:text-zinc-300 dark:hover:text-white"
           >
             Voltar para o login

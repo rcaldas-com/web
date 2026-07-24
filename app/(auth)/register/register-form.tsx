@@ -26,7 +26,7 @@ function RegisterButton() {
   );
 }
 
-export default function RegisterForm() {
+export default function RegisterForm({ callbackUrl }: { callbackUrl?: string }) {
   const initialState: RegisterState = { message: '', errors: {} };
   const [state, dispatch] = useActionState(registerUser, initialState);
   const [showPassword, setShowPassword] = useState(false);
@@ -34,6 +34,7 @@ export default function RegisterForm() {
 
   return (
     <form action={dispatch} className="space-y-3">
+      {callbackUrl && <input type="hidden" name="callbackUrl" value={callbackUrl} />}
       <div className="flex-1 rounded-lg bg-white px-6 pb-4 pt-8 shadow-sm dark:border dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none">
         <h1 className="mb-3 text-2xl font-semibold">Criar Nova Conta</h1>
 

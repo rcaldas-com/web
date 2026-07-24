@@ -4,34 +4,8 @@ import { redirect } from 'next/navigation';
 import { authenticateUser, getUserByEmail } from '@/lib/data';
 import { setUserSessionCookie, clearUserSessionCookie } from '@/lib/auth';
 import { rateLimit } from '@/lib/rate-limit';
+import { resolveCallbackUrl } from '@/lib/callback-url';
 import { headers } from 'next/headers';
-
-// Destino pós-login. Aceita caminho relativo ou URL absoluta de uma origem
-// conhecida (o wallet, que em produção roda em domínio próprio) — nunca um host
-// arbitrário vindo da query, para não virar open redirect.
-function resolveCallbackUrl(raw: string | null): string {
-  if (!raw) return '/dashboard';
-  if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
-
-  const allowedOrigins = [process.env.WALLET_URL, process.env.AUTH_TRUST_HOST]
-    .filter((u): u is string => Boolean(u))
-    .map((u) => {
-      try {
-        return new URL(u).origin;
-      } catch {
-        return null;
-      }
-    })
-    .filter((o): o is string => o !== null);
-
-  try {
-    const url = new URL(raw);
-    if (allowedOrigins.includes(url.origin)) return url.toString();
-  } catch {
-    // URL inválida — cai no padrão.
-  }
-  return '/dashboard';
-}
 
 export async function loginAction(prevState: { message: string; errors: Record<string, string[]> }, formData: FormData) {
   const headersList = await headers();

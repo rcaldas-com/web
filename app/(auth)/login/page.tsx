@@ -7,6 +7,8 @@ export default async function LoginPage({
   searchParams: Promise<{ message?: string; callbackUrl?: string; email?: string }>;
 }) {
   const params = await searchParams;
+  const withCallback = (path: string) =>
+    params.callbackUrl ? `${path}?callbackUrl=${encodeURIComponent(params.callbackUrl)}` : path;
 
   return (
     <main className="flex items-center justify-center min-h-screen bg-zinc-100 dark:bg-zinc-950">
@@ -24,13 +26,13 @@ export default async function LoginPage({
         <LoginForm callbackUrl={params.callbackUrl} defaultEmail={params.email} />
         <div className="flex justify-between pt-2">
           <Link
-            href="/register"
+            href={withCallback('/register')}
             className="text-sm text-zinc-600 hover:underline font-medium transition dark:text-zinc-300 dark:hover:text-white"
           >
             Criar nova conta
           </Link>
           <Link
-            href="/forgot-password"
+            href={withCallback('/forgot-password')}
             className="text-sm text-zinc-600 hover:underline font-medium transition dark:text-zinc-300 dark:hover:text-white"
           >
             Esqueceu a senha?

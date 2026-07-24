@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { verifySessionToken } from '@/lib/session';
+import { resolveCallbackUrl } from '@/lib/callback-url';
 
 const protectedRoutes = ['/dashboard', '/wallet', '/configuracoes', '/monitor'];
 const authRoutes = ['/login', '/register', '/forgot-password', '/reset-password'];
@@ -33,11 +34,15 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Redirect authenticated users away from auth pages
+  // Redirect authenticated users away from auth pages — mas sem descartar um
+  // callbackUrl vindo da query (ex.: link do wallet aberto com uma sessão já
+  // válida), senão a pessoa fica presa no destino padrão em vez de voltar
+  // pra onde estava indo.
   if (authRoutes.some((route) => pathname.startsWith(route))) {
     if (userId) {
-      const dashboardUrl = new URL('/dashboard', request.url);
-      return NextResponse.redirect(dashboardUrl);
+      const resolved = resolveCallbackUrl(request.nextUrl.searchParams.get('callbackUrl'));
+      const destination = resolved.startsWith('/') ? new URL(resolved, request.url) : resolved;
+      return NextResponse.redirect(destination);
     }
   }
 

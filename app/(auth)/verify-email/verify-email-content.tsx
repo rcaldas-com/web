@@ -7,6 +7,7 @@ import Link from 'next/link';
 export default function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
+  const callbackUrl = searchParams.get('callbackUrl');
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
   const [email, setEmail] = useState('');
@@ -40,7 +41,11 @@ export default function VerifyEmailContent() {
       });
   }, [token]);
 
-  const loginHref = email ? `/login?email=${encodeURIComponent(email)}` : '/login';
+  const loginParams = new URLSearchParams();
+  if (email) loginParams.set('email', email);
+  if (callbackUrl) loginParams.set('callbackUrl', callbackUrl);
+  const loginQuery = loginParams.toString();
+  const loginHref = loginQuery ? `/login?${loginQuery}` : '/login';
 
   return (
     <div className="flex-1 rounded-lg bg-white px-6 pb-4 pt-8 shadow-sm dark:border dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none">
@@ -69,7 +74,7 @@ export default function VerifyEmailContent() {
         <div>
           <p className="text-sm text-red-500 mb-4 dark:text-red-300">{message}</p>
           <Link
-            href="/login"
+            href={callbackUrl ? `/login?callbackUrl=${encodeURIComponent(callbackUrl)}` : '/login'}
             className="inline-block w-full text-center rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 transition dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
           >
             Voltar para o Login

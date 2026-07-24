@@ -55,6 +55,7 @@ export async function registerUser(
   }
 
   const { name, email, password } = validatedFields.data;
+  const callbackUrl = (formData.get('callbackUrl') as string | null) || undefined;
 
   try {
     const client = await clientPromise;
@@ -99,6 +100,7 @@ export async function registerUser(
         email.toLowerCase().trim(),
         verificationToken,
         name.trim(),
+        callbackUrl,
       );
     } catch (emailError) {
       console.log('Error sending verification email:', emailError);
@@ -110,5 +112,7 @@ export async function registerUser(
     };
   }
 
-  redirect('/login?message=Conta criada! Verifique seu email para ativar sua conta.');
+  const loginUrl = new URLSearchParams({ message: 'Conta criada! Verifique seu email para ativar sua conta.' });
+  if (callbackUrl) loginUrl.set('callbackUrl', callbackUrl);
+  redirect(`/login?${loginUrl.toString()}`);
 }
