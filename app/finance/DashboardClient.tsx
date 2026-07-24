@@ -644,14 +644,19 @@ function ExpenseChecklist({
               ${e.paid ? 'bg-green-50 dark:bg-green-950/30' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/70'}
               ${isPending ? 'opacity-70 pointer-events-none' : ''}`}
           >
-            <label className="flex items-center cursor-pointer p-1">
-              <input
-                type="checkbox"
-                checked={e.paid}
-                onChange={() => handleToggle(e)}
-                className="h-4 w-4 rounded border-zinc-300 text-green-600 focus:ring-green-500"
-              />
-            </label>
+            <span className="flex items-center p-1">
+              {/* Despesas proporcionais (por dia/semana) se ajustam sozinhas
+                  ao longo do mês e nunca ficam "concluídas" de fato — o
+                  checkbox aqui só teria estado permanentemente vazio. */}
+              {!e.proportional && (
+                <input
+                  type="checkbox"
+                  checked={e.paid}
+                  onChange={() => handleToggle(e)}
+                  className="h-4 w-4 rounded border-zinc-300 text-green-600 focus:ring-green-500 cursor-pointer"
+                />
+              )}
+            </span>
             <span className={`flex-1 text-sm ${e.paid ? 'line-through text-zinc-400 dark:text-zinc-500' : 'text-zinc-800 dark:text-zinc-200'}`}>
               <span className="text-xs mr-1">{e.category === 'card' ? '💳' : '💵'}</span>
               {e.name}
