@@ -42,12 +42,15 @@ export default async function DashboardPage() {
   const user = await requireAuth();
   const isAdmin = hasRole(user, 'admin');
 
-  const modules: { href: string; icon: string; title: string; description: string; color: keyof typeof cardStyles }[] = [
+  const modules: { href: string; icon: string; title: string; description: string; color: keyof typeof cardStyles; external?: boolean }[] = [
     { href: '/finance', icon: '📊', title: 'Finance', description: 'Receitas, despesas, cartões e projeções', color: 'blue' },
     { href: '/habitar', icon: '🏠', title: 'HabitaR', description: 'Simulação de financiamento imobiliário vs. aluguel', color: 'purple' },
     { href: '/digitar', icon: '🧾', title: 'DigitaR', description: 'Extração de dados de documentos com IA', color: 'amber' },
     ...(canAccessWallet(user)
-      ? [{ href: process.env.WALLET_URL || '/wallet', icon: '💰', title: 'Wallet', description: 'Carteira digital e transações', color: 'emerald' as const }]
+      // Wallet é outro app Next.js (dev: /wallet atrás do mesmo nginx; prod:
+      // domínio próprio) — precisa de navegação completa (<a>), <Link> faria
+      // um fetch RSC client-side contra um app que não sabe responder nisso.
+      ? [{ href: process.env.WALLET_URL || '/wallet', icon: '💰', title: 'Wallet', description: 'Carteira digital e transações', color: 'emerald' as const, external: true }]
       : []),
     ...(isAdmin
       ? [{ href: '/monitor', icon: '🩺', title: 'Monitor', description: 'Status dos serviços e integrações', color: 'rose' as const }]
@@ -94,10 +97,19 @@ export default async function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {modules.map((mod) => {
             const style = cardStyles[mod.color];
-            return (
-              <Link key={mod.href} href={mod.href} className={style.card}>
+            const content = (
+              <>
                 <h3 className={style.title}>{mod.icon} {mod.title}</h3>
                 <p className={style.desc}>{mod.description}</p>
+              </>
+            );
+            return mod.external ? (
+              <a key={mod.href} href={mod.href} className={style.card}>
+                {content}
+              </a>
+            ) : (
+              <Link key={mod.href} href={mod.href} className={style.card}>
+                {content}
               </Link>
             );
           })}

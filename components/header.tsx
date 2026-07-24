@@ -108,12 +108,19 @@ export default function Header({ userName, canAccessWallet = false, canAccessAdm
                 <ul className="flex items-center gap-x-5 text-[15px]">
                     {links.map((link) => (
                         <li key={link.href}>
-                            <Link
-                                className={linkClass(link.href)}
-                                href={link.href}
-                            >
-                                {link.label}
-                            </Link>
+                            {link.requires === 'wallet' ? (
+                                // Wallet é outro app Next.js por trás do mesmo nginx (dev:
+                                // /wallet, prod: domínio próprio) — <Link> faria navegação
+                                // client-side (RSC) e travaria silenciosamente contra um app
+                                // que não sabe responder nesse formato. Precisa recarregar.
+                                <a className={linkClass(link.href)} href={link.href}>
+                                    {link.label}
+                                </a>
+                            ) : (
+                                <Link className={linkClass(link.href)} href={link.href}>
+                                    {link.label}
+                                </Link>
+                            )}
                         </li>
                     ))}
                 </ul>
@@ -156,15 +163,20 @@ export default function Header({ userName, canAccessWallet = false, canAccessAdm
             {open && (
                 <nav className="absolute left-3 right-3 top-[calc(100%+8px)] z-[100] rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-600 dark:bg-zinc-800 md:hidden">
                     <div className="grid gap-1">
-                        {links.map(link => (
-                            <Link
-                                key={link.href}
-                                href={link.href}
-                                className={`rounded-md px-3 py-2 text-sm ${isActive(link.href) ? 'bg-zinc-100 text-zinc-950 font-medium dark:bg-zinc-700 dark:text-white' : 'text-zinc-600 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-700'}`}
-                            >
-                                {link.label}
-                            </Link>
-                        ))}
+                        {links.map(link => {
+                            const className = `rounded-md px-3 py-2 text-sm ${isActive(link.href) ? 'bg-zinc-100 text-zinc-950 font-medium dark:bg-zinc-700 dark:text-white' : 'text-zinc-600 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-700'}`;
+                            // Mesmo motivo do menu desktop: Wallet é outro app, precisa de
+                            // navegação completa (<a>), não client-side (<Link>).
+                            return link.requires === 'wallet' ? (
+                                <a key={link.href} href={link.href} className={className}>
+                                    {link.label}
+                                </a>
+                            ) : (
+                                <Link key={link.href} href={link.href} className={className}>
+                                    {link.label}
+                                </Link>
+                            );
+                        })}
                         <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
                         {userName ? (
                             <Link

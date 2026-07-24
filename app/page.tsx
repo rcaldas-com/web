@@ -78,26 +78,37 @@ async function ModuleCards() {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        {visibleModules.map((mod) => (
-          <Link
-            key={mod.href}
-            href={mod.href}
-            className={`group rounded-xl border border-zinc-200 p-6 space-y-3 text-center hover:shadow-lg hover:border-zinc-300 transition-all duration-200 dark:hover:border-zinc-600 dark:hover:shadow-none ${mod.bg} ${mod.darkBg}`}
-          >
-            <div className={`h-12 w-12 mx-auto rounded-lg bg-gradient-to-br ${mod.color} flex items-center justify-center text-2xl`}>
-              {mod.icon}
-            </div>
-            <h2 className="text-xl font-bold text-zinc-800 group-hover:text-zinc-900 dark:text-zinc-50 dark:group-hover:text-white">
-              {mod.title}
-            </h2>
-            <p className="text-sm text-zinc-600 leading-relaxed dark:text-zinc-300">
-              {mod.description}
-            </p>
-            <span className="inline-flex items-center text-sm font-medium text-zinc-500 group-hover:text-zinc-700 transition dark:text-zinc-400 dark:group-hover:text-zinc-200">
-              Acessar →
-            </span>
-          </Link>
-        ))}
+        {visibleModules.map((mod) => {
+          const className = `group rounded-xl border border-zinc-200 p-6 space-y-3 text-center hover:shadow-lg hover:border-zinc-300 transition-all duration-200 dark:hover:border-zinc-600 dark:hover:shadow-none ${mod.bg} ${mod.darkBg}`;
+          const content = (
+            <>
+              <div className={`h-12 w-12 mx-auto rounded-lg bg-gradient-to-br ${mod.color} flex items-center justify-center text-2xl`}>
+                {mod.icon}
+              </div>
+              <h2 className="text-xl font-bold text-zinc-800 group-hover:text-zinc-900 dark:text-zinc-50 dark:group-hover:text-white">
+                {mod.title}
+              </h2>
+              <p className="text-sm text-zinc-600 leading-relaxed dark:text-zinc-300">
+                {mod.description}
+              </p>
+              <span className="inline-flex items-center text-sm font-medium text-zinc-500 group-hover:text-zinc-700 transition dark:text-zinc-400 dark:group-hover:text-zinc-200">
+                Acessar →
+              </span>
+            </>
+          );
+          // Wallet é outro app Next.js (dev: /wallet atrás do mesmo nginx;
+          // prod: domínio próprio) — precisa de navegação completa (<a>),
+          // <Link> faria um fetch RSC client-side que trava contra esse app.
+          return mod.requires === 'wallet' ? (
+            <a key={mod.href} href={mod.href} className={className}>
+              {content}
+            </a>
+          ) : (
+            <Link key={mod.href} href={mod.href} className={className}>
+              {content}
+            </Link>
+          );
+        })}
       </div>
 
       {!user && (
