@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getManagedUsers } from '@/lib/actions/admin-users';
 import { AuthError, MASTER_ADMIN_EMAIL } from '@/lib/auth';
-import UserRow from './user-row';
+import UsersManager from './users-manager';
 
 export default async function UsersSettingsPage() {
   let users;
@@ -21,30 +21,7 @@ export default async function UsersSettingsPage() {
         </p>
       </div>
 
-      <section className="rounded-xl border bg-white shadow-sm overflow-hidden dark:border-zinc-700 dark:bg-zinc-900">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
-            <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300">
-              <tr>
-                <th className="px-5 py-3 text-left font-semibold">Usuário</th>
-                <th className="px-5 py-3 text-left font-semibold">Roles</th>
-                <th className="px-5 py-3 text-left font-semibold">Status</th>
-                <th className="px-5 py-3 text-left font-semibold">Criado em</th>
-                <th className="px-5 py-3 text-right font-semibold">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100 bg-white dark:divide-zinc-800 dark:bg-zinc-900">
-              {users.map((user) => (
-                <UserRow
-                  key={user._id}
-                  user={user}
-                  isMaster={user.email.toLowerCase() === MASTER_ADMIN_EMAIL}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <UsersManager users={users} masterEmail={MASTER_ADMIN_EMAIL} />
     </main>
   );
 }
