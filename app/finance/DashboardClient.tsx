@@ -168,6 +168,7 @@ export default function DashboardClient({
         </div>
         <div className="flex gap-2">
           <Link href="/finance/cards" className="text-sm text-blue-600 hover:underline">Cartões</Link>
+          <Link href="/finance/history" className="text-sm text-zinc-500 hover:underline">Histórico</Link>
           <Link href="/finance/setup/profile" className="text-sm text-zinc-500 hover:underline">Configurar</Link>
         </div>
       </div>

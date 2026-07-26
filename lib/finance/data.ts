@@ -1,6 +1,7 @@
 import clientPromise from '../mongodb';
 import { ObjectId } from 'mongodb';
 import { addMonthsToYearMonth, getFinanceToday, yearMonthIndex } from './date';
+import { recordChange, diffFields, type JournalChange } from './journal';
 import type {
   FinanceProfile,
   CreditCard,
@@ -111,6 +112,7 @@ export async function upsertProfile(userId: string, data: Omit<FinanceProfile, '
   const client = await clientPromise;
   const db = client.db();
   const now = new Date();
+  const before = await db.collection('financeProfile').findOne({ userId });
   await db.collection('financeProfile').updateOne(
     { userId },
     {
@@ -119,6 +121,48 @@ export async function upsertProfile(userId: string, data: Omit<FinanceProfile, '
     },
     { upsert: true }
   );
+
+  // Journal: salário, VR e saldo de cada banco (por nome).
+  const beforeSalary = (before?.salary ?? {}) as Record<string, unknown>;
+  const changes: JournalChange[] = [
+    ...diffFields(beforeSalary, data.salary as unknown as Record<string, unknown>, [
+      { field: 'payment', label: 'Pagamento', kind: 'money' },
+      { field: 'advance', label: 'Adiantamento', kind: 'money' },
+      { field: 'paymentDay', label: 'Dia do pagamento', kind: 'number' },
+      { field: 'advanceDay', label: 'Dia do adiantamento', kind: 'number' },
+    ]),
+    ...diffFields(before ?? null, data as unknown as Record<string, unknown>, [
+      { field: 'foodVoucher', label: 'Vale (VR/VA)', kind: 'money' },
+      { field: 'foodVoucherMonthly', label: 'Vale mensal cheio', kind: 'money' },
+    ]),
+  ];
+  const beforeBanks = new Map(
+    ((before?.banks ?? []) as { name: string; balance: number }[]).map((b) => [b.name, b.balance]),
+  );
+  const afterBanks = new Map((data.banks ?? []).map((b) => [b.name, b.balance]));
+  for (const [name, balance] of afterBanks) {
+    const prev = beforeBanks.get(name);
+    if (prev === undefined) {
+      changes.push({ field: `bank:${name}`, label: `Banco ${name}`, before: null, after: balance, kind: 'money' });
+    } else if (Math.round(prev * 100) !== Math.round(balance * 100)) {
+      changes.push({ field: `bank:${name}`, label: `Banco ${name}`, before: prev, after: balance, kind: 'money' });
+    }
+  }
+  for (const [name, balance] of beforeBanks) {
+    if (!afterBanks.has(name)) {
+      changes.push({ field: `bank:${name}`, label: `Banco ${name} (removido)`, before: balance, after: null, kind: 'money' });
+    }
+  }
+
+  await recordChange({
+    userId,
+    entity: 'profile',
+    entityLabel: 'Perfil',
+    scope: 'perfil',
+    action: before ? 'update' : 'create',
+    changes,
+    source: 'user',
+  });
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -129,11 +173,24 @@ export async function adjustBankBalance(userId: string, bankName: string, delta:
   // Read-modify-write to avoid floating-point accumulation from $inc
   const profile = await db.collection('financeProfile').findOne({ userId });
   const bank = (profile?.banks as { name: string; balance: number }[] | undefined)?.find(b => b.name === bankName);
-  const newBalance = round2((bank?.balance ?? 0) + round2(delta));
+  const oldBalance = bank?.balance ?? 0;
+  const newBalance = round2(oldBalance + round2(delta));
   await db.collection('financeProfile').updateOne(
     { userId, 'banks.name': bankName },
     { $set: { 'banks.$.balance': newBalance } }
   );
+
+  // Derivado: ajuste automático de saldo ao pagar/estornar. Registrado à parte
+  // do 'user' pra não confundir com edição manual do saldo.
+  await recordChange({
+    userId,
+    entity: 'profile',
+    entityLabel: 'Perfil',
+    scope: 'saldo',
+    action: 'update',
+    changes: [{ field: `bank:${bankName}`, label: `Banco ${bankName}`, before: oldBalance, after: newBalance, kind: 'money' }],
+    source: 'derived',
+  });
 }
 
 // ==================== Credit Cards ====================
@@ -151,6 +208,7 @@ export async function upsertCard(userId: string, card: { _id?: string; name: str
   const client = await clientPromise;
   const db = client.db();
   if (card._id) {
+    const before = await db.collection('financeCard').findOne({ _id: new ObjectId(card._id) });
     const $set: Record<string, unknown> = { name: card.name, dueDay: card.dueDay };
     if (card.invoiceTotal != null) $set.invoiceTotal = card.invoiceTotal;
     if (card.sortOrder != null) $set.sortOrder = card.sortOrder;
@@ -158,10 +216,37 @@ export async function upsertCard(userId: string, card: { _id?: string; name: str
       { _id: new ObjectId(card._id) },
       { $set }
     );
+    await recordChange({
+      userId,
+      entity: 'card',
+      entityId: card._id,
+      entityLabel: card.name,
+      scope: 'cartão',
+      action: 'update',
+      changes: diffFields(before, $set, [
+        { field: 'name', label: 'Nome', kind: 'text' },
+        { field: 'dueDay', label: 'Vencimento', kind: 'number' },
+        { field: 'invoiceTotal', label: 'Fatura', kind: 'money' },
+      ]),
+      source: 'user',
+    });
     return card._id;
   } else {
     const result = await db.collection('financeCard').insertOne({
       userId, name: card.name, dueDay: card.dueDay, invoiceTotal: card.invoiceTotal ?? 0, sortOrder: card.sortOrder ?? 0,
+    });
+    await recordChange({
+      userId,
+      entity: 'card',
+      entityId: result.insertedId.toString(),
+      entityLabel: card.name,
+      scope: 'cartão',
+      action: 'create',
+      changes: [
+        { field: 'name', label: 'Nome', before: null, after: card.name, kind: 'text' },
+        { field: 'invoiceTotal', label: 'Fatura', before: null, after: card.invoiceTotal ?? 0, kind: 'money' },
+      ],
+      source: 'user',
     });
     return result.insertedId.toString();
   }
@@ -180,17 +265,46 @@ export async function updateCardOrder(userId: string, cardIds: string[]) {
 export async function deleteCard(cardId: string) {
   const client = await clientPromise;
   const db = client.db();
+  const before = await db.collection('financeCard').findOne({ _id: new ObjectId(cardId) });
   await db.collection('financeCard').deleteOne({ _id: new ObjectId(cardId) });
   await db.collection('financeInstallment').deleteMany({ cardId });
+  if (before) {
+    await recordChange({
+      userId: before.userId as string,
+      entity: 'card',
+      entityId: cardId,
+      entityLabel: (before.name as string) || 'Cartão',
+      scope: 'cartão',
+      action: 'delete',
+      changes: [
+        { field: 'name', label: 'Nome', before: before.name ?? null, after: null, kind: 'text' },
+        { field: 'invoiceTotal', label: 'Fatura', before: before.invoiceTotal ?? null, after: null, kind: 'money' },
+      ],
+      source: 'user',
+    });
+  }
 }
 
 export async function updateCardInvoice(cardId: string, invoiceTotal: number) {
   const client = await clientPromise;
   const db = client.db();
+  const before = await db.collection('financeCard').findOne({ _id: new ObjectId(cardId) });
   await db.collection('financeCard').updateOne(
     { _id: new ObjectId(cardId) },
     { $set: { invoiceTotal } }
   );
+  if (before) {
+    await recordChange({
+      userId: before.userId as string,
+      entity: 'card',
+      entityId: cardId,
+      entityLabel: (before.name as string) || 'Cartão',
+      scope: 'fatura',
+      action: 'update',
+      changes: diffFields(before, { invoiceTotal }, [{ field: 'invoiceTotal', label: 'Fatura', kind: 'money' }]),
+      source: 'user',
+    });
+  }
 }
 
 // ==================== Recurring Expenses ====================
@@ -209,10 +323,22 @@ export async function getAllExpenses(userId: string): Promise<RecurringExpense[]
   return docs.map(d => ({ ...d, _id: d._id.toString() })) as RecurringExpense[];
 }
 
+const EXPENSE_FIELD_SPECS = [
+  { field: 'name', label: 'Nome', kind: 'text' as const },
+  { field: 'value', label: 'Valor', kind: 'money' as const },
+  { field: 'category', label: 'Categoria', kind: 'text' as const },
+  { field: 'proportional', label: 'Proporcional', kind: 'text' as const },
+  { field: 'dueDay', label: 'Vencimento', kind: 'number' as const },
+];
+
 export async function saveExpenses(userId: string, expenses: (Omit<RecurringExpense, '_id' | 'userId'> & { _id?: string })[]) {
   const client = await clientPromise;
   const db = client.db();
   const col = db.collection('financeExpense');
+
+  // Snapshot das ativas antes, indexado por _id, pra diffar item a item.
+  const beforeActive = await col.find({ userId, activeUntil: { $exists: false } }).toArray();
+  const beforeById = new Map(beforeActive.map((d) => [d._id.toString(), d]));
 
   const currentYearMonth = getFinanceToday().yearMonth;
   const keepIds = expenses.filter(e => e._id).map(e => new ObjectId(e._id!));
@@ -233,6 +359,51 @@ export async function saveExpenses(userId: string, expenses: (Omit<RecurringExpe
     }
   });
   await Promise.all(ops);
+
+  // Journal por despesa: atualizações (diff), criações e baixas (soft-delete).
+  const keepIdSet = new Set(expenses.filter(e => e._id).map(e => e._id!));
+  for (const e of expenses) {
+    if (e._id) {
+      const before = beforeById.get(e._id);
+      await recordChange({
+        userId,
+        entity: 'expense',
+        entityId: e._id,
+        entityLabel: e.name,
+        scope: 'despesa',
+        action: 'update',
+        changes: diffFields(before ?? null, e as unknown as Record<string, unknown>, EXPENSE_FIELD_SPECS),
+        source: 'user',
+      });
+    } else {
+      await recordChange({
+        userId,
+        entity: 'expense',
+        entityLabel: e.name,
+        scope: 'despesa',
+        action: 'create',
+        changes: [
+          { field: 'name', label: 'Nome', before: null, after: e.name, kind: 'text' },
+          { field: 'value', label: 'Valor', before: null, after: e.value, kind: 'money' },
+        ],
+        source: 'user',
+      });
+    }
+  }
+  for (const d of beforeActive) {
+    if (!keepIdSet.has(d._id.toString())) {
+      await recordChange({
+        userId,
+        entity: 'expense',
+        entityId: d._id.toString(),
+        entityLabel: (d.name as string) || 'Despesa',
+        scope: 'baixa',
+        action: 'delete',
+        changes: [{ field: 'value', label: 'Valor', before: d.value ?? null, after: null, kind: 'money' }],
+        source: 'user',
+      });
+    }
+  }
 }
 
 // ==================== Installments ====================
@@ -251,8 +422,18 @@ export async function getInstallments(userId: string): Promise<Installment[]> {
 export async function addInstallment(userId: string, data: Omit<Installment, '_id' | 'userId' | 'createdAt'>) {
   const client = await clientPromise;
   const db = client.db();
-  await db.collection('financeInstallment').insertOne({
+  const result = await db.collection('financeInstallment').insertOne({
     ...data, userId, createdAt: new Date(),
+  });
+  await recordChange({
+    userId,
+    entity: 'installment',
+    entityId: result.insertedId.toString(),
+    entityLabel: data.description,
+    scope: 'parcela',
+    action: 'create',
+    changes: [{ field: 'monthlyValue', label: 'Parcela', before: null, after: data.monthlyValue, kind: 'money' }],
+    source: 'user',
   });
 }
 
@@ -260,6 +441,9 @@ export async function saveInstallments(userId: string, installments: (Omit<Insta
   const client = await clientPromise;
   const db = client.db();
   const col = db.collection('financeInstallment');
+
+  const beforeAll = await col.find({ userId }).toArray();
+  const beforeById = new Map(beforeAll.map((d) => [d._id.toString(), d]));
 
   const keepIds = installments.filter(i => i._id).map(i => new ObjectId(i._id!));
   await col.deleteMany({ userId, _id: { $nin: keepIds } });
@@ -275,6 +459,52 @@ export async function saveInstallments(userId: string, installments: (Omit<Insta
     return col.insertOne({ ...fields, userId, createdAt: new Date() });
   });
   await Promise.all(ops);
+
+  // Journal por parcela. remainingInstallments carrega o offset interno (+1),
+  // então não diffamos ele aqui — o que interessa contra digitação errada é a
+  // descrição e o valor da parcela.
+  const keepIdSet = new Set(installments.filter(i => i._id).map(i => i._id!));
+  for (const inst of installments) {
+    if (inst._id) {
+      await recordChange({
+        userId,
+        entity: 'installment',
+        entityId: inst._id,
+        entityLabel: inst.description,
+        scope: 'parcela',
+        action: 'update',
+        changes: diffFields(beforeById.get(inst._id) ?? null, inst as unknown as Record<string, unknown>, [
+          { field: 'description', label: 'Descrição', kind: 'text' },
+          { field: 'monthlyValue', label: 'Parcela', kind: 'money' },
+        ]),
+        source: 'user',
+      });
+    } else {
+      await recordChange({
+        userId,
+        entity: 'installment',
+        entityLabel: inst.description,
+        scope: 'parcela',
+        action: 'create',
+        changes: [{ field: 'monthlyValue', label: 'Parcela', before: null, after: inst.monthlyValue, kind: 'money' }],
+        source: 'user',
+      });
+    }
+  }
+  for (const d of beforeAll) {
+    if (!keepIdSet.has(d._id.toString())) {
+      await recordChange({
+        userId,
+        entity: 'installment',
+        entityId: d._id.toString(),
+        entityLabel: (d.description as string) || 'Parcela',
+        scope: 'parcela',
+        action: 'delete',
+        changes: [{ field: 'monthlyValue', label: 'Parcela', before: d.monthlyValue ?? null, after: null, kind: 'money' }],
+        source: 'user',
+      });
+    }
+  }
 }
 
 export async function getInstallment(installmentId: string): Promise<Installment | null> {
@@ -288,7 +518,20 @@ export async function getInstallment(installmentId: string): Promise<Installment
 export async function deleteInstallment(installmentId: string) {
   const client = await clientPromise;
   const db = client.db();
+  const before = await db.collection('financeInstallment').findOne({ _id: new ObjectId(installmentId) });
   await db.collection('financeInstallment').deleteOne({ _id: new ObjectId(installmentId) });
+  if (before) {
+    await recordChange({
+      userId: before.userId as string,
+      entity: 'installment',
+      entityId: installmentId,
+      entityLabel: (before.description as string) || 'Parcela',
+      scope: 'parcela',
+      action: 'delete',
+      changes: [{ field: 'monthlyValue', label: 'Parcela', before: before.monthlyValue ?? null, after: null, kind: 'money' }],
+      source: 'user',
+    });
+  }
 }
 
 export async function updateInstallment(
@@ -297,6 +540,7 @@ export async function updateInstallment(
 ) {
   const client = await clientPromise;
   const db = client.db();
+  const before = await db.collection('financeInstallment').findOne({ _id: new ObjectId(installmentId) });
   const $set: Record<string, unknown> = {};
   if (data.monthlyValue !== undefined) $set.monthlyValue = data.monthlyValue;
   if (data.remainingInstallments !== undefined) $set.remainingInstallments = data.remainingInstallments;
@@ -305,6 +549,22 @@ export async function updateInstallment(
     { _id: new ObjectId(installmentId) },
     { $set }
   );
+  if (before) {
+    // remainingInstallments não é diffado (carrega o offset interno +1).
+    await recordChange({
+      userId: before.userId as string,
+      entity: 'installment',
+      entityId: installmentId,
+      entityLabel: (data.description ?? before.description ?? 'Parcela') as string,
+      scope: 'parcela',
+      action: 'update',
+      changes: diffFields(before, $set, [
+        { field: 'description', label: 'Descrição', kind: 'text' },
+        { field: 'monthlyValue', label: 'Parcela', kind: 'money' },
+      ]),
+      source: 'user',
+    });
+  }
 }
 
 export async function rollOverMonth(userId: string) {
@@ -368,6 +628,19 @@ export async function toggleExpensePayment(
     { $set: { payments, userId, yearMonth } },
     { upsert: true }
   );
+
+  await recordChange({
+    userId,
+    entity: 'expense',
+    entityId: expenseId,
+    entityLabel: expenseName,
+    scope: 'pagamento',
+    yearMonth,
+    action: 'update',
+    // removed != null ⇒ desmarcou (estava pago); senão ⇒ marcou como pago.
+    changes: [{ field: 'pago', label: 'Pago', before: removed != null, after: removed == null, kind: 'bool' }],
+    source: 'user',
+  });
   return removed;
 }
 
@@ -394,6 +667,10 @@ export async function updateMonthExpenseValue(
   const overrides: MonthExpenseOverride[] = doc?.expenseOverrides || [];
 
   const idx = overrides.findIndex(o => o.expenseId === expenseId);
+  // Valor efetivo anterior: override deste mês, se houver; senão o valor base
+  // da despesa. É o que o usuário via antes de alterar.
+  const expenseDoc = await db.collection('financeExpense').findOne({ _id: new ObjectId(expenseId) });
+  const beforeValue = idx >= 0 ? overrides[idx].value : (expenseDoc?.value as number | undefined) ?? null;
   if (idx >= 0) {
     overrides[idx].value = value;
   } else {
@@ -405,6 +682,18 @@ export async function updateMonthExpenseValue(
     { $set: { expenseOverrides: overrides, userId, yearMonth } },
     { upsert: true }
   );
+
+  await recordChange({
+    userId,
+    entity: 'expense',
+    entityId: expenseId,
+    entityLabel: (expenseDoc?.name as string) || 'Despesa',
+    scope: 'valor-mês',
+    yearMonth,
+    action: 'update',
+    changes: diffFields({ value: beforeValue }, { value }, [{ field: 'value', label: 'Valor no mês', kind: 'money' }]),
+    source: 'user',
+  });
 }
 
 /**
@@ -506,11 +795,13 @@ export async function updateMonthCardInvoice(
   const doc = await db.collection('financeMonth').findOne({ userId, yearMonth });
   const invoices: MonthCardInvoice[] = doc?.cardInvoices || [];
 
+  const card = await db.collection('financeCard').findOne({ _id: new ObjectId(cardId) });
   const idx = invoices.findIndex(ci => ci.cardId === cardId);
+  const beforeValue = idx >= 0 ? invoices[idx].invoiceTotal : (card?.invoiceTotal as number | undefined) ?? null;
   if (idx >= 0) {
     invoices[idx].invoiceTotal = invoiceTotal;
   } else {
-    invoices.push({ cardId, cardName: '', invoiceTotal, paid: false });
+    invoices.push({ cardId, cardName: (card?.name as string) || '', invoiceTotal, paid: false });
   }
 
   await db.collection('financeMonth').updateOne(
@@ -518,6 +809,18 @@ export async function updateMonthCardInvoice(
     { $set: { cardInvoices: invoices, userId, yearMonth } },
     { upsert: true }
   );
+
+  await recordChange({
+    userId,
+    entity: 'card',
+    entityId: cardId,
+    entityLabel: (card?.name as string) || 'Cartão',
+    scope: 'fatura-mês',
+    yearMonth,
+    action: 'update',
+    changes: diffFields({ invoiceTotal: beforeValue }, { invoiceTotal }, [{ field: 'invoiceTotal', label: 'Fatura no mês', kind: 'money' }]),
+    source: 'user',
+  });
 }
 
 export async function getCardInvoiceTotalForMonth(userId: string, yearMonth: string, cardId: string): Promise<number> {
@@ -557,6 +860,18 @@ export async function toggleMonthCardInvoicePaid(
     { $set: { cardInvoices: invoices, userId, yearMonth } },
     { upsert: true }
   );
+
+  await recordChange({
+    userId,
+    entity: 'card',
+    entityId: cardId,
+    entityLabel: cardName,
+    scope: 'fatura-paga',
+    yearMonth,
+    action: 'update',
+    changes: [{ field: 'pago', label: 'Fatura paga', before: !nowPaid, after: nowPaid, kind: 'bool' }],
+    source: 'user',
+  });
   return { nowPaid, previousBank };
 }
 
