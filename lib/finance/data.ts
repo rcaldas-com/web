@@ -795,12 +795,11 @@ export async function updateMonthCardInvoice(
   const doc = await db.collection('financeMonth').findOne({ userId, yearMonth });
   const invoices: MonthCardInvoice[] = doc?.cardInvoices || [];
 
-  const card = await db.collection('financeCard').findOne({ _id: new ObjectId(cardId) });
   const idx = invoices.findIndex(ci => ci.cardId === cardId);
-  const beforeValue = idx >= 0 ? invoices[idx].invoiceTotal : (card?.invoiceTotal as number | undefined) ?? null;
   if (idx >= 0) {
     invoices[idx].invoiceTotal = invoiceTotal;
   } else {
+    const card = await db.collection('financeCard').findOne({ _id: new ObjectId(cardId) });
     invoices.push({ cardId, cardName: (card?.name as string) || '', invoiceTotal, paid: false });
   }
 
@@ -809,18 +808,10 @@ export async function updateMonthCardInvoice(
     { $set: { cardInvoices: invoices, userId, yearMonth } },
     { upsert: true }
   );
-
-  await recordChange({
-    userId,
-    entity: 'card',
-    entityId: cardId,
-    entityLabel: (card?.name as string) || 'Cartão',
-    scope: 'fatura-mês',
-    yearMonth,
-    action: 'update',
-    changes: diffFields({ invoiceTotal: beforeValue }, { invoiceTotal }, [{ field: 'invoiceTotal', label: 'Fatura no mês', kind: 'money' }]),
-    source: 'user',
-  });
+  // NOTA: o journaling desta operação fica na action `updateMonthInvoice`, não
+  // aqui — o valor que chega neste ponto é a BASE interna (valor exibido menos
+  // os ajustes), então registrar aqui gravaria um número que não é o que o
+  // usuário vê. A action conhece o valor exibido e registra o antes→depois certo.
 }
 
 export async function getCardInvoiceTotalForMonth(userId: string, yearMonth: string, cardId: string): Promise<number> {

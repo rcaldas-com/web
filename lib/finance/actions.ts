@@ -24,10 +24,14 @@ import {
   getMonthData,
   adjustBankBalance,
   adjustCardExpenseInMonth,
+  getCards,
+  getInstallments,
+  getOrInitMonthCardInvoices,
 } from './data';
 import type { RecurringExpense } from './types';
 import { evalExpression } from './eval-expression';
-import { addMonthsToYearMonth, getFinanceToday } from './date';
+import { addMonthsToYearMonth, getFinanceToday, yearMonthIndex } from './date';
+import { recordChange, diffFields } from './journal';
 
 async function getUserId(): Promise<string> {
   const userId = await getSessionUserId();
@@ -332,7 +336,32 @@ export async function updateMonthInvoice(cardId: string, invoiceTotal: number, y
   // future adj Z: display = entered + Z
   const monthData = await getMonthData(userId, yearMonth);
   const existingAdj = monthData?.cardExpenseAdjustments?.find(a => a.cardId === cardId)?.amount ?? 0;
+
+  // Valor EXIBIDO antes da edição (base + ajustes) — é o que o usuário via.
+  // Registramos o histórico aqui, na action, porque só aqui conhecemos o valor
+  // de fato exibido/digitado; a camada de dados lida com a base interna.
+  const [cards, installments] = await Promise.all([getCards(userId), getInstallments(userId)]);
+  const monthOffset = Math.max(0, yearMonthIndex(yearMonth) - yearMonthIndex(getFinanceToday().yearMonth));
+  const beforeInvoices = await getOrInitMonthCardInvoices(userId, yearMonth, cards, installments, monthOffset);
+  const displayedBefore = beforeInvoices.find(ci => ci.cardId === cardId)?.invoiceTotal ?? null;
+  const cardName = cards.find(c => c._id === cardId)?.name || 'Cartão';
+
   await updateMonthCardInvoice(userId, yearMonth, cardId, invoiceTotal - existingAdj);
+
+  await recordChange({
+    userId,
+    entity: 'card',
+    entityId: cardId,
+    entityLabel: cardName,
+    scope: 'fatura-mês',
+    yearMonth,
+    action: 'update',
+    changes: diffFields({ invoiceTotal: displayedBefore }, { invoiceTotal }, [
+      { field: 'invoiceTotal', label: 'Fatura no mês', kind: 'money' },
+    ]),
+    source: 'user',
+  });
+
   revalidatePath('/finance');
   revalidatePath('/finance/cards');
 }
