@@ -46,9 +46,10 @@ export async function deleteUserAction(userId: string): Promise<DeleteUserState>
       await sweepAndCloseUserWallets(userId);
     } catch (err) {
       console.error('Falha ao varrer carteira Stellar do usuário:', err);
+      const detail = err instanceof Error ? ` (${err.message})` : '';
       return {
         success: false,
-        message: 'Falha ao esvaziar a carteira Stellar do usuário. Nada foi apagado — verifique o erro e tente novamente.',
+        message: `Falha ao esvaziar a carteira Stellar do usuário. Nada foi apagado — verifique o erro e tente novamente.${detail}`,
       };
     }
 

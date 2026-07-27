@@ -62,6 +62,27 @@ async function baseFee(server: Horizon.Server): Promise<string> {
   }
 }
 
+// O Horizon devolve 400 com os motivos reais em response.data.extras.result_codes
+// (ex.: { transaction: 'tx_failed', operations: ['op_no_trust'] }). O AxiosError
+// cru não mostra isso, então a falha do sweep vinha genérica. Extrai e relança
+// com os códigos no texto, pra o motivo aparecer no log e na mensagem ao admin.
+async function submitOrThrow(
+  server: Horizon.Server,
+  tx: Parameters<Horizon.Server['submitTransaction']>[0],
+  label: string,
+) {
+  try {
+    return await server.submitTransaction(tx);
+  } catch (err) {
+    const extras = (err as { response?: { data?: { extras?: { result_codes?: unknown } } } })
+      ?.response?.data?.extras;
+    if (extras?.result_codes) {
+      throw new Error(`${label}: Horizon recusou (${JSON.stringify(extras.result_codes)})`);
+    }
+    throw err;
+  }
+}
+
 async function loadAccountWithRetry(
   server: Horizon.Server,
   publicKey: string,
@@ -219,6 +240,43 @@ export async function sweepAndCloseUserWallets(userId: string): Promise<void> {
 
     // 1) Devolve cada token: ao issuer se for nosso, senão para a MAIN_WALLET.
     if (toSweep.length > 0) {
+      // Tokens que NÃO são nossos vão pra MAIN — mas o Horizon rejeita um
+      // pagamento para uma conta que não confia no ativo (op_no_trust). Antes
+      // de varrer, garante que a MAIN tem trustline de cada token não-nosso com
+      // saldo (ex.: AQUA), preservando o valor em vez de queimar no issuer.
+      const nonOurs = toSweep.filter(
+        (b) => !issuers.some((i) => i.name === b.asset_code && i.public_key === b.asset_issuer),
+      );
+      if (nonOurs.length > 0) {
+        const mainAccount = await server.loadAccount(mainWallet.publicKey());
+        const mainTrusts = new Set(
+          mainAccount.balances
+            .filter(
+              (b: Horizon.HorizonApi.BalanceLine): b is Horizon.HorizonApi.BalanceLineAsset =>
+                b.asset_type !== 'native' && 'asset_code' in b,
+            )
+            .map((b) => `${b.asset_code}:${b.asset_issuer}`),
+        );
+        const missing = nonOurs.filter((b) => !mainTrusts.has(`${b.asset_code}:${b.asset_issuer}`));
+        if (missing.length > 0) {
+          const mainAcc = await loadAccountWithRetry(server, mainWallet.publicKey());
+          const trustFee = await baseFee(server);
+          let trustBuilder = new TransactionBuilder(mainAcc, { fee: trustFee, networkPassphrase: NETWORK_PASSPHRASE });
+          for (const b of missing) {
+            trustBuilder = trustBuilder.addOperation(
+              Operation.changeTrust({ asset: new Asset(b.asset_code, b.asset_issuer) }),
+            );
+          }
+          const trustTx = trustBuilder.setTimeout(60).build();
+          trustTx.sign(mainWallet);
+          await submitOrThrow(
+            server,
+            trustTx,
+            `trustline na MAIN para ${missing.map((b) => b.asset_code).join(', ')}`,
+          );
+        }
+      }
+
       const acc = await loadAccountWithRetry(server, wallet.key);
       const fee = await baseFee(server);
       let builder = new TransactionBuilder(acc, { fee, networkPassphrase: NETWORK_PASSPHRASE });
@@ -232,7 +290,7 @@ export async function sweepAndCloseUserWallets(userId: string): Promise<void> {
       }
       const tx = builder.setTimeout(60).build();
       tx.sign(userKp);
-      await server.submitTransaction(tx);
+      await submitOrThrow(server, tx, `sweep de tokens da carteira ${wallet.key}`);
     }
 
     // 2) Remove todas as trustlines e encerra a conta (accountMerge) numa só
@@ -254,7 +312,7 @@ export async function sweepAndCloseUserWallets(userId: string): Promise<void> {
     );
     const closeTx = closeBuilder.setTimeout(60).build();
     closeTx.sign(userKp);
-    await server.submitTransaction(closeTx);
+    await submitOrThrow(server, closeTx, `encerramento da carteira ${wallet.key}`);
   }
 }
 
