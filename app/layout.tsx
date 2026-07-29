@@ -21,7 +21,7 @@ const inter = localFont({
   display: 'swap',
 });
 
-const title = process.env.TITLE || '';
+const title = process.env.TITLE || 'RCaldas';
 const public_host = process.env.AUTH_TRUST_HOST || 'http://localhost:3000';
 
 export const metadata: Metadata = {
