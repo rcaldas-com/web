@@ -154,23 +154,30 @@ export default function DashboardClient({
           </span>
         </div>
       )}
-      {/* Header with month navigation */}
-      <div className="flex justify-between items-center">
-        <div className="flex items-center gap-3">
+      {/* Header with month navigation — empilha no mobile (nav de mês numa
+          linha, nav de páginas noutra) pra não apertar quando "Hoje" aparece;
+          lado a lado a partir de sm. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-1">
           <Link href={`/finance?month=${prevMonth}`}
-            className="text-zinc-400 hover:text-zinc-700 text-xl px-2 dark:hover:text-zinc-200">←</Link>
-          <h1 className="text-2xl font-bold capitalize text-zinc-950 dark:text-zinc-50">{monthLabel}</h1>
+            aria-label="Mês anterior"
+            className="text-zinc-400 hover:text-zinc-700 text-lg leading-none px-1 dark:hover:text-zinc-200">←</Link>
+          <h1 className="text-xl sm:text-2xl font-bold capitalize whitespace-nowrap text-zinc-950 dark:text-zinc-50">{monthLabel}</h1>
           <Link href={`/finance?month=${nextMonth}`}
-            className="text-zinc-400 hover:text-zinc-700 text-xl px-2 dark:hover:text-zinc-200">→</Link>
+            aria-label="Próximo mês"
+            className="text-zinc-400 hover:text-zinc-700 text-lg leading-none px-1 dark:hover:text-zinc-200">→</Link>
           {!isCurrentMonth && (
-            <Link href="/finance" className="text-xs text-blue-600 hover:underline ml-2">Hoje</Link>
+            <Link href="/finance"
+              className="ml-1 shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900">
+              Hoje
+            </Link>
           )}
         </div>
-        <div className="flex gap-2">
-          <Link href="/finance/cards" className="text-sm text-blue-600 hover:underline">Cartões</Link>
-          <Link href="/finance/history" className="text-sm text-zinc-500 hover:underline">Histórico</Link>
-          <Link href="/finance/setup/profile" className="text-sm text-zinc-500 hover:underline">Configurar</Link>
-        </div>
+        <nav className="flex items-center gap-4 text-sm">
+          <Link href="/finance/cards" className="text-blue-600 hover:underline">Cartões</Link>
+          <Link href="/finance/history" className="text-zinc-500 hover:underline dark:text-zinc-400">Histórico</Link>
+          <Link href="/finance/setup/profile" className="text-zinc-500 hover:underline dark:text-zinc-400">Configurar</Link>
+        </nav>
       </div>
 
       {/* Hero: Saldo Disponível + Saldo Mês na mesma linha */}
