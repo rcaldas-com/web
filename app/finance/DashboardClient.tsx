@@ -154,10 +154,10 @@ export default function DashboardClient({
           </span>
         </div>
       )}
-      {/* Header with month navigation — empilha no mobile (nav de mês numa
-          linha, nav de páginas noutra) pra não apertar quando "Hoje" aparece;
-          lado a lado a partir de sm. */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      {/* Header — tudo alinhado à direita (mês e nav), empilhado no mobile.
+          "Cartões" é o mais clicado (adicionar valor na fatura), então fica na
+          ponta direita, mais perto do polegar. */}
+      <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-6">
         <div className="flex items-center gap-1">
           <Link href={`/finance?month=${prevMonth}`}
             aria-label="Mês anterior"
@@ -174,9 +174,9 @@ export default function DashboardClient({
           )}
         </div>
         <nav className="flex items-center gap-4 text-sm">
-          <Link href="/finance/cards" className="text-blue-600 hover:underline">Cartões</Link>
-          <Link href="/finance/history" className="text-zinc-500 hover:underline dark:text-zinc-400">Histórico</Link>
           <Link href="/finance/setup/profile" className="text-zinc-500 hover:underline dark:text-zinc-400">Configurar</Link>
+          <Link href="/finance/history" className="text-zinc-500 hover:underline dark:text-zinc-400">Histórico</Link>
+          <Link href="/finance/cards" className="text-blue-600 hover:underline">Cartões</Link>
         </nav>
       </div>
 
