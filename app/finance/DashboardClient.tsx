@@ -154,11 +154,11 @@ export default function DashboardClient({
           </span>
         </div>
       )}
-      {/* Header — tudo alinhado à direita (mês e nav), empilhado no mobile.
-          "Cartões" é o mais clicado (adicionar valor na fatura), então fica na
-          ponta direita, mais perto do polegar. */}
-      <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-6">
-        <div className="flex items-center gap-1">
+      {/* Header — mês centralizado (com as setas) numa linha; nav de páginas
+          embaixo, alinhada à direita. "Cartões" é o mais clicado (adicionar
+          valor na fatura), então fica na ponta direita, mais perto do polegar. */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-center gap-1">
           <Link href={`/finance?month=${prevMonth}`}
             aria-label="Mês anterior"
             className="text-zinc-400 hover:text-zinc-700 text-lg leading-none px-1 dark:hover:text-zinc-200">←</Link>
@@ -173,7 +173,7 @@ export default function DashboardClient({
             </Link>
           )}
         </div>
-        <nav className="flex items-center gap-4 text-sm">
+        <nav className="flex items-center justify-end gap-4 text-sm">
           <Link href="/finance/setup/profile" className="text-zinc-500 hover:underline dark:text-zinc-400">Configurar</Link>
           <Link href="/finance/history" className="text-zinc-500 hover:underline dark:text-zinc-400">Histórico</Link>
           <Link href="/finance/cards" className="text-blue-600 hover:underline">Cartões</Link>
