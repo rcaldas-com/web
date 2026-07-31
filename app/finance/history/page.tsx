@@ -35,6 +35,24 @@ function formatValue(value: unknown, kind: JournalChange['kind']): string {
   return String(value);
 }
 
+// Diferença (antes→depois) para mudanças numéricas — quanto foi acrescentado
+// (+) ou reduzido (−). null quando não se aplica (texto, booleano, criação/
+// remoção sem os dois lados numéricos, ou variação nula).
+function numericDelta(c: JournalChange): number | null {
+  if (c.kind !== 'money' && c.kind !== 'number') return null;
+  if (typeof c.before !== 'number' || typeof c.after !== 'number') return null;
+  const raw = c.after - c.before;
+  const delta = c.kind === 'money' ? Math.round(raw * 100) / 100 : Math.round(raw * 1e7) / 1e7;
+  return delta === 0 ? null : delta;
+}
+
+function formatDelta(delta: number, kind: JournalChange['kind']): string {
+  const sign = delta > 0 ? '+' : '−';
+  const abs = Math.abs(delta);
+  const formatted = kind === 'money' ? money(abs) : abs.toLocaleString('pt-BR', { maximumFractionDigits: 7 });
+  return `${sign}${formatted}`;
+}
+
 function formatDateTime(d: Date): string {
   return new Date(d).toLocaleString('pt-BR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -181,18 +199,32 @@ export default async function FinanceHistoryPage({
                       </div>
 
                       <div className="mt-1.5 space-y-1">
-                        {e.changes.map((c, i) => (
-                          <div key={i} className="text-sm text-zinc-600 dark:text-zinc-300">
-                            <span className="text-zinc-400 dark:text-zinc-500">{c.label}:</span>{' '}
-                            <span className="text-zinc-500 line-through decoration-zinc-300 dark:decoration-zinc-600">
-                              {formatValue(c.before, c.kind)}
-                            </span>
-                            <span className="mx-1 text-zinc-400">→</span>
-                            <span className="font-medium text-zinc-800 dark:text-zinc-100">
-                              {formatValue(c.after, c.kind)}
-                            </span>
-                          </div>
-                        ))}
+                        {e.changes.map((c, i) => {
+                          const delta = numericDelta(c);
+                          return (
+                            <div key={i} className="text-sm text-zinc-600 dark:text-zinc-300">
+                              <span className="text-zinc-400 dark:text-zinc-500">{c.label}:</span>{' '}
+                              <span className="text-zinc-500 line-through decoration-zinc-300 dark:decoration-zinc-600">
+                                {formatValue(c.before, c.kind)}
+                              </span>
+                              <span className="mx-1 text-zinc-400">→</span>
+                              <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                                {formatValue(c.after, c.kind)}
+                              </span>
+                              {delta !== null && (
+                                <span
+                                  className={`ml-2 text-xs font-medium ${
+                                    delta > 0
+                                      ? 'text-emerald-600 dark:text-emerald-400'
+                                      : 'text-rose-600 dark:text-rose-400'
+                                  }`}
+                                >
+                                  ({formatDelta(delta, c.kind)})
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </li>
                   ))}
