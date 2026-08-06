@@ -232,11 +232,11 @@ function adjustLocalCardInvoice(yearMonth: string, cardId: string, delta: number
   setMonths(months);
 }
 
-export function toggleLocalExpensePayment(
+export function addLocalExpensePayment(
   yearMonth: string,
   expenseId: string,
   expenseName: string,
-  amountPaid: number,
+  amount: number,
   paidFromBank?: string,
   paidToCard?: string,
 ) {
@@ -244,21 +244,31 @@ export function toggleLocalExpensePayment(
   const month = months[yearMonth] || ensureMonth(yearMonth);
   const payments: MonthPayment[] = month.payments || [];
 
-  const idx = payments.findIndex(p => p.expenseId === expenseId);
-  if (idx >= 0) {
-    const removed = payments[idx];
-    payments.splice(idx, 1);
-    if (removed.paidFromBank) adjustLocalBankBalance(removed.paidFromBank, removed.amountPaid);
-    if (removed.paidToCard) adjustLocalCardInvoice(addMonthsToYearMonth(yearMonth, 1), removed.paidToCard, -removed.amountPaid);
-  } else {
-    payments.push({ expenseId, expenseName, amountPaid, paidAt: new Date(), paidFromBank, paidToCard });
-    if (paidFromBank) adjustLocalBankBalance(paidFromBank, -amountPaid);
-    if (paidToCard) adjustLocalCardInvoice(addMonthsToYearMonth(yearMonth, 1), paidToCard, amountPaid);
-  }
+  payments.push({ expenseId, expenseName, amountPaid: amount, paidAt: new Date(), paidFromBank, paidToCard });
+  if (paidFromBank) adjustLocalBankBalance(paidFromBank, -amount);
+  if (paidToCard) adjustLocalCardInvoice(addMonthsToYearMonth(yearMonth, 1), paidToCard, amount);
 
   month.payments = payments;
   months[yearMonth] = month;
   setMonths(months);
+}
+
+export function undoLocalExpensePayments(yearMonth: string, expenseId: string) {
+  const months = getMonths();
+  const month = months[yearMonth] || ensureMonth(yearMonth);
+  const payments: MonthPayment[] = month.payments || [];
+
+  const removed = payments.filter(p => p.expenseId === expenseId);
+  if (removed.length === 0) return;
+
+  month.payments = payments.filter(p => p.expenseId !== expenseId);
+  months[yearMonth] = month;
+  setMonths(months);
+
+  for (const p of removed) {
+    if (p.paidFromBank) adjustLocalBankBalance(p.paidFromBank, p.amountPaid);
+    if (p.paidToCard) adjustLocalCardInvoice(addMonthsToYearMonth(yearMonth, 1), p.paidToCard, -p.amountPaid);
+  }
 }
 
 export function updateLocalMonthCardInvoice(

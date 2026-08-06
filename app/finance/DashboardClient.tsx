@@ -4,9 +4,10 @@ import { createContext, useContext, useRef, useState, useTransition } from 'reac
 import Link from 'next/link';
 import ExpressionOperatorPad, { insertMoneyToken } from './ExpressionOperatorPad';
 import MoneyInput from './MoneyInput';
-import { togglePaid, updateMonthInvoice, toggleInvoicePaid, updateBankBalance, updateExpenseValue } from '@/lib/finance/actions';
+import { recordExpensePayment, undoExpensePayments, updateMonthInvoice, toggleInvoicePaid, updateBankBalance, updateExpenseValue } from '@/lib/finance/actions';
 import {
-  toggleLocalExpensePayment,
+  addLocalExpensePayment,
+  undoLocalExpensePayments,
   updateLocalMonthCardInvoice,
   toggleLocalCardInvoicePaid,
   updateLocalExpenseOverride,
@@ -20,7 +21,8 @@ import type { InstallmentGroup, CardView, BankAccount } from '@/lib/finance/type
 const BRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 interface FinanceActions {
-  togglePaid: (id: string, name: string, value: number, ym: string, bank?: string, cardId?: string) => Promise<void>;
+  recordExpensePayment: (id: string, name: string, amount: number, ym: string, bank?: string, cardId?: string) => Promise<void>;
+  undoExpensePayments: (id: string, name: string, ym: string) => Promise<void>;
   updateInvoice: (cardId: string, amount: number, ym: string) => Promise<void>;
   toggleInvoicePaid: (cardId: string, name: string, total: number, ym: string, bank?: string) => Promise<void>;
   updateBankBalance: (fd: FormData) => Promise<void>;
@@ -99,7 +101,8 @@ export default function DashboardClient({
 
   const actions: FinanceActions = isGuest
     ? {
-        togglePaid: async (id, name, value, ym, bank, cardId) => { toggleLocalExpensePayment(ym, id, name, value, bank, cardId); guestRefresh(); },
+        recordExpensePayment: async (id, name, amount, ym, bank, cardId) => { addLocalExpensePayment(ym, id, name, amount, bank, cardId); guestRefresh(); },
+        undoExpensePayments: async (id, _name, ym) => { undoLocalExpensePayments(ym, id); guestRefresh(); },
         updateInvoice: async (cardId, amount, ym) => { updateLocalMonthCardInvoice(ym, cardId, amount); guestRefresh(); },
         toggleInvoicePaid: async (cardId, name, total, ym, bank) => { toggleLocalCardInvoicePaid(ym, cardId, name, total, bank); guestRefresh(); },
         updateBankBalance: async (fd) => {
@@ -113,7 +116,8 @@ export default function DashboardClient({
         updateExpenseValue: async (id, value, ym) => { updateLocalExpenseOverride(ym, id, value); guestRefresh(); },
       }
     : {
-        togglePaid: async (id, name, value, ym, bank, cardId) => { await togglePaid(id, name, value, ym, bank, cardId); },
+        recordExpensePayment: async (id, name, amount, ym, bank, cardId) => { await recordExpensePayment(id, name, amount, ym, bank, cardId); },
+        undoExpensePayments: async (id, name, ym) => { await undoExpensePayments(id, name, ym); },
         updateInvoice: async (cardId, amount, ym) => { await updateMonthInvoice(cardId, amount, ym); },
         toggleInvoicePaid: async (cardId, name, total, ym, bank) => { await toggleInvoicePaid(cardId, name, total, ym, bank); },
         updateBankBalance: async (fd) => { await updateBankBalance(fd); },
@@ -444,14 +448,17 @@ function PickerChip({ label, sub, onClick }: { label: string; sub?: string; onCl
 }
 
 function PaymentPicker({
-  category, banks, cards, onSelect, onDismiss,
+  category, banks, cards, amount, onAmountChange, onSelect, onDismiss,
 }: {
   category: 'card' | 'cash';
   banks: BankAccount[];
   cards: CardView[];
+  amount: string;
+  onAmountChange: (v: string) => void;
   onSelect: (bank?: string, cardId?: string) => void;
   onDismiss: () => void;
 }) {
+  const amountInputRef = useRef<HTMLInputElement>(null);
   return (
     <div className="mx-2 mb-1 px-3 py-2.5 bg-zinc-100 dark:bg-zinc-800/80 rounded-md border border-zinc-200 dark:border-zinc-700">
       <div className="flex items-center justify-between mb-2">
@@ -459,6 +466,18 @@ function PaymentPicker({
           {category === 'cash' ? 'Débitar de qual conta?' : 'Adicionar à fatura de qual cartão?'}
         </p>
         <button onClick={onDismiss} className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 px-1">✕</button>
+      </div>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs text-zinc-500 dark:text-zinc-400">Valor</span>
+        <MoneyInput
+          ref={amountInputRef}
+          value={amount}
+          onChange={onAmountChange}
+          onEscape={onDismiss}
+          autoFocus
+          className="w-24 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+        />
+        <ExpressionOperatorPad onInsert={token => insertMoneyToken(amountInputRef.current, amount, onAmountChange, token)} />
       </div>
       <div className="flex flex-wrap gap-2">
         {category === 'cash'
@@ -606,6 +625,7 @@ function ExpenseChecklist({
   const [editVal, setEditVal] = useState('');
   const editInputRef = useRef<HTMLInputElement>(null);
   const [pickerId, setPickerId] = useState<string | null>(null);
+  const [pickerAmount, setPickerAmount] = useState('');
   const paidCount = expenses.filter(e => e.paid).length;
   const total = expenses.reduce((s, e) => s + e.value, 0);
   const paidTotal = expenses.filter(e => e.paid).reduce((s, e) => s + e.value, 0);
@@ -613,15 +633,19 @@ function ExpenseChecklist({
 
   const handleToggle = (e: ExpenseItem) => {
     if (e.paid) {
-      startTransition(() => { actions.togglePaid(e.id, e.name, e.value, yearMonth); });
+      startTransition(() => { actions.undoExpensePayments(e.id, e.name, yearMonth); });
     } else {
       setPickerId(e.id);
+      setPickerAmount(e.value.toFixed(2)); // pré-preenche com o restante
     }
   };
 
   const handlePick = (e: ExpenseItem, bank?: string, cardId?: string) => {
+    const amount = Math.round(evalExpression(pickerAmount) * 100) / 100;
     setPickerId(null);
-    startTransition(() => { actions.togglePaid(e.id, e.name, e.value, yearMonth, bank, cardId); });
+    if (amount > 0) {
+      startTransition(() => { actions.recordExpensePayment(e.id, e.name, amount, yearMonth, bank, cardId); });
+    }
   };
 
   const handleSaveValue = (e: ExpenseItem) => {
@@ -709,6 +733,8 @@ function ExpenseChecklist({
               category={e.category}
               banks={banks}
               cards={cards}
+              amount={pickerAmount}
+              onAmountChange={setPickerAmount}
               onSelect={(bank, cardId) => handlePick(e, bank, cardId)}
               onDismiss={() => setPickerId(null)}
             />

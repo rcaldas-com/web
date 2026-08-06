@@ -17,6 +17,8 @@ import {
   buildCardViews,
   calculateMonthBalance,
   initMonthCardInvoices,
+  groupPaymentsByExpense,
+  computeExpensePaymentState,
 } from '@/lib/finance/compute';
 import DashboardClient from './DashboardClient';
 import type { MonthCardInvoice } from '@/lib/finance/types';
@@ -62,7 +64,7 @@ export default function FinanceGuest() {
   }
 
   const monthData = getLocalMonthData(yearMonth);
-  const paidExpenseIds = new Set((monthData?.payments || []).map(p => p.expenseId));
+  const paymentsByExpense = groupPaymentsByExpense(monthData?.payments);
   const expenseOverrides = getLocalExpenseOverrides(yearMonth);
   const monthExpenses = filterExpensesForMonth(expenses, yearMonth);
 
@@ -102,30 +104,36 @@ export default function FinanceGuest() {
 
   const cardExpenses = monthExpenses
     .filter(e => e.category === 'card')
-    .map(e => ({
-      id: e._id!,
-      name: e.name,
-      value: calcValue(e),
-      baseValue: getExpenseValue(e),
-      proportional: e.proportional,
-      dueDay: e.dueDay,
-      paid: paidExpenseIds.has(e._id!),
-      category: 'card' as const,
-    }))
+    .map(e => {
+      const { paid, displayValue } = computeExpensePaymentState(calcValue(e), paymentsByExpense.get(e._id!));
+      return {
+        id: e._id!,
+        name: e.name,
+        value: displayValue,
+        baseValue: getExpenseValue(e),
+        proportional: e.proportional,
+        dueDay: e.dueDay,
+        paid,
+        category: 'card' as const,
+      };
+    })
     .sort(sortByDueDay);
 
   const cashExpenses = monthExpenses
     .filter(e => e.category === 'cash')
-    .map(e => ({
-      id: e._id!,
-      name: e.name,
-      value: calcValue(e),
-      baseValue: getExpenseValue(e),
-      proportional: e.proportional,
-      dueDay: e.dueDay,
-      paid: paidExpenseIds.has(e._id!),
-      category: 'cash' as const,
-    }))
+    .map(e => {
+      const { paid, displayValue } = computeExpensePaymentState(calcValue(e), paymentsByExpense.get(e._id!));
+      return {
+        id: e._id!,
+        name: e.name,
+        value: displayValue,
+        baseValue: getExpenseValue(e),
+        proportional: e.proportional,
+        dueDay: e.dueDay,
+        paid,
+        category: 'cash' as const,
+      };
+    })
     .sort(sortByDueDay);
 
   const bankTotal = profile.banks.reduce((sum, b) => sum + b.balance, 0) + profile.foodVoucher;
@@ -147,7 +155,7 @@ export default function FinanceGuest() {
     // generated in the previous month that are not yet reflected in a closed invoice.
     const curMonthData = getLocalMonthData(currentYearMonth);
     const currentExpenses = filterExpensesForMonth(expenses, currentYearMonth);
-    const curPaidIds = new Set((curMonthData?.payments || []).map(p => p.expenseId));
+    const curPaymentsByExpense = groupPaymentsByExpense(curMonthData?.payments);
     const curCardInvoices = initMonthCardInvoices(cards, installments, 0);
     const curCardViews = buildCardViews(cards, installments, curCardInvoices, 0);
     const curDays = daysInYearMonth(currentYearMonth);
@@ -161,16 +169,22 @@ export default function FinanceGuest() {
     };
 
     const curOverrides = getLocalExpenseOverrides(currentYearMonth);
-    const curUnpaidCash = currentExpenses.filter(e => e.category === 'cash' && !curPaidIds.has(e._id!))
-      .reduce((s, e) => s + calcVal(e, curPropDays, curOverrides), 0);
+    const curUnpaidCash = currentExpenses.filter(e => e.category === 'cash')
+      .reduce((s, e) => {
+        const { paid, remaining } = computeExpensePaymentState(calcVal(e, curPropDays, curOverrides), curPaymentsByExpense.get(e._id!));
+        return s + (paid ? 0 : remaining);
+      }, 0);
     const curUnpaidInvoices = curCardViews.filter(c => !c.paid)
       .reduce((s, c) => s + c.invoiceTotal, 0);
 
     const curAdvanceDeducted = today.day >= profile.salary.advanceDay ? profile.salary.advance : 0;
     const curAvailable = bankTotal - curUnpaidCash - curUnpaidInvoices - curAdvanceDeducted;
 
-    const curUnpaidCard = currentExpenses.filter(e => e.category === 'card' && !curPaidIds.has(e._id!))
-      .reduce((s, e) => s + calcVal(e, curPropDays, curOverrides), 0);
+    const curUnpaidCard = currentExpenses.filter(e => e.category === 'card')
+      .reduce((s, e) => {
+        const { paid, remaining } = computeExpensePaymentState(calcVal(e, curPropDays, curOverrides), curPaymentsByExpense.get(e._id!));
+        return s + (paid ? 0 : remaining);
+      }, 0);
 
     const { payment, advance } = profile.salary;
     const vrMonthly = profile.foodVoucherMonthly ?? profile.foodVoucher;

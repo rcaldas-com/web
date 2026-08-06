@@ -16,7 +16,8 @@ import {
   getInstallment,
   updateInstallment,
   rollOverMonth,
-  toggleExpensePayment,
+  addExpensePayment,
+  removeAllExpensePayments,
   updateMonthCardInvoice,
   toggleMonthCardInvoicePaid,
   updateMonthExpenseValue,
@@ -174,21 +175,29 @@ export async function saveExpensesAndFinish(formData: FormData) {
 // ==================== Installments ====================
 
 async function adjustNextMonthInvoiceIfStored(userId: string, cardId: string, delta: number) {
+  if (!delta) return;
   const nextYearMonth = addMonthsToYearMonth(getFinanceToday().yearMonth, 1);
   const monthData = await getMonthData(userId, nextYearMonth);
-  const stored = monthData?.cardInvoices?.find(ci => ci.cardId === cardId);
-  if (!stored) return;
 
-  // Valor exibido antes do ajuste (base armazenada + ajuste já aplicado) —
-  // registramos aqui porque essa é a única camada que conhece o antes/depois
-  // real da fatura; sem isso o acréscimo de uma parcela nova (ou a reversão
-  // ao remover/editar) mexia no valor sem deixar rastro no histórico.
-  const existingAdj = monthData?.cardExpenseAdjustments?.find(a => a.cardId === cardId)?.amount ?? 0;
-  const displayedBefore = stored.invoiceTotal + existingAdj;
-  const cards = await getCards(userId);
+  // Só existe ajuste persistido a fazer quando a fatura já foi "destacada" do
+  // cálculo ao vivo (stored explícito, ex.: editada/paga manualmente antes).
+  // No caso comum — fatura futura ainda não tocada — o total já é só a soma
+  // das parcelas ativas e muda sozinho quando uma parcela é criada/removida.
+  if (monthData?.cardInvoices?.some(ci => ci.cardId === cardId)) {
+    await adjustCardExpenseInMonth(userId, nextYearMonth, cardId, delta);
+  }
+
+  // Chamado sempre DEPOIS da parcela já ter sido gravada/removida/editada no
+  // banco — então o valor exibido computado agora já é o "depois". "Antes" é
+  // derivado subtraindo o delta conhecido, em vez de recalcular com o estado
+  // antigo (que já não existe mais pra reconsultar). Cobre os dois casos
+  // acima com a mesma conta, sem precisar saber qual deles se aplicou.
+  const [cards, installments] = await Promise.all([getCards(userId), getInstallments(userId)]);
+  const monthOffset = Math.max(0, yearMonthIndex(nextYearMonth) - yearMonthIndex(getFinanceToday().yearMonth));
+  const afterInvoices = await getOrInitMonthCardInvoices(userId, nextYearMonth, cards, installments, monthOffset);
+  const displayedAfter = afterInvoices.find(ci => ci.cardId === cardId)?.invoiceTotal;
+  if (displayedAfter === undefined) return;
   const cardName = cards.find(c => c._id === cardId)?.name || 'Cartão';
-
-  await adjustCardExpenseInMonth(userId, nextYearMonth, cardId, delta);
 
   await recordChange({
     userId,
@@ -198,7 +207,7 @@ async function adjustNextMonthInvoiceIfStored(userId: string, cardId: string, de
     scope: 'fatura-mês',
     yearMonth: nextYearMonth,
     action: 'update',
-    changes: diffFields({ invoiceTotal: displayedBefore }, { invoiceTotal: displayedBefore + delta }, [
+    changes: diffFields({ invoiceTotal: displayedAfter - delta }, { invoiceTotal: displayedAfter }, [
       { field: 'invoiceTotal', label: 'Fatura no mês', kind: 'money' },
     ]),
     source: 'derived',
@@ -304,22 +313,36 @@ export async function doRollOver() {
   revalidatePath('/finance');
 }
 
-export async function togglePaid(
-  expenseId: string, expenseName: string, amountPaid: number, yearMonth: string,
+// Registra um pagamento (cheio ou parcial) contra uma despesa. Sempre soma
+// uma nova entrada — quem decide se a despesa "ficou paga" é o cálculo de
+// restante (computeExpensePaymentState), não esta action.
+export async function recordExpensePayment(
+  expenseId: string, expenseName: string, amount: number, yearMonth: string,
   paidFromBank?: string, paidToCard?: string,
 ) {
   const userId = await getUserId();
-  const removed = await toggleExpensePayment(userId, yearMonth, expenseId, expenseName, amountPaid, paidFromBank, paidToCard);
+  await addExpensePayment(userId, yearMonth, expenseId, expenseName, amount, paidFromBank, paidToCard);
 
   const nextMonth = addMonthsToYearMonth(yearMonth, 1);
-  if (removed) {
-    // Toggled OFF — reverse adjustments
-    if (removed.paidFromBank) await adjustBankBalance(userId, removed.paidFromBank, removed.amountPaid);
-    if (removed.paidToCard) await adjustCardExpenseInMonth(userId, nextMonth, removed.paidToCard, -removed.amountPaid);
-  } else {
-    // Toggled ON — apply adjustments
-    if (paidFromBank) await adjustBankBalance(userId, paidFromBank, -amountPaid);
-    if (paidToCard) await adjustCardExpenseInMonth(userId, nextMonth, paidToCard, amountPaid);
+  if (paidFromBank) await adjustBankBalance(userId, paidFromBank, -amount);
+  if (paidToCard) await adjustCardExpenseInMonth(userId, nextMonth, paidToCard, amount);
+
+  revalidatePath('/finance');
+}
+
+// Desfaz TODOS os pagamentos (parciais inclusive) feitos contra uma despesa
+// no mês — reseta pro valor cheio do template, revertendo cada débito.
+export async function undoExpensePayments(expenseId: string, expenseName: string, yearMonth: string) {
+  const userId = await getUserId();
+  const removed = await removeAllExpensePayments(userId, yearMonth, expenseId, expenseName);
+
+  const nextMonth = addMonthsToYearMonth(yearMonth, 1);
+  // Sequencial (não Promise.all): adjustBankBalance/adjustCardExpenseInMonth
+  // são leitura+escrita sem transação — duas reversões na mesma conta em
+  // paralelo perderiam uma.
+  for (const p of removed) {
+    if (p.paidFromBank) await adjustBankBalance(userId, p.paidFromBank, p.amountPaid);
+    if (p.paidToCard) await adjustCardExpenseInMonth(userId, nextMonth, p.paidToCard, -p.amountPaid);
   }
 
   revalidatePath('/finance');
@@ -404,7 +427,12 @@ export async function updateExpenseValue(expenseId: string, value: number, yearM
   const userId = await getUserId();
 
   const monthData = await getMonthData(userId, yearMonth);
-  const payment = monthData?.payments?.find(p => p.expenseId === expenseId);
+  const expensePayments = (monthData?.payments ?? []).filter(p => p.expenseId === expenseId);
+  // A reconciliação automática do delta na fatura só é segura quando há
+  // exatamente 1 pagamento no mês (caso comum, sem parciais em andamento) —
+  // com 0 ou 2+ entradas não dá pra saber qual delas ajustar, então só
+  // atualiza o override e deixa o valor pago como está.
+  const payment = expensePayments.length === 1 ? expensePayments[0] : undefined;
 
   if (payment?.paidToCard) {
     const delta = Math.round((value - payment.amountPaid) * 100) / 100;

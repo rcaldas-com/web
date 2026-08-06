@@ -600,28 +600,26 @@ export async function upsertMonthData(userId: string, yearMonth: string, data: P
   );
 }
 
-export async function toggleExpensePayment(
+// Registra um pagamento (cheio ou parcial) contra uma despesa no mês — sempre
+// empilha uma nova entrada em payments[], nunca substitui/remove uma
+// existente. Permite múltiplas entradas por expenseId no mesmo mês (um
+// pagamento parcial por vez); "paga"/"restante" são derivados somando essas
+// entradas (ver computeExpensePaymentState em compute.ts), não guardados aqui.
+export async function addExpensePayment(
   userId: string,
   yearMonth: string,
   expenseId: string,
   expenseName: string,
-  amountPaid: number,
+  amount: number,
   paidFromBank?: string,
   paidToCard?: string,
-): Promise<MonthPayment | null> {
+): Promise<void> {
   const client = await clientPromise;
   const db = client.db();
   const doc = await db.collection('financeMonth').findOne({ userId, yearMonth });
   const payments: MonthPayment[] = doc?.payments || [];
 
-  const idx = payments.findIndex(p => p.expenseId === expenseId);
-  let removed: MonthPayment | null = null;
-  if (idx >= 0) {
-    removed = { ...payments[idx] };
-    payments.splice(idx, 1);
-  } else {
-    payments.push({ expenseId, expenseName, amountPaid, paidAt: new Date(), paidFromBank, paidToCard });
-  }
+  payments.push({ expenseId, expenseName, amountPaid: amount, paidAt: new Date(), paidFromBank, paidToCard });
 
   await db.collection('financeMonth').updateOne(
     { userId, yearMonth },
@@ -637,8 +635,52 @@ export async function toggleExpensePayment(
     scope: 'pagamento',
     yearMonth,
     action: 'update',
-    // removed != null ⇒ desmarcou (estava pago); senão ⇒ marcou como pago.
-    changes: [{ field: 'pago', label: 'Pago', before: removed != null, after: removed == null, kind: 'bool' }],
+    changes: [
+      { field: 'valorPago', label: 'Valor pago', before: null, after: amount, kind: 'money' },
+      ...(paidFromBank ? [{ field: 'conta', label: 'Conta', before: null, after: paidFromBank, kind: 'text' as const }] : []),
+      ...(paidToCard ? [{ field: 'cartao', label: 'Cartão (próx. fatura)', before: null, after: paidToCard, kind: 'text' as const }] : []),
+    ],
+    source: 'user',
+  });
+}
+
+// Desfaz TODOS os pagamentos (parciais inclusive) de uma despesa no mês —
+// remove todas as entradas daquele expenseId em payments[] e devolve as
+// removidas, pra o caller reverter o débito de cada uma em banco/cartão.
+export async function removeAllExpensePayments(
+  userId: string,
+  yearMonth: string,
+  expenseId: string,
+  expenseName: string,
+): Promise<MonthPayment[]> {
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db.collection('financeMonth').findOne({ userId, yearMonth });
+  const payments: MonthPayment[] = doc?.payments || [];
+
+  const removed = payments.filter(p => p.expenseId === expenseId);
+  if (removed.length === 0) return [];
+  const remaining = payments.filter(p => p.expenseId !== expenseId);
+
+  await db.collection('financeMonth').updateOne(
+    { userId, yearMonth },
+    { $set: { payments: remaining, userId, yearMonth } },
+    { upsert: true }
+  );
+
+  const totalReverted = Math.round(removed.reduce((sum, p) => sum + p.amountPaid, 0) * 100) / 100;
+  await recordChange({
+    userId,
+    entity: 'expense',
+    entityId: expenseId,
+    entityLabel: expenseName,
+    scope: 'pagamento',
+    yearMonth,
+    action: 'update',
+    changes: [
+      { field: 'pago', label: 'Pago', before: true, after: false, kind: 'bool' },
+      { field: 'valorPago', label: 'Valor pago (revertido)', before: totalReverted, after: 0, kind: 'money' },
+    ],
     source: 'user',
   });
   return removed;
@@ -923,47 +965,6 @@ export function buildCardViews(
       })).sort((a, b) => b.remaining - a.remaining),
     };
   });
-}
-
-export function calculateMonthBalance(
-  profile: FinanceProfile,
-  expenses: RecurringExpense[],
-  installmentGroups: InstallmentGroup[],
-  daysInMonth: number,
-  expenseOverrides?: Map<string, number>,
-) {
-  const totalSalary = profile.salary.payment + profile.salary.advance;
-  const vr = profile.foodVoucher;
-
-  // Calcular despesas recorrentes
-  const calcExpenseValue = (e: RecurringExpense) => {
-    const baseValue = expenseOverrides?.get(e._id!) ?? e.value;
-    if (e.proportional === 'daily') return baseValue * daysInMonth;
-    if (e.proportional === 'weekly') return baseValue * (daysInMonth / 7);
-    return baseValue;
-  };
-
-  const cardExpensesTotal = expenses
-    .filter(e => e.category === 'card')
-    .reduce((sum, e) => sum + calcExpenseValue(e), 0);
-
-  const cashExpensesTotal = expenses
-    .filter(e => e.category === 'cash')
-    .reduce((sum, e) => sum + calcExpenseValue(e), 0);
-
-  const installmentsTotal = installmentGroups.reduce((sum, g) => sum + g.total, 0);
-
-  // Saldo Mês = salário + VR - todas despesas
-  const monthBalance = totalSalary + vr - cardExpensesTotal - cashExpensesTotal - installmentsTotal;
-
-  return {
-    totalSalary,
-    vr,
-    cardExpensesTotal,
-    cashExpensesTotal,
-    installmentsTotal,
-    monthBalance,
-  };
 }
 
 export function calculateTotalBalance(

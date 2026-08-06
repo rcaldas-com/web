@@ -9,7 +9,7 @@ import {
   getOrInitMonthCardInvoices,
   getExpenseOverrides,
 } from '@/lib/finance/data';
-import { filterExpensesForMonth, groupInstallments, buildCardViews, calculateMonthBalance } from '@/lib/finance/compute';
+import { filterExpensesForMonth, groupInstallments, buildCardViews, calculateMonthBalance, groupPaymentsByExpense, computeExpensePaymentState } from '@/lib/finance/compute';
 import { addMonthsToYearMonth, daysInYearMonth, getFinanceToday, yearMonthIndex } from '@/lib/finance/date';
 import DashboardClient from './DashboardClient';
 import FinanceGuest from './FinanceGuest';
@@ -51,7 +51,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   const proportionalDays = isCurrentMonth ? daysInMonth - dayOfMonth + 1 : daysInMonth;
 
   const monthData = await getMonthData(userId, yearMonth);
-  const paidExpenseIds = new Set((monthData?.payments || []).map(p => p.expenseId));
+  const paymentsByExpense = groupPaymentsByExpense(monthData?.payments);
 
   // Month-specific expense value overrides (uses most recent override <= this month)
   const expenseOverrides = await getExpenseOverrides(userId, yearMonth);
@@ -112,30 +112,36 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
 
   const cardExpenses = monthExpenses
     .filter(e => e.category === 'card')
-    .map(e => ({
-      id: e._id!,
-      name: e.name,
-      value: calcValue(e),
-      baseValue: getExpenseValue(e),
-      proportional: e.proportional,
-      dueDay: e.dueDay,
-      paid: paidExpenseIds.has(e._id!),
-      category: 'card' as const,
-    }))
+    .map(e => {
+      const { paid, displayValue } = computeExpensePaymentState(calcValue(e), paymentsByExpense.get(e._id!));
+      return {
+        id: e._id!,
+        name: e.name,
+        value: displayValue,
+        baseValue: getExpenseValue(e),
+        proportional: e.proportional,
+        dueDay: e.dueDay,
+        paid,
+        category: 'card' as const,
+      };
+    })
     .sort(sortByDueDay);
 
   const cashExpenses = monthExpenses
     .filter(e => e.category === 'cash')
-    .map(e => ({
-      id: e._id!,
-      name: e.name,
-      value: calcValue(e),
-      baseValue: getExpenseValue(e),
-      dueDay: e.dueDay,
-      proportional: e.proportional,
-      paid: paidExpenseIds.has(e._id!),
-      category: 'cash' as const,
-    }))
+    .map(e => {
+      const { paid, displayValue } = computeExpensePaymentState(calcValue(e), paymentsByExpense.get(e._id!));
+      return {
+        id: e._id!,
+        name: e.name,
+        value: displayValue,
+        baseValue: getExpenseValue(e),
+        dueDay: e.dueDay,
+        proportional: e.proportional,
+        paid,
+        category: 'cash' as const,
+      };
+    })
     .sort(sortByDueDay);
 
   const bankTotal = profile.banks.reduce((sum, b) => sum + b.balance, 0) + profile.foodVoucher;
@@ -159,7 +165,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     // 1. Current month available — must match client-side hero (uses cardViews, not monthCardInvoices)
     const curMonthData = await getMonthData(userId, currentYearMonth);
     const currentExpenses = filterExpensesForMonth(expenses, currentYearMonth);
-    const curPaidIds = new Set((curMonthData?.payments || []).map((p: { expenseId?: string }) => p.expenseId));
+    const curPaymentsByExpense = groupPaymentsByExpense(curMonthData?.payments);
     const curCardInvoices = await getOrInitMonthCardInvoices(userId, currentYearMonth, cards, installments, 0);
     // buildCardViews includes ALL cards (falls back to card.invoiceTotal for missing entries)
     const curCardViews = buildCardViews(cards, installments, curCardInvoices, 0);
@@ -173,12 +179,20 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       return baseValue;
     };
 
-    // Current month unpaid cash (proportional remaining days)
+    // Current month unpaid cash (proportional remaining days) — usa o
+    // restante (não o valor cheio) pra não contar de novo o que um
+    // pagamento parcial já debitou de banco/cartão de verdade.
     const curOverrides = await getExpenseOverrides(userId, currentYearMonth);
-    const curUnpaidCash = currentExpenses.filter(e => e.category === 'cash' && !curPaidIds.has(e._id!))
-      .reduce((s, e) => s + calcVal(e, curPropDays, curOverrides), 0);
-    const curUnpaidCard = currentExpenses.filter(e => e.category === 'card' && !curPaidIds.has(e._id!))
-      .reduce((s, e) => s + calcVal(e, curPropDays, curOverrides), 0);
+    const curUnpaidCash = currentExpenses.filter(e => e.category === 'cash')
+      .reduce((s, e) => {
+        const { paid, remaining } = computeExpensePaymentState(calcVal(e, curPropDays, curOverrides), curPaymentsByExpense.get(e._id!));
+        return s + (paid ? 0 : remaining);
+      }, 0);
+    const curUnpaidCard = currentExpenses.filter(e => e.category === 'card')
+      .reduce((s, e) => {
+        const { paid, remaining } = computeExpensePaymentState(calcVal(e, curPropDays, curOverrides), curPaymentsByExpense.get(e._id!));
+        return s + (paid ? 0 : remaining);
+      }, 0);
     // Use cardViews (all 5 cards) — same as client-side DashboardClient
     const curUnpaidInvoices = curCardViews.filter(c => !c.paid)
       .reduce((s, c) => s + c.invoiceTotal, 0);

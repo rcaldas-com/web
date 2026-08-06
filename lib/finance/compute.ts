@@ -9,6 +9,7 @@ import type {
   Installment,
   MonthCardInvoice,
   MonthExpenseOverride,
+  MonthPayment,
   InstallmentGroup,
   CardView,
 } from './types';
@@ -77,6 +78,34 @@ export function buildCardViews(
       })).sort((a, b) => b.remaining - a.remaining),
     };
   });
+}
+
+// Agrupa os pagamentos (parciais ou não) de um mês por despesa — uma despesa
+// pode ter várias entradas quando paga aos poucos ao longo do mês.
+export function groupPaymentsByExpense(payments?: MonthPayment[]): Map<string, MonthPayment[]> {
+  const map = new Map<string, MonthPayment[]>();
+  for (const p of payments ?? []) {
+    if (!p.expenseId) continue;
+    const arr = map.get(p.expenseId);
+    if (arr) arr.push(p);
+    else map.set(p.expenseId, [p]);
+  }
+  return map;
+}
+
+// Tolerância de arredondamento (meio centavo) pra não deixar erro de ponto
+// flutuante marcar uma despesa como "quase paga" incorretamente.
+const PAID_EPSILON = 0.005;
+
+// Estado de pagamento de uma despesa no mês: soma dos pagamentos (parciais
+// inclusive) contra o valor efetivo do template/override. "Paga" só quando o
+// restante zera — enquanto isso, displayValue é o restante, não o valor
+// cheio, pra refletir o que ainda falta debitar.
+export function computeExpensePaymentState(templateValue: number, payments?: MonthPayment[]) {
+  const amountPaid = Math.round((payments ?? []).reduce((sum, p) => sum + p.amountPaid, 0) * 100) / 100;
+  const remaining = Math.round((templateValue - amountPaid) * 100) / 100;
+  const paid = amountPaid > 0 && remaining <= PAID_EPSILON;
+  return { amountPaid, remaining, paid, displayValue: paid ? templateValue : remaining };
 }
 
 export function calculateMonthBalance(
