@@ -176,9 +176,33 @@ export async function saveExpensesAndFinish(formData: FormData) {
 async function adjustNextMonthInvoiceIfStored(userId: string, cardId: string, delta: number) {
   const nextYearMonth = addMonthsToYearMonth(getFinanceToday().yearMonth, 1);
   const monthData = await getMonthData(userId, nextYearMonth);
-  if (monthData?.cardInvoices?.some(ci => ci.cardId === cardId)) {
-    await adjustCardExpenseInMonth(userId, nextYearMonth, cardId, delta);
-  }
+  const stored = monthData?.cardInvoices?.find(ci => ci.cardId === cardId);
+  if (!stored) return;
+
+  // Valor exibido antes do ajuste (base armazenada + ajuste já aplicado) —
+  // registramos aqui porque essa é a única camada que conhece o antes/depois
+  // real da fatura; sem isso o acréscimo de uma parcela nova (ou a reversão
+  // ao remover/editar) mexia no valor sem deixar rastro no histórico.
+  const existingAdj = monthData?.cardExpenseAdjustments?.find(a => a.cardId === cardId)?.amount ?? 0;
+  const displayedBefore = stored.invoiceTotal + existingAdj;
+  const cards = await getCards(userId);
+  const cardName = cards.find(c => c._id === cardId)?.name || 'Cartão';
+
+  await adjustCardExpenseInMonth(userId, nextYearMonth, cardId, delta);
+
+  await recordChange({
+    userId,
+    entity: 'card',
+    entityId: cardId,
+    entityLabel: cardName,
+    scope: 'fatura-mês',
+    yearMonth: nextYearMonth,
+    action: 'update',
+    changes: diffFields({ invoiceTotal: displayedBefore }, { invoiceTotal: displayedBefore + delta }, [
+      { field: 'invoiceTotal', label: 'Fatura no mês', kind: 'money' },
+    ]),
+    source: 'derived',
+  });
 }
 
 export async function addNewInstallment(formData: FormData) {
