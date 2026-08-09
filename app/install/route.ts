@@ -46,14 +46,14 @@ DEFAULT_HOST="${'$'}(hostname -s 2>/dev/null || hostname)"
 HOST_NAME="${'$'}(ask 'Nome do host para o monitor' "$DEFAULT_HOST")"
 AGENT_TOKEN="${'$'}(ask 'Token do agente (vazio para primeiro cadastro)' "")"
 ENABLE_TUNNEL="${'$'}(ask_bool 'Habilitar tunel SSH reverso quando solicitado' 'sim')"
-ENABLE_DDNS="${'$'}(ask_bool 'Enviar IPv6 global no heartbeat' 'sim')"
 
 cat > "$CONFIG_FILE" <<EOF
 APP_URL=$APP_URL
 HOST_NAME=$HOST_NAME
 AGENT_TOKEN=$AGENT_TOKEN
 ENABLE_TUNNEL=$ENABLE_TUNNEL
-ENABLE_DDNS=$ENABLE_DDNS
+TUNNEL_RELAY=us.rcaldas.com
+TUNNEL_RELAY_PORT=8422
 EOF
 chmod 600 "$CONFIG_FILE"
 
@@ -67,22 +67,28 @@ CONFIG_FILE="/etc/rcaldas-agent/config.env"
 APP_URL="${'$'}{APP_URL:-https://web.rcaldas.com}"
 HOST_NAME="${'$'}{HOST_NAME:-$(hostname -s 2>/dev/null || hostname)}"
 AGENT_TOKEN="${'$'}{AGENT_TOKEN:-}"
-ENABLE_DDNS="${'$'}{ENABLE_DDNS:-true}"
-VERSION="2.0.0"
+ENABLE_TUNNEL="${'$'}{ENABLE_TUNNEL:-false}"
+TUNNEL_RELAY="${'$'}{TUNNEL_RELAY:-us.rcaldas.com}"
+TUNNEL_RELAY_PORT="${'$'}{TUNNEL_RELAY_PORT:-8422}"
+VERSION="2.1.0"
 LOG="/var/log/rcaldas-agent.log"
+PENDING_RESULTS_FILE="/etc/rcaldas-agent/pending-results.json"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG" >/dev/null; }
 json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 ipv4=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}' || true)
-ipv6=""
-if [[ "$ENABLE_DDNS" == "true" ]]; then
-  ipv6=$(ip -6 addr show scope global 2>/dev/null | grep '/64' | grep -v 'temporary\|deprecated' | awk '{print $2}' | cut -d/ -f1 | head -1 || true)
-fi
+ipv6=$(ip -6 addr show scope global 2>/dev/null | grep '/64' | grep -v 'temporary\|deprecated' | awk '{print $2}' | cut -d/ -f1 | head -1 || true)
 uptime_seconds=$(cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1 || echo 0)
 load1=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0)
 disk_root=$(df -P / 2>/dev/null | awk 'NR==2 {gsub("%", "", $5); print $5}' || echo 0)
 memory_pct=$(awk '/MemTotal/ {total=$2} /MemAvailable/ {avail=$2} END {if(total>0) printf "%d", ((total-avail)*100/total); else print 0}' /proc/meminfo 2>/dev/null || echo 0)
+
+results_payload="[]"
+if [[ -s "$PENDING_RESULTS_FILE" ]]; then
+  results_payload=$(cat "$PENDING_RESULTS_FILE")
+  : > "$PENDING_RESULTS_FILE"
+fi
 
 payload=$(cat <<JSON
 {
@@ -92,8 +98,9 @@ payload=$(cat <<JSON
   "time":"$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
   "network":{"ipv4":"$(json_escape "$ipv4")","ipv6":"$(json_escape "$ipv6")"},
   "system":{"uptime":$uptime_seconds,"load1":$load1,"diskRootPct":$disk_root,"memoryPct":$memory_pct},
-  "tunnel":{"enabled":${'$'}{ENABLE_TUNNEL:-false}},
-  "capabilities":["heartbeat","tcp_banner"]
+  "tunnel":{"enabled":$ENABLE_TUNNEL},
+  "capabilities":["heartbeat","tcp_banner","tunnel"],
+  "results":$results_payload
 }
 JSON
 )
@@ -107,6 +114,30 @@ new_token=$(printf '%s' "$response" | sed -n 's/.*"token":"\\([^"]*\\)".*/\\1/p'
 if [[ -n "$new_token" && -z "$AGENT_TOKEN" ]]; then
   sed -i "s/^AGENT_TOKEN=.*/AGENT_TOKEN=$new_token/" "$CONFIG_FILE"
   log "token do agente salvo"
+fi
+
+if [[ "$ENABLE_TUNNEL" == "true" ]]; then
+  jobs_json=$(printf '%s' "$response" | grep -o '"jobs":\[[^]]*\]' || true)
+  new_results=()
+  while IFS= read -r job; do
+    [[ -z "$job" ]] && continue
+    job_id=$(printf '%s' "$job" | sed -n 's/.*"id":"\\([^"]*\\)".*/\\1/p')
+    job_type=$(printf '%s' "$job" | sed -n 's/.*"type":"\\([^"]*\\)".*/\\1/p')
+    port=$(printf '%s' "$job" | sed -n 's/.*"port":\\([0-9]*\\).*/\\1/p')
+    [[ "$job_type" != "tunnel" || -z "$port" ]] && continue
+    log "job $job_id: abrindo tunel reverso na porta $port via $TUNNEL_RELAY"
+    local_ssh_port=$(ss -4tlnp 2>/dev/null | awk '/sshd/ {print $4}' | cut -d: -f2 | head -1)
+    local_ssh_port="${'$'}{local_ssh_port:-22}"
+    status="fail"
+    if ssh -o UserKnownHostsFile=/etc/rcaldas-agent/known_hosts -o StrictHostKeyChecking=accept-new \
+        -fNR "$port:127.0.0.1:$local_ssh_port" -p "$TUNNEL_RELAY_PORT" "$TUNNEL_RELAY" 2>>"$LOG"; then
+      status="ok"
+    fi
+    new_results+=("{\\"id\\":\\"$job_id\\",\\"type\\":\\"tunnel\\",\\"status\\":\\"$status\\"}")
+  done < <(printf '%s' "$jobs_json" | grep -o '{[^}]*}')
+  if [[ ${'$'}{#new_results[@]} -gt 0 ]]; then
+    printf '[%s]' "$(IFS=,; echo "${'$'}{new_results[*]}")" > "$PENDING_RESULTS_FILE"
+  fi
 fi
 
 log "heartbeat ok: $response"

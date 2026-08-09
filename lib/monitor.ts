@@ -63,6 +63,8 @@ export type MonitorHost = {
   tunnel?: HeartbeatPayload['tunnel'];
   capabilities?: string[];
   lastIp?: string;
+  ddnsEnabled?: boolean;
+  cfRecordId?: string;
 };
 
 export type MonitorIncident = {
@@ -115,6 +117,43 @@ function getRemoteIp(headers: Headers) {
   );
 }
 
+async function updateCloudflareDdns(name: string, ipv6: string, cachedRecordId?: string) {
+  const token = process.env.CF_TOKEN;
+  const zoneId = process.env.CF_ZONE_ID;
+  if (!token || !zoneId) return undefined;
+
+  const cfName = `${name}.rcaldas.com`;
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  let recordId = cachedRecordId;
+
+  if (!recordId) {
+    const lookup = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records?type=AAAA&name=${encodeURIComponent(cfName)}`,
+      { headers }
+    );
+    const lookupData = await lookup.json();
+    recordId = lookupData?.result?.[0]?.id;
+  }
+
+  const body = JSON.stringify({ type: 'AAAA', name: cfName, content: ipv6, ttl: 60, proxied: false });
+  if (recordId) {
+    await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records/${recordId}`, {
+      method: 'PUT',
+      headers,
+      body,
+    });
+    return recordId;
+  }
+
+  const created = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records`, {
+    method: 'POST',
+    headers,
+    body,
+  });
+  const createdData = await created.json();
+  return createdData?.result?.id as string | undefined;
+}
+
 export async function registerHeartbeat(payload: HeartbeatPayload, headers: Headers) {
   if (!payload.host) {
     return { ok: false, status: 400, error: 'host is required' };
@@ -154,6 +193,16 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
   };
   if (updateToken) {
     set.tokenHash = hashToken(nextToken);
+  }
+
+  const ipv6 = payload.network?.ipv6;
+  if (existing?.ddnsEnabled && ipv6 && ipv6 !== existing.network?.ipv6) {
+    try {
+      const recordId = await updateCloudflareDdns(host, ipv6, existing.cfRecordId);
+      if (recordId) set.cfRecordId = recordId;
+    } catch (error) {
+      console.error('ddns update failed:', error);
+    }
   }
 
   await hosts.updateOne(
@@ -211,6 +260,31 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
       ...job.payload,
     })),
   };
+}
+
+export async function setDdnsEnabled(hostName: string, enabled: boolean) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  await db
+    .collection<MonitorHost>('monitor_hosts')
+    .updateOne({ name: host }, { $set: { ddnsEnabled: enabled, updatedAt: new Date() } });
+}
+
+export async function requestTunnel(hostName: string, port: number) {
+  const host = normalizeHostName(hostName);
+  const now = new Date();
+  const client = await clientPromise;
+  const db = client.db();
+  await db.collection<AgentJob>('monitor_agent_jobs').insertOne({
+    host,
+    type: 'tunnel',
+    status: 'pending',
+    payload: { port },
+    createdAt: now,
+    updatedAt: now,
+    expiresAt: new Date(now.getTime() + 2 * 60 * 1000),
+  });
 }
 
 export async function getMonitorOverview() {

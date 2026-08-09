@@ -1,5 +1,6 @@
 import { requireAdmin } from '@/lib/auth';
 import { getMonitorOverview } from '@/lib/monitor';
+import { toggleDdnsAction, requestTunnelAction } from '@/lib/actions/monitor';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -61,6 +62,8 @@ export default async function MonitorPage() {
                   <th className="px-4 py-3">IP</th>
                   <th className="px-4 py-3">Carga</th>
                   <th className="px-4 py-3">Disco</th>
+                  <th className="px-4 py-3">DDNS</th>
+                  <th className="px-4 py-3">Túnel</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -72,10 +75,42 @@ export default async function MonitorPage() {
                     <td className="px-4 py-3">{host.network?.publicIp || host.network?.ipv4 || host.lastIp || '-'}</td>
                     <td className="px-4 py-3">{host.system?.load1 ?? '-'}</td>
                     <td className="px-4 py-3">{host.system?.diskRootPct != null ? `${host.system.diskRootPct}%` : '-'}</td>
+                    <td className="px-4 py-3">
+                      <form action={toggleDdnsAction}>
+                        <input type="hidden" name="host" value={host.name} />
+                        <input type="hidden" name="enabled" value={host.ddnsEnabled ? 'false' : 'true'} />
+                        <button
+                          type="submit"
+                          className={`rounded-full px-2 py-1 text-xs ${host.ddnsEnabled ? statusClass('ok') : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'}`}
+                        >
+                          {host.ddnsEnabled ? 'ativo' : 'inativo'}
+                        </button>
+                      </form>
+                    </td>
+                    <td className="px-4 py-3">
+                      <form action={requestTunnelAction} className="flex items-center gap-2">
+                        <input type="hidden" name="host" value={host.name} />
+                        <input
+                          type="number"
+                          name="port"
+                          placeholder="porta"
+                          min={1025}
+                          max={65535}
+                          required
+                          className="w-20 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                        />
+                        <button
+                          type="submit"
+                          className="rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                        >
+                          pedir
+                        </button>
+                      </form>
+                    </td>
                   </tr>
                 ))}
                 {!overview.hosts.length && (
-                  <tr><td className="px-4 py-8 text-center text-zinc-500" colSpan={6}>Nenhum host registrado ainda.</td></tr>
+                  <tr><td className="px-4 py-8 text-center text-zinc-500" colSpan={8}>Nenhum host registrado ainda.</td></tr>
                 )}
               </tbody>
             </table>
