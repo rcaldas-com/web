@@ -69,6 +69,8 @@ DOMAIN="rcaldas.com"
 SSH_PORT="8422"
 
 BIN_DIR="/usr/local/bin"
+SYNC_BIN="$HOME_USER/live/bin"
+SYNC_HOME="$HOME_USER/live/home"
 
 MAIL_ADMIN="rclgsm@gmail.com"
 SMTP_SERVER='us.rcaldas.com'
@@ -346,24 +348,47 @@ function set_user(){
     su - $USER -c "yes '' | ssh-keygen -qt ed25519 -N '' > /dev/null"
   }
 
-  rm $HOME_USER/.bashrc &> /dev/null
-  cat <<'EOF' > $HOME_USER/.bashrc
+  # Bin: se o Syncthing local ja tiver sincronizado $SYNC_BIN neste host,
+  # usa link simbolico (fica ao vivo, acompanha futuras mudancas). Senao,
+  # usa o conteudo atual servido pelo /init direto do servidor central.
+  # Checar isso de novo a cada execucao evita perder os links se o /init
+  # for rodado de novo depois que o Syncthing ja estiver configurado aqui.
+  if [[ -d $SYNC_BIN ]]; then
+    for i in $(find "$SYNC_BIN" -type f); do
+      rm "$BIN_DIR""${'$'}{i#$SYNC_BIN}" &> /dev/null
+      ln -sf "$i" "$BIN_DIR""${'$'}{i#$SYNC_BIN}"
+      chmod +x "$i"
+    done
+  else
+    ${binInstallScript}
+  fi
+
+  # Home: mesma logica -- symlink se o Syncthing local ja sincronizou,
+  # senao conteudo atual servido pelo /init.
+  if [[ -d $SYNC_HOME ]]; then
+    for i in $(find "$SYNC_HOME" -type f); do
+      rm "$HOME_USER""${'$'}{i#$SYNC_HOME}" &> /dev/null
+      ln -s "$i" "$HOME_USER""${'$'}{i#$SYNC_HOME}"
+      chown -h $USER: "$HOME_USER""${'$'}{i#$SYNC_HOME}"
+    done
+  else
+    rm $HOME_USER/.bashrc &> /dev/null
+    cat <<'EOF' > $HOME_USER/.bashrc
 ${bashrc}
 EOF
-  rm $HOME_USER/.bash_aliases &> /dev/null
-  cat <<'EOF' > $HOME_USER/.bash_aliases
+    rm $HOME_USER/.bash_aliases &> /dev/null
+    cat <<'EOF' > $HOME_USER/.bash_aliases
 ${bashAliases}
 EOF
-  rm $HOME_USER/.ssh/authorized_keys &> /dev/null
-  cat <<'EOF' > $HOME_USER/.ssh/authorized_keys
+    rm $HOME_USER/.ssh/authorized_keys &> /dev/null
+    cat <<'EOF' > $HOME_USER/.ssh/authorized_keys
 ${authorizedKeys}
 EOF
-  rm $HOME_USER/.ssh/config &> /dev/null
-  cat <<'EOF' > $HOME_USER/.ssh/config
+    rm $HOME_USER/.ssh/config &> /dev/null
+    cat <<'EOF' > $HOME_USER/.ssh/config
 ${sshConfig}
 EOF
-
-  ${binInstallScript}
+  fi
 
   for file in $(ls -Ad $HOME_USER/.??*); do
     chown -Rh $USER: $file

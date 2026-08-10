@@ -42,10 +42,14 @@ need_root "$@"
 mkdir -p "$CONFIG_DIR"
 chmod 700 "$CONFIG_DIR"
 
-DEFAULT_HOST="${'$'}(hostname -s 2>/dev/null || hostname)"
+[[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
+
+DEFAULT_HOST="${'$'}{HOST_NAME:-$(hostname -s 2>/dev/null || hostname)}"
 HOST_NAME="${'$'}(ask 'Nome do host para o monitor' "$DEFAULT_HOST")"
-AGENT_TOKEN="${'$'}(ask 'Token do agente (vazio para primeiro cadastro)' "")"
-ENABLE_TUNNEL="${'$'}(ask_bool 'Habilitar tunel SSH reverso quando solicitado' 'sim')"
+AGENT_TOKEN="${'$'}(ask 'Token do agente (vazio para primeiro cadastro)' "${'$'}{AGENT_TOKEN:-}")"
+DEFAULT_TUNNEL="sim"
+[[ "${'$'}{ENABLE_TUNNEL:-}" == "false" ]] && DEFAULT_TUNNEL="nao"
+ENABLE_TUNNEL="${'$'}(ask_bool 'Habilitar tunel SSH reverso quando solicitado' "$DEFAULT_TUNNEL")"
 
 cat > "$CONFIG_FILE" <<EOF
 APP_URL=$APP_URL
