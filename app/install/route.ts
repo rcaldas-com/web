@@ -21,7 +21,7 @@ ask() {
   local prompt="$1"
   local default="$2"
   local answer
-  read -r -p "$prompt [$default]: " answer || true
+  read < /dev/tty -r -p "$prompt [$default]: " answer || true
   echo "${'$'}{answer:-$default}"
 }
 
@@ -29,7 +29,7 @@ ask_bool() {
   local prompt="$1"
   local default="$2"
   local answer
-  read -r -p "$prompt [$default]: " answer || true
+  read < /dev/tty -r -p "$prompt [$default]: " answer || true
   answer="${'$'}{answer:-$default}"
   case "${'$'}{answer,,}" in
     s|sim|y|yes|1|true) echo "true" ;;

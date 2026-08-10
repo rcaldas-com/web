@@ -2,6 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const APP_URL = process.env.AUTH_TRUST_HOST || 'http://localhost:8001';
+// Segredo compartilhado que autoriza o /init a chamar /api/mailu-account --
+// mesmo nivel de confianca que authorized_keys ja tem hoje (quem consegue
+// buscar /init ja recebe suas chaves SSH).
+const PROVISION_TOKEN = process.env.PROVISION_TOKEN || '';
 // Mesmo diretorio que o zxnet/init.sh chamavam de $SYNC_HOME — mirror do
 // home do usuario, sincronizado pelo Syncthing entre todos os hosts. Serve
 // o conteudo real direto daqui, sem duplicar em outro lugar.
@@ -76,7 +80,7 @@ FASTFETCH_URL="https://github.com/fastfetch-cli/fastfetch/releases/latest/downlo
 FIREFOX_URL="https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=pt-BR"
 
 default_apps="sudo rsync curl tmux python3-pip openssh-server dnsutils wget \\
-  iperf3 sed git bash-completion pv net-tools nftables ntp fio \\
+  iperf3 sed git bash-completion pv net-tools nftables chrony fio \\
   nmap iputils-ping ipvsadm unattended-upgrades jq htop iotop sysstat \\
   ca-certificates apt-transport-https lsb-release debian-goodies"
 
@@ -132,8 +136,8 @@ function package_installer(){
   }
   if ! dpkg -s fastfetch &> /dev/null; then
     curl -Ls $FASTFETCH_URL -o /tmp/fastfetch-linux-amd64.deb
-    dpkg -i /tmp/fastfetch-linux-amd64.deb
-    apt install -yf
+    dpkg -i /tmp/fastfetch-linux-amd64.deb > /dev/null
+    apt install -yf > /dev/null
     rm /tmp/fastfetch-linux-amd64.deb
   fi
 }
@@ -305,7 +309,12 @@ EOF
     chmod 600 /etc/postfix/sasl_passwd
     postmap /etc/postfix/sasl_passwd
 
-    echo "Senha SMTP gerada para $HOSTNAME@$DOMAIN: $SMTP_PWD"
+    if curl -fsS -m 15 -H 'Content-Type: application/json' -X POST "${APP_URL}/api/mailu-account" \\
+        -d "{\\"host\\":\\"$HOSTNAME\\",\\"domain\\":\\"$DOMAIN\\",\\"password\\":\\"$SMTP_PWD\\",\\"provisionToken\\":\\"${PROVISION_TOKEN}\\"}" > /dev/null 2>&1; then
+      echo "Conta SMTP criada/atualizada no Mailu: $HOSTNAME@$DOMAIN"
+    else
+      echo "Nao foi possivel criar a conta no Mailu automaticamente -- cadastre manualmente: $HOSTNAME@$DOMAIN / $SMTP_PWD"
+    fi
 
     unset SMTP_PWD
   fi
@@ -396,11 +405,8 @@ function set_syncthing(){
   echo "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable" | sudo tee /etc/apt/sources.list.d/syncthing.list
   printf "Package: *\\nPin: origin apt.syncthing.net\\nPin-Priority: 990\\n" | sudo tee /etc/apt/preferences.d/syncthing.pref
 
-  grep -q 'fs.inotify.max_user_watches' /etc/sysctl.conf && \\
-    sed -i "/fs.inotify.max_user_watches/c\\fs.inotify.max_user_watches=204800" \\
-      /etc/sysctl.conf || \\
-        echo "fs.inotify.max_user_watches=204800" | sudo tee -a /etc/sysctl.conf
-  sysctl -p > /dev/null
+  echo "fs.inotify.max_user_watches=204800" | sudo tee /etc/sysctl.d/syncthing.conf > /dev/null
+  sysctl --system > /dev/null
   package_installer "syncthing"
 }
 
@@ -428,9 +434,8 @@ EOF
 ### Desktop tasks
 function set_swappiness(){
   echo swappiness
-  sed -i "/#*vm.swappiness=/d" /etc/sysctl.conf
-  echo -e "vm.swappiness=10" >> /etc/sysctl.conf
-  sysctl -p > /dev/null
+  echo "vm.swappiness=10" > /etc/sysctl.d/swappiness.conf
+  sysctl --system > /dev/null
 }
 
 function set_lightdm(){
@@ -469,9 +474,9 @@ function firefox(){
     apt-get remove -y --no-install-recommends firefox-esr > /dev/null
 
   if [[ ! -d $HOME_USER/.local/share/firefox ]]; then
-    curl -Ls $FIREFOX_URL -o /tmp/firefox.tar.bz2
-    su - $USER -c "tar -xjf /tmp/firefox.tar.bz2 -C $HOME_USER/.local/share/"
-    rm /tmp/firefox.tar.bz2
+    curl -Ls $FIREFOX_URL -o /tmp/firefox.tar.xz
+    su - $USER -c "tar -xJf /tmp/firefox.tar.xz -C $HOME_USER/.local/share/"
+    rm /tmp/firefox.tar.xz
   fi
 
   chmod a+x $HOME_USER $HOME_USER/.local $HOME_USER/.local/share \\
