@@ -6,6 +6,8 @@ const APP_URL = process.env.AUTH_TRUST_HOST || 'http://localhost:8001';
 // home do usuario, sincronizado pelo Syncthing entre todos os hosts. Serve
 // o conteudo real direto daqui, sem duplicar em outro lugar.
 const SYNC_HOME_DIR = process.env.SYNC_HOME_DIR || '/var/rcaldas/live/home';
+const SYNC_BIN_DIR = process.env.SYNC_BIN_DIR || '/var/rcaldas/live/bin';
+const SAFE_FILENAME = /^[\w.-]+$/;
 
 function readSecret(relativePath: string, placeholder: string) {
   try {
@@ -13,6 +15,27 @@ function readSecret(relativePath: string, placeholder: string) {
   } catch {
     return placeholder;
   }
+}
+
+// Escreve cada script de $SYNC_BIN direto em $BIN_DIR no host novo, com o
+// conteudo real de agora (mesma ideia de readSecret, mas pra varios arquivos).
+function buildBinInstallScript() {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(SYNC_BIN_DIR, { withFileTypes: true });
+  } catch {
+    return `# live/bin ainda nao sincronizado em ${SYNC_BIN_DIR}`;
+  }
+  const files = entries.filter((e) => e.isFile() && SAFE_FILENAME.test(e.name));
+  if (!files.length) return '# nenhum script em live/bin no momento do provisionamento';
+
+  return files
+    .map((entry, index) => {
+      const content = fs.readFileSync(path.join(SYNC_BIN_DIR, entry.name), 'utf8').replace(/\r\n/g, '\n');
+      const delim = `BINFILE_${index}_EOF`;
+      return `cat <<'${delim}' > "$BIN_DIR"/${entry.name}\n${content}\n${delim}\nchmod +x "$BIN_DIR"/${entry.name}`;
+    })
+    .join('\n');
 }
 
 function script() {
@@ -23,6 +46,7 @@ function script() {
     `# nenhuma chave sincronizada em ${SYNC_HOME_DIR}/.ssh/authorized_keys`
   );
   const sshConfig = readSecret('.ssh/config', '# .ssh/config ainda nao sincronizado');
+  const binInstallScript = buildBinInstallScript();
 
   return `#!/usr/bin/env bash
 
@@ -329,6 +353,8 @@ EOF
   cat <<'EOF' > $HOME_USER/.ssh/config
 ${sshConfig}
 EOF
+
+  ${binInstallScript}
 
   for file in $(ls -Ad $HOME_USER/.??*); do
     chown -Rh $USER: $file

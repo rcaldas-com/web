@@ -65,6 +65,7 @@ export type MonitorHost = {
   lastIp?: string;
   ddnsEnabled?: boolean;
   cfRecordId?: string;
+  tunnelEnabled?: boolean;
 };
 
 export type MonitorIncident = {
@@ -271,11 +272,26 @@ export async function setDdnsEnabled(hostName: string, enabled: boolean) {
     .updateOne({ name: host }, { $set: { ddnsEnabled: enabled, updatedAt: new Date() } });
 }
 
-export async function requestTunnel(hostName: string, port: number) {
+export async function setTunnelEnabled(hostName: string, enabled: boolean) {
   const host = normalizeHostName(hostName);
-  const now = new Date();
   const client = await clientPromise;
   const db = client.db();
+  await db
+    .collection<MonitorHost>('monitor_hosts')
+    .updateOne({ name: host }, { $set: { tunnelEnabled: enabled, updatedAt: new Date() } });
+}
+
+export async function requestTunnel(hostName: string, port: number) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+
+  const hostDoc = await db.collection<MonitorHost>('monitor_hosts').findOne({ name: host });
+  if (!hostDoc?.tunnelEnabled) {
+    throw new Error('tunel nao habilitado para este host');
+  }
+
+  const now = new Date();
   await db.collection<AgentJob>('monitor_agent_jobs').insertOne({
     host,
     type: 'tunnel',
@@ -285,6 +301,39 @@ export async function requestTunnel(hostName: string, port: number) {
     updatedAt: now,
     expiresAt: new Date(now.getTime() + 2 * 60 * 1000),
   });
+}
+
+export async function createHost(hostName: string, options: { ddnsEnabled: boolean; tunnelEnabled: boolean }) {
+  const host = normalizeHostName(hostName);
+  if (!host) throw new Error('nome de host invalido');
+
+  const now = new Date();
+  const client = await clientPromise;
+  const db = client.db();
+  await db.collection<MonitorHost>('monitor_hosts').updateOne(
+    { name: host },
+    {
+      $set: {
+        name: host,
+        ddnsEnabled: options.ddnsEnabled,
+        tunnelEnabled: options.tunnelEnabled,
+        updatedAt: now,
+      },
+      $setOnInsert: { createdAt: now, status: 'unknown' },
+    },
+    { upsert: true }
+  );
+}
+
+export async function deleteHost(hostName: string) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  await Promise.all([
+    db.collection<MonitorHost>('monitor_hosts').deleteOne({ name: host }),
+    db.collection<AgentJob>('monitor_agent_jobs').deleteMany({ host }),
+    db.collection('monitor_results').deleteMany({ host }),
+  ]);
 }
 
 export async function getMonitorOverview() {

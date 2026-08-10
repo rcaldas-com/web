@@ -1,6 +1,12 @@
 import { requireAdmin } from '@/lib/auth';
 import { getMonitorOverview } from '@/lib/monitor';
-import { toggleDdnsAction, requestTunnelAction } from '@/lib/actions/monitor';
+import {
+  toggleDdnsAction,
+  toggleTunnelAction,
+  requestTunnelAction,
+  createHostAction,
+  deleteHostAction,
+} from '@/lib/actions/monitor';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -52,6 +58,27 @@ export default async function MonitorPage() {
           <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
             <h2 className="font-semibold text-zinc-950 dark:text-zinc-50">Hosts</h2>
           </div>
+          <form action={createHostAction} className="flex flex-wrap items-center gap-3 border-b border-zinc-200 px-4 py-3 text-sm dark:border-zinc-800">
+            <input
+              type="text"
+              name="host"
+              placeholder="nome do host"
+              required
+              className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+            />
+            <label className="flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300">
+              <input type="checkbox" name="ddnsEnabled" /> DDNS
+            </label>
+            <label className="flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300">
+              <input type="checkbox" name="tunnelEnabled" /> Túnel
+            </label>
+            <button
+              type="submit"
+              className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            >
+              novo host
+            </button>
+          </form>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
@@ -64,6 +91,8 @@ export default async function MonitorPage() {
                   <th className="px-4 py-3">Disco</th>
                   <th className="px-4 py-3">DDNS</th>
                   <th className="px-4 py-3">Túnel</th>
+                  <th className="px-4 py-3">Pedir túnel</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -88,6 +117,18 @@ export default async function MonitorPage() {
                       </form>
                     </td>
                     <td className="px-4 py-3">
+                      <form action={toggleTunnelAction}>
+                        <input type="hidden" name="host" value={host.name} />
+                        <input type="hidden" name="enabled" value={host.tunnelEnabled ? 'false' : 'true'} />
+                        <button
+                          type="submit"
+                          className={`rounded-full px-2 py-1 text-xs ${host.tunnelEnabled ? statusClass('ok') : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'}`}
+                        >
+                          {host.tunnelEnabled ? 'ativo' : 'inativo'}
+                        </button>
+                      </form>
+                    </td>
+                    <td className="px-4 py-3">
                       <form action={requestTunnelAction} className="flex items-center gap-2">
                         <input type="hidden" name="host" value={host.name} />
                         <input
@@ -97,20 +138,33 @@ export default async function MonitorPage() {
                           min={1025}
                           max={65535}
                           required
-                          className="w-20 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                          disabled={!host.tunnelEnabled}
+                          className="w-20 rounded border border-zinc-200 bg-white px-2 py-1 text-xs disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-950"
                         />
                         <button
                           type="submit"
-                          className="rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                          disabled={!host.tunnelEnabled}
+                          className="rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                         >
                           pedir
+                        </button>
+                      </form>
+                    </td>
+                    <td className="px-4 py-3">
+                      <form action={deleteHostAction}>
+                        <input type="hidden" name="host" value={host.name} />
+                        <button
+                          type="submit"
+                          className="rounded-full bg-red-100 px-2 py-1 text-xs text-red-700 hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900"
+                        >
+                          apagar
                         </button>
                       </form>
                     </td>
                   </tr>
                 ))}
                 {!overview.hosts.length && (
-                  <tr><td className="px-4 py-8 text-center text-zinc-500" colSpan={8}>Nenhum host registrado ainda.</td></tr>
+                  <tr><td className="px-4 py-8 text-center text-zinc-500" colSpan={10}>Nenhum host registrado ainda.</td></tr>
                 )}
               </tbody>
             </table>
