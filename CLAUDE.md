@@ -49,9 +49,11 @@ That repo/service is retired (not deleted — candidate for archival).
     symlinks from those instead if so. Don't remove this check — without
     it, re-running `/init` on an already-synced host destroys the live
     symlinks and replaces them with a static snapshot again.
-  - `scripts/sync-dotfiles.sh` is a separate, lighter, manually-run
-    script that does just that symlink conversion, for converting a host
-    without a full re-provision.
+  - `GET /sync-dotfiles` (`app/sync-dotfiles/route.ts`) is a separate,
+    lighter, manually-run script (`curl -fsSL .../sync-dotfiles | sudo
+    bash`) that does just that symlink conversion, for converting an
+    already-provisioned host to live-synced dotfiles/bin scripts without
+    a full `/init` re-run.
 - DDNS is centralized server-side (`lib/monitor.ts`): the agent just
   reports IPv6 in its heartbeat; the server updates a Cloudflare AAAA
   record — but **only** for hosts with `ddnsEnabled: true` already set.
