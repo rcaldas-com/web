@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState, useTransition } from 'react';
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/20/solid';
-import ExpressionOperatorPad, { insertMoneyToken } from '../ExpressionOperatorPad';
+import ExpressionOperatorPad, { insertExpressionToken } from '../ExpressionOperatorPad';
 import MoneyInput from '../MoneyInput';
 import {
   addNewInstallment,
@@ -159,7 +159,7 @@ export default function CardsClient({
                   onChange={setMonthlyValue}
                   className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
                 />
-                <ExpressionOperatorPad onInsert={token => insertMoneyToken(monthlyValueRef.current, monthlyValue, setMonthlyValue, token)} />
+                <ExpressionOperatorPad onInsert={token => insertExpressionToken(monthlyValueRef.current, monthlyValue, setMonthlyValue, token)} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-200">Restantes</label>
@@ -288,7 +288,7 @@ function CardSection({
                     ✕
                   </button>
                 </div>
-                <ExpressionOperatorPad onInsert={token => insertMoneyToken(invoiceInputRef.current, invoiceVal, setInvoiceVal, token)} />
+                <ExpressionOperatorPad onInsert={token => insertExpressionToken(invoiceInputRef.current, invoiceVal, setInvoiceVal, token)} />
               </div>
           ) : (
             <p

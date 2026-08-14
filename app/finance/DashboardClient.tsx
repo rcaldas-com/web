@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
-import ExpressionOperatorPad, { insertMoneyToken } from './ExpressionOperatorPad';
+import ExpressionOperatorPad, { insertExpressionToken } from './ExpressionOperatorPad';
 import MoneyInput from './MoneyInput';
 import { recordExpensePayment, undoExpensePayments, updateMonthInvoice, toggleInvoicePaid, updateBankBalance, updateExpenseValue } from '@/lib/finance/actions';
 import {
@@ -388,7 +388,7 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
                   />
                   <button onClick={() => saveBank(i)} className="text-green-600 text-xs font-bold">✓</button>
                 </span>
-                <ExpressionOperatorPad onInsert={token => insertMoneyToken(bankInputRef.current, editVal, setEditVal, token)} />
+                <ExpressionOperatorPad onInsert={token => insertExpressionToken(bankInputRef.current, editVal, setEditVal, token)} />
               </span>
             ) : (
               <p
@@ -418,7 +418,7 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
                 />
                 <button onClick={() => saveVR()} className="text-green-600 text-xs font-bold">✓</button>
               </span>
-              <ExpressionOperatorPad onInsert={token => insertMoneyToken(vrInputRef.current, vrVal, setVrVal, token)} />
+              <ExpressionOperatorPad onInsert={token => insertExpressionToken(vrInputRef.current, vrVal, setVrVal, token)} />
             </span>
           ) : (
             <p
@@ -477,7 +477,7 @@ function PaymentPicker({
           autoFocus
           className="w-24 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
         />
-        <ExpressionOperatorPad onInsert={token => insertMoneyToken(amountInputRef.current, amount, onAmountChange, token)} />
+        <ExpressionOperatorPad onInsert={token => insertExpressionToken(amountInputRef.current, amount, onAmountChange, token)} />
       </div>
       <div className="flex flex-wrap gap-2">
         {category === 'cash'
@@ -585,7 +585,7 @@ function CardInvoiceRow({ card, yearMonth, banks }: { card: CardView; yearMonth:
             <button onClick={handleSave} className="text-green-600 hover:text-green-800 text-xs font-bold">✓</button>
             <button onClick={() => setEditing(false)} className="text-zinc-400 hover:text-zinc-600 text-xs">✕</button>
           </span>
-          <ExpressionOperatorPad onInsert={token => insertMoneyToken(inputRef.current, val, setVal, token)} />
+          <ExpressionOperatorPad onInsert={token => insertExpressionToken(inputRef.current, val, setVal, token)} />
         </span>
       ) : (
         <span
@@ -716,7 +716,7 @@ function ExpenseChecklist({
                   <button onClick={() => handleSaveValue(e)} className="text-green-600 text-xs font-bold">✓</button>
                   <button onClick={() => setEditingId(null)} className="text-zinc-400 text-xs">✕</button>
                 </span>
-                <ExpressionOperatorPad onInsert={token => insertMoneyToken(editInputRef.current, editVal, setEditVal, token)} />
+                <ExpressionOperatorPad onInsert={token => insertExpressionToken(editInputRef.current, editVal, setEditVal, token)} />
               </span>
             ) : (
               <span
