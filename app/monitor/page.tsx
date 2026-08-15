@@ -2,11 +2,13 @@ import { requireAdmin } from '@/lib/auth';
 import { getMonitorOverview } from '@/lib/monitor';
 import {
   toggleDdnsAction,
-  toggleTunnelAction,
-  requestTunnelAction,
+  disableTunnelAction,
+  openTunnelAction,
+  setTunnelPortAction,
   createHostAction,
   deleteHostAction,
 } from '@/lib/actions/monitor';
+import AutoRefresh from '@/app/finance/AutoRefresh';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -29,6 +31,7 @@ export default async function MonitorPage() {
 
   return (
     <main className="min-h-screen bg-zinc-100 dark:bg-zinc-950">
+      <AutoRefresh />
       <div className="mx-auto max-w-6xl p-6">
         <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -91,7 +94,6 @@ export default async function MonitorPage() {
                   <th className="px-4 py-3">Disco</th>
                   <th className="px-4 py-3">DDNS</th>
                   <th className="px-4 py-3">Túnel</th>
-                  <th className="px-4 py-3">Pedir túnel</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
@@ -103,7 +105,15 @@ export default async function MonitorPage() {
                     <td className="px-4 py-3">{formatDate(host.lastSeen)}</td>
                     <td className="px-4 py-3">{host.network?.publicIp || host.network?.ipv4 || host.lastIp || '-'}</td>
                     <td className="px-4 py-3">{host.system?.load1 ?? '-'}</td>
-                    <td className="px-4 py-3">{host.system?.diskRootPct != null ? `${host.system.diskRootPct}%` : '-'}</td>
+                    <td className="px-4 py-3">
+                      {host.system?.diskRootPct != null ? `${host.system.diskRootPct}%` : '-'}
+                      {host.system?.diskVarPct != null && (
+                        <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">/var {host.system.diskVarPct}%</span>
+                      )}
+                      {host.system?.diskVarLogPct != null && (
+                        <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">/var/log {host.system.diskVarLogPct}%</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <form action={toggleDdnsAction}>
                         <input type="hidden" name="host" value={host.name} />
@@ -117,38 +127,46 @@ export default async function MonitorPage() {
                       </form>
                     </td>
                     <td className="px-4 py-3">
-                      <form action={toggleTunnelAction}>
-                        <input type="hidden" name="host" value={host.name} />
-                        <input type="hidden" name="enabled" value={host.tunnelEnabled ? 'false' : 'true'} />
-                        <button
-                          type="submit"
-                          className={`rounded-full px-2 py-1 text-xs ${host.tunnelEnabled ? statusClass('ok') : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'}`}
-                        >
-                          {host.tunnelEnabled ? 'ativo' : 'inativo'}
-                        </button>
-                      </form>
-                    </td>
-                    <td className="px-4 py-3">
-                      <form action={requestTunnelAction} className="flex items-center gap-2">
-                        <input type="hidden" name="host" value={host.name} />
-                        <input
-                          type="number"
-                          name="port"
-                          placeholder="porta"
-                          min={1025}
-                          max={65535}
-                          required
-                          disabled={!host.tunnelEnabled}
-                          className="w-20 rounded border border-zinc-200 bg-white px-2 py-1 text-xs disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-950"
-                        />
-                        <button
-                          type="submit"
-                          disabled={!host.tunnelEnabled}
-                          className="rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                        >
-                          pedir
-                        </button>
-                      </form>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <form action={setTunnelPortAction} className="flex items-center gap-1">
+                          <input type="hidden" name="host" value={host.name} />
+                          <input
+                            type="number"
+                            name="port"
+                            placeholder="auto"
+                            min={1025}
+                            max={65535}
+                            defaultValue={host.tunnelPort ?? ''}
+                            className="w-20 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                          />
+                          <button
+                            type="submit"
+                            className="rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                          >
+                            salvar
+                          </button>
+                        </form>
+                        <form action={openTunnelAction}>
+                          <input type="hidden" name="host" value={host.name} />
+                          <button
+                            type="submit"
+                            className={`rounded-full px-2 py-1 text-xs ${host.tunnelEnabled ? statusClass('ok') : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'}`}
+                          >
+                            abrir túnel
+                          </button>
+                        </form>
+                        {host.tunnelEnabled && (
+                          <form action={disableTunnelAction}>
+                            <input type="hidden" name="host" value={host.name} />
+                            <button
+                              type="submit"
+                              className="text-xs text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
+                            >
+                              desativar
+                            </button>
+                          </form>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <form action={deleteHostAction}>
@@ -164,7 +182,7 @@ export default async function MonitorPage() {
                   </tr>
                 ))}
                 {!overview.hosts.length && (
-                  <tr><td className="px-4 py-8 text-center text-zinc-500" colSpan={10}>Nenhum host registrado ainda.</td></tr>
+                  <tr><td className="px-4 py-8 text-center text-zinc-500" colSpan={9}>Nenhum host registrado ainda.</td></tr>
                 )}
               </tbody>
             </table>
