@@ -12,6 +12,10 @@ const PROVISION_TOKEN = process.env.PROVISION_TOKEN || '';
 const SYNC_HOME_DIR = process.env.SYNC_HOME_DIR || '/var/rcaldas/live/home';
 const SYNC_BIN_DIR = process.env.SYNC_BIN_DIR || '/var/rcaldas/live/bin';
 const SAFE_FILENAME = /^[\w.-]+$/;
+// live/bin e pra scripts, nao pra artefatos de teste/benchmark que alguem
+// deixe la por engano (ja aconteceu: um arquivo de teste de disco de 129MB
+// derrubou o processo inteiro com OOM ao tentar embutir tudo num template).
+const MAX_BIN_FILE_BYTES = 1024 * 1024;
 
 function readSecret(relativePath: string, placeholder: string) {
   try {
@@ -42,7 +46,11 @@ function buildBinInstallScript() {
     // provavelmente por conterem algo sensivel. Pula em vez de derrubar a
     // rota inteira com EACCES.
     try {
-      const content = fs.readFileSync(path.join(SYNC_BIN_DIR, entry.name), 'utf8').replace(/\r\n/g, '\n');
+      const filePath = path.join(SYNC_BIN_DIR, entry.name);
+      if (fs.statSync(filePath).size > MAX_BIN_FILE_BYTES) {
+        return `: # ${entry.name} maior que ${MAX_BIN_FILE_BYTES} bytes, pulado (nao parece ser um script)`;
+      }
+      const content = fs.readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n');
       const delim = `BINFILE_${index}_EOF`;
       return `cat <<'${delim}' > "$BIN_DIR"/${entry.name}\n${content}\n${delim}\nchmod +x "$BIN_DIR"/${entry.name}`;
     } catch {
