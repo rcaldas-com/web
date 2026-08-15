@@ -98,7 +98,7 @@ if [[ -d /var ]]; then
 fi
 if [[ -d /var/log ]]; then
   varlog_dev=$(disk_dev /var/log)
-  [[ -n "$varlog_dev" && "$varlog_dev" != "$root_dev" && "$varlog_dev" != "${var_dev:-}" ]] && disk_varlog_pct=$(disk_pct /var/log)
+  [[ -n "$varlog_dev" && "$varlog_dev" != "$root_dev" && "$varlog_dev" != "${'$'}{var_dev:-}" ]] && disk_varlog_pct=$(disk_pct /var/log)
 fi
 memory_pct=$(awk '/MemTotal/ {total=$2} /MemAvailable/ {avail=$2} END {if(total>0) printf "%d", ((total-avail)*100/total); else print 0}' /proc/meminfo 2>/dev/null || echo 0)
 
