@@ -99,13 +99,15 @@ const PAID_EPSILON = 0.005;
 
 // Estado de pagamento de uma despesa no mês: soma dos pagamentos (parciais
 // inclusive) contra o valor efetivo do template/override. "Paga" só quando o
-// restante zera — enquanto isso, displayValue é o restante, não o valor
-// cheio, pra refletir o que ainda falta debitar.
+// restante zera (ou fica negativo, se pagou a mais). Enquanto não paga,
+// displayValue é o restante a pagar; uma vez paga, é o total efetivamente
+// pago (amountPaid) — igual ao planejado no caso normal, mas maior que ele
+// se estourou, pra manter visível quanto passou do previsto.
 export function computeExpensePaymentState(templateValue: number, payments?: MonthPayment[]) {
   const amountPaid = Math.round((payments ?? []).reduce((sum, p) => sum + p.amountPaid, 0) * 100) / 100;
   const remaining = Math.round((templateValue - amountPaid) * 100) / 100;
   const paid = amountPaid > 0 && remaining <= PAID_EPSILON;
-  return { amountPaid, remaining, paid, displayValue: paid ? templateValue : remaining };
+  return { amountPaid, remaining, paid, displayValue: paid ? amountPaid : remaining };
 }
 
 export function calculateMonthBalance(
