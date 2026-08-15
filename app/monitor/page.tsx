@@ -100,7 +100,14 @@ export default async function MonitorPage() {
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {overview.hosts.map((host) => (
                   <tr key={host._id} className="text-zinc-700 dark:text-zinc-300">
-                    <td className="px-4 py-3 font-medium text-zinc-950 dark:text-zinc-50">{host.name}</td>
+                    <td className="px-4 py-3 font-medium text-zinc-950 dark:text-zinc-50">
+                      {host.name}
+                      {host.capabilities?.includes('tunnel-legacy') && (
+                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                          legado
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${statusClass(host.status)}`}>{host.status}</span></td>
                     <td className="px-4 py-3">{formatDate(host.lastSeen)}</td>
                     <td className="px-4 py-3">{host.network?.publicIp || host.network?.ipv4 || host.lastIp || '-'}</td>

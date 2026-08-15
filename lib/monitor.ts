@@ -331,6 +331,44 @@ export async function openTunnel(hostName: string) {
   return port;
 }
 
+// Ponte de compatibilidade com o zxnet antigo: GET /ping?host=X esperando de
+// volta "0" (matar tunel), ou um numero de porta >1024 (abrir/manter tunel
+// nessa porta). Cada host que ainda pinga vira/atualiza um host normal em
+// monitor_hosts (aparece no Monitor como qualquer outro), so que marcado via
+// capabilities pra indicar que so fala esse protocolo velho, sem heartbeat
+// completo. So define tunnelEnabled/porta na primeira vez que o host aparece
+// -- pings seguintes nao sobrescrevem o que o admin decidir depois no Monitor.
+export async function registerLegacyPing(hostName: string): Promise<number> {
+  const host = normalizeHostName(hostName);
+  if (!host) return 0;
+
+  const client = await clientPromise;
+  const db = client.db();
+  const now = new Date();
+
+  const existing = await db.collection<MonitorHost>('monitor_hosts').findOne({ name: host });
+  const port = existing?.tunnelPort ?? (await nextTunnelPort(db, host));
+  const tunnelEnabled = existing?.tunnelEnabled ?? true;
+
+  await db.collection<MonitorHost>('monitor_hosts').updateOne(
+    { name: host },
+    {
+      $set: {
+        name: host,
+        status: 'ok',
+        lastSeen: now,
+        updatedAt: now,
+        tunnelPort: port,
+        capabilities: ['tunnel-legacy'],
+      },
+      $setOnInsert: { createdAt: now, tunnelEnabled: true },
+    },
+    { upsert: true }
+  );
+
+  return tunnelEnabled ? port : 0;
+}
+
 export async function setTunnelPort(hostName: string, port: number) {
   const host = normalizeHostName(hostName);
   const client = await clientPromise;
