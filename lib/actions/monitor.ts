@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireAdmin } from '@/lib/auth';
-import { setDdnsEnabled, setTunnelEnabled, requestTunnel, createHost, deleteHost } from '@/lib/monitor';
+import { setDdnsEnabled, setTunnelEnabled, openTunnel, setTunnelPort, createHost, deleteHost } from '@/lib/monitor';
 
 export async function toggleDdnsAction(formData: FormData) {
   await requireAdmin();
@@ -12,25 +12,35 @@ export async function toggleDdnsAction(formData: FormData) {
   revalidatePath('/monitor');
 }
 
-export async function toggleTunnelAction(formData: FormData) {
+export async function disableTunnelAction(formData: FormData) {
   await requireAdmin();
   const host = String(formData.get('host') || '');
   if (!host) return;
-  await setTunnelEnabled(host, formData.get('enabled') === 'true');
+  await setTunnelEnabled(host, false);
   revalidatePath('/monitor');
 }
 
-export async function requestTunnelAction(formData: FormData) {
+// Um clique so: habilita o tunel se preciso, atribui a proxima porta livre
+// se o host ainda nao tiver uma, e ja dispara o pedido de abertura.
+export async function openTunnelAction(formData: FormData) {
+  await requireAdmin();
+  const host = String(formData.get('host') || '');
+  if (!host) return;
+  try {
+    await openTunnel(host);
+  } catch {
+    // host apagado entre o render e o clique -- ignora, a linha some no
+    // proximo revalidate
+  }
+  revalidatePath('/monitor');
+}
+
+export async function setTunnelPortAction(formData: FormData) {
   await requireAdmin();
   const host = String(formData.get('host') || '');
   const port = Number(formData.get('port'));
   if (!host || !Number.isInteger(port) || port <= 1024 || port > 65535) return;
-  try {
-    await requestTunnel(host, port);
-  } catch {
-    // tunel nao habilitado para este host -- ignora silenciosamente, o
-    // botao ja fica desabilitado na UI quando tunnelEnabled esta off
-  }
+  await setTunnelPort(host, port);
   revalidatePath('/monitor');
 }
 

@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { ObjectId } from 'mongodb';
+import { Db, ObjectId } from 'mongodb';
 import clientPromise from './mongodb';
 
 export type HeartbeatPayload = {
@@ -16,6 +16,8 @@ export type HeartbeatPayload = {
     uptime?: number;
     load1?: number;
     diskRootPct?: number;
+    diskVarPct?: number | null;
+    diskVarLogPct?: number | null;
     memoryPct?: number;
   };
   tunnel?: {
@@ -66,6 +68,7 @@ export type MonitorHost = {
   ddnsEnabled?: boolean;
   cfRecordId?: string;
   tunnelEnabled?: boolean;
+  tunnelPort?: number;
 };
 
 export type MonitorIncident = {
@@ -197,7 +200,7 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
   }
 
   const ipv6 = payload.network?.ipv6;
-  if (existing?.ddnsEnabled && ipv6 && ipv6 !== existing.network?.ipv6) {
+  if (existing?.ddnsEnabled && ipv6 && (!existing.cfRecordId || ipv6 !== existing.network?.ipv6)) {
     try {
       const recordId = await updateCloudflareDdns(host, ipv6, existing.cfRecordId);
       if (recordId) set.cfRecordId = recordId;
@@ -252,7 +255,7 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     ok: true,
     status: 200,
     host,
-    token: existing ? undefined : nextToken,
+    token: existing?.tokenHash ? undefined : nextToken,
     nextIntervalSec: 60,
     tunnel: payload.tunnel?.enabled ? payload.tunnel : undefined,
     jobs: pendingJobs.map((job) => ({
@@ -281,16 +284,20 @@ export async function setTunnelEnabled(hostName: string, enabled: boolean) {
     .updateOne({ name: host }, { $set: { tunnelEnabled: enabled, updatedAt: new Date() } });
 }
 
-export async function requestTunnel(hostName: string, port: number) {
-  const host = normalizeHostName(hostName);
-  const client = await clientPromise;
-  const db = client.db();
+const TUNNEL_PORT_RANGE_START = 7701;
 
-  const hostDoc = await db.collection<MonitorHost>('monitor_hosts').findOne({ name: host });
-  if (!hostDoc?.tunnelEnabled) {
-    throw new Error('tunel nao habilitado para este host');
-  }
+async function nextTunnelPort(db: Db, excludeHost: string) {
+  const used = await db
+    .collection<MonitorHost>('monitor_hosts')
+    .find({ tunnelPort: { $exists: true }, name: { $ne: excludeHost } }, { projection: { tunnelPort: 1 } })
+    .toArray();
+  const usedPorts = new Set(used.map((h) => h.tunnelPort));
+  let port = TUNNEL_PORT_RANGE_START;
+  while (usedPorts.has(port)) port++;
+  return port;
+}
 
+async function insertTunnelJob(db: Db, host: string, port: number) {
   const now = new Date();
   await db.collection<AgentJob>('monitor_agent_jobs').insertOne({
     host,
@@ -301,6 +308,36 @@ export async function requestTunnel(hostName: string, port: number) {
     updatedAt: now,
     expiresAt: new Date(now.getTime() + 2 * 60 * 1000),
   });
+}
+
+// Habilita o tunel (se ainda nao estava), atribui a proxima porta livre a
+// partir de TUNNEL_PORT_RANGE_START se o host ainda nao tiver uma, e ja
+// dispara o pedido -- um clique so, sem exigir digitar porta antes.
+export async function openTunnel(hostName: string) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+
+  const hostDoc = await db.collection<MonitorHost>('monitor_hosts').findOne({ name: host });
+  if (!hostDoc) throw new Error('host nao encontrado');
+
+  const port = hostDoc.tunnelPort ?? (await nextTunnelPort(db, host));
+
+  await db
+    .collection<MonitorHost>('monitor_hosts')
+    .updateOne({ name: host }, { $set: { tunnelEnabled: true, tunnelPort: port, updatedAt: new Date() } });
+
+  await insertTunnelJob(db, host, port);
+  return port;
+}
+
+export async function setTunnelPort(hostName: string, port: number) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  await db
+    .collection<MonitorHost>('monitor_hosts')
+    .updateOne({ name: host }, { $set: { tunnelPort: port, updatedAt: new Date() } });
 }
 
 export async function createHost(hostName: string, options: { ddnsEnabled: boolean; tunnelEnabled: boolean }) {
