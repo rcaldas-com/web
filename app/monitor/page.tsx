@@ -163,6 +163,13 @@ export default async function MonitorPage() {
                           </button>
                         </form>
                         {host.tunnelEnabled && (
+                          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                            {host.tunnel?.activeRemotePort && host.tunnel.activeRemotePort === host.tunnelPort
+                              ? 'ativo'
+                              : 'aguardando agente'}
+                          </span>
+                        )}
+                        {host.tunnelEnabled && (
                           <form action={disableTunnelAction}>
                             <input type="hidden" name="host" value={host.name} />
                             <button

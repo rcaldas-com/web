@@ -40,17 +40,6 @@ export type AgentJobResult = {
   details?: Record<string, unknown>;
 };
 
-export type AgentJob = {
-  _id?: ObjectId;
-  host: string;
-  type: string;
-  status: 'pending' | 'sent' | 'done' | 'expired';
-  payload: Record<string, unknown>;
-  createdAt: Date;
-  updatedAt: Date;
-  expiresAt: Date;
-};
-
 export type MonitorHost = {
   _id: ObjectId;
   name: string;
@@ -172,7 +161,6 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
   const client = await clientPromise;
   const db = client.db();
   const hosts = db.collection<MonitorHost>('monitor_hosts');
-  const jobs = db.collection<AgentJob>('monitor_agent_jobs');
   const results = db.collection('monitor_results');
 
   const existing = await hosts.findOne({ name: host });
@@ -226,30 +214,14 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
         receivedAt: now,
       }))
     );
-
-    const jobIds = payload.results
-      .map((result) => result.id)
-      .filter((id): id is string => Boolean(id));
-    if (jobIds.length) {
-      await jobs.updateMany(
-        { _id: { $in: jobIds.map((id) => new ObjectId(id)) }, host },
-        { $set: { status: 'done', updatedAt: now } }
-      );
-    }
   }
 
-  const pendingJobs = await jobs
-    .find({ host, status: 'pending', expiresAt: { $gt: now } })
-    .sort({ createdAt: 1 })
-    .limit(5)
-    .toArray();
-
-  if (pendingJobs.length) {
-    await jobs.updateMany(
-      { _id: { $in: pendingJobs.map((job) => job._id).filter(Boolean) as ObjectId[] } },
-      { $set: { status: 'sent', updatedAt: now } }
-    );
-  }
+  // Diretiva de tunel e autoritativa do servidor (o que o admin configurou
+  // via Monitor), nao um eco do que o agente relatou -- e assim que o
+  // agente aprende que deve abrir/manter/derrubar um tunel a cada
+  // heartbeat, sem depender de um job avulso e com expiracao.
+  const tunnelEnabled = existing?.tunnelEnabled ?? false;
+  const tunnelPort = existing?.tunnelPort;
 
   return {
     ok: true,
@@ -257,12 +229,7 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     host,
     token: existing?.tokenHash ? undefined : nextToken,
     nextIntervalSec: 60,
-    tunnel: payload.tunnel?.enabled ? payload.tunnel : undefined,
-    jobs: pendingJobs.map((job) => ({
-      id: job._id?.toString(),
-      type: job.type,
-      ...job.payload,
-    })),
+    tunnel: tunnelEnabled && tunnelPort ? { enabled: true, port: tunnelPort } : { enabled: false },
   };
 }
 
@@ -297,22 +264,12 @@ async function nextTunnelPort(db: Db, excludeHost: string) {
   return port;
 }
 
-async function insertTunnelJob(db: Db, host: string, port: number) {
-  const now = new Date();
-  await db.collection<AgentJob>('monitor_agent_jobs').insertOne({
-    host,
-    type: 'tunnel',
-    status: 'pending',
-    payload: { port },
-    createdAt: now,
-    updatedAt: now,
-    expiresAt: new Date(now.getTime() + 2 * 60 * 1000),
-  });
-}
-
-// Habilita o tunel (se ainda nao estava), atribui a proxima porta livre a
-// partir de TUNNEL_PORT_RANGE_START se o host ainda nao tiver uma, e ja
-// dispara o pedido -- um clique so, sem exigir digitar porta antes.
+// Habilita o tunel (se ainda nao estava) e atribui a proxima porta livre a
+// partir de TUNNEL_PORT_RANGE_START se o host ainda nao tiver uma. Nao
+// precisa disparar nada explicitamente: o proprio agente ve essa diretiva
+// no proximo heartbeat (ate 60s) e abre o tunel sozinho, verificando de
+// novo a cada ciclo dali em diante -- se cair por qualquer motivo, o
+// agente reabre no ciclo seguinte, sem exigir outro clique aqui.
 export async function openTunnel(hostName: string) {
   const host = normalizeHostName(hostName);
   const client = await clientPromise;
@@ -327,7 +284,6 @@ export async function openTunnel(hostName: string) {
     .collection<MonitorHost>('monitor_hosts')
     .updateOne({ name: host }, { $set: { tunnelEnabled: true, tunnelPort: port, updatedAt: new Date() } });
 
-  await insertTunnelJob(db, host, port);
   return port;
 }
 
@@ -406,7 +362,7 @@ export async function deleteHost(hostName: string) {
   const db = client.db();
   await Promise.all([
     db.collection<MonitorHost>('monitor_hosts').deleteOne({ name: host }),
-    db.collection<AgentJob>('monitor_agent_jobs').deleteMany({ host }),
+    db.collection('monitor_agent_jobs').deleteMany({ host }),
     db.collection('monitor_results').deleteMany({ host }),
   ]);
 }
