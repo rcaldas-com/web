@@ -115,8 +115,51 @@ Firefox icon's base64 payload can get silently truncated by editing
 tools if handled carelessly — if it ever breaks again, re-extract from
 git history rather than re-typing it.
 
+**`script()`'s bash text lives inside an untagged JS template literal —
+every literal `\` or `${` you write for the served script goes through
+one JS escape pass before it ever reaches the target host.** Bitten
+twice by this in one night:
+- A `sed 's/\\/\\\\/g; ...'` JSON-escaping script had its backslashes
+  silently halved by JS's `\\` → `\` collapse, breaking every heartbeat
+  from every already-installed agent (400 "host is required", nothing in
+  `monitor_hosts`) until caught by actually running the installed script
+  and comparing sed output byte-for-byte against what the source
+  *should* produce.
+- `"${var_dev:-}"` (a bash default-value expansion) broke `next build`
+  outright — TS tried to parse `var_dev:-` as a JS expression inside
+  `${...}`. Existing code already has the fix pattern for this exact
+  case (see `APP_URL="${'$'}{APP_URL:-...}"` etc. throughout
+  `AGENT_BIN`): wrap the literal `$` as `${'$'}` so only that inner
+  `'$'` is real JS, and the following `{...}` passes through untouched.
+When adding *any* bash line with `\` or `${` here or in `app/init/route.ts`,
+double-check it survives the JS pass — don't just eyeball it, actually
+diff the served output against what you intend (`printf '%b'` locally
+approximates the `\\`-collapse rule closely enough to catch it before a
+build or a deploy does).
+
 **Still open / next steps:** the DDNS toggle and tunnel-request flow in
-`/monitor` have been code-reviewed and unit-verified but not yet
-exercised end-to-end by the user through the actual UI (needs an admin
-login session). The old `rcaldas-com/init` repo and `rcaldas-init` Docker
-service are unused but not yet formally archived/removed.
+`/monitor` have now been exercised end-to-end against a real host
+(`tp`) — this surfaced and fixed the two escaping bugs above, a token-
+reissue bug for hosts pre-created via the "novo host" form (server
+generated a token but only returned it to the agent when the host doc
+was brand new, so pre-created hosts got permanently 401'd after their
+first heartbeat), and a DDNS bug where the Cloudflare record was only
+touched on IP *change*, never on first enabling `ddnsEnabled` for an
+already-stable host. The tunnel-request UX was also redesigned: hosts
+now get an auto-assigned `tunnelPort` (next free from 7701, checked
+against other hosts so two never collide on the shared relay) and a
+single "abrir túnel" action replaces the old toggle-then-type-a-port-
+then-click-pedir flow, which had zero user-facing feedback on failure.
+Not yet done: verifying this in production after the next image build
+(built locally as of this writing, not yet deployed), and the bigger
+follow-ups the user flagged — retiring the old `rcaldas-com/init` /
+`rcaldas-init` Docker service (still unused but not archived), and
+observability/alerting (`monitor_incidents` is defined but nothing ever
+writes to it — no automatic incident on a host going stale or on
+repeated invalid-heartbeat attempts; disk/log-volume monitoring exists
+per-host via `diskRootPct`/`diskVarPct`/`diskVarLogPct` but nothing acts
+on thresholds; nftables drop-log noise reduction plus a fail2ban-style
+response was discussed — decision was to lean on real `fail2ban` per
+host rather than rebuild its pattern-matching, with Monitor staying
+observe-only and at most surfacing AI-assisted suggestions from curated
+data, not making block decisions itself).
