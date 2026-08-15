@@ -171,6 +171,11 @@ Description=RCaldas monitor agent heartbeat
 
 [Service]
 Type=oneshot
+# Sem isso, systemd mata o cgroup do servico inteiro quando o oneshot
+# termina -- inclusive o ssh -fNR que ja fez fork pra background, que so
+# escapa do PROCESSO pai, nao do cgroup. O tunel abria e morria segundos
+# depois, toda vez, silenciosamente (sem nenhum erro nos logs).
+KillMode=process
 ExecStart=$AGENT_BIN
 EOF
   cat > /etc/systemd/system/rcaldas-agent.timer <<EOF
