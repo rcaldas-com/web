@@ -11,6 +11,7 @@ import {
   setBackupConfigAction,
   deleteHostAction,
 } from '@/lib/actions/monitor';
+import AutoRefresh from '@/app/finance/AutoRefresh';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -44,6 +45,7 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
 
   return (
     <main className="min-h-screen bg-zinc-100 dark:bg-zinc-950">
+      <AutoRefresh pollMs={10_000} />
       <div className="mx-auto max-w-3xl p-6">
         <div className="mb-6 flex items-center gap-3">
           <Link href="/monitor" className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">
