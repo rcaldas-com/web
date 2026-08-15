@@ -102,10 +102,19 @@ if [[ -d /var/log ]]; then
 fi
 memory_pct=$(awk '/MemTotal/ {total=$2} /MemAvailable/ {avail=$2} END {if(total>0) printf "%d", ((total-avail)*100/total); else print 0}' /proc/meminfo 2>/dev/null || echo 0)
 
+# Rename atomico em vez de truncar: se o POST falhar, o lote ainda existe
+# em .sending e volta pra fila no fim. Truncar antes de saber se o envio
+# deu certo perde o lote sempre que o servidor/rede estiver fora.
 results_payload="[]"
+SENDING_FILE="$PENDING_RESULTS_FILE.sending"
+# Sobrou .sending de uma execucao anterior que morreu no meio? Recupera.
+if [[ -s "$SENDING_FILE" ]]; then
+  cat "$SENDING_FILE" >> "$PENDING_RESULTS_FILE" 2>/dev/null || true
+  rm -f "$SENDING_FILE"
+fi
 if [[ -s "$PENDING_RESULTS_FILE" ]]; then
-  results_payload=$(cat "$PENDING_RESULTS_FILE")
-  : > "$PENDING_RESULTS_FILE"
+  mv "$PENDING_RESULTS_FILE" "$SENDING_FILE"
+  results_payload=$(cat "$SENDING_FILE")
 fi
 
 # Porta do tunel reverso que este agente ja tem aberto agora, se tiver --
@@ -130,8 +139,16 @@ JSON
 
 response=$(curl -fsS -m 20 -H 'Content-Type: application/json' -X POST "$APP_URL/heartbeat" -d "$payload") || {
   log "heartbeat falhou"
+  # Devolve o lote pra fila -- o proximo ciclo tenta de novo.
+  if [[ -s "$SENDING_FILE" ]]; then
+    cat "$SENDING_FILE" >> "$PENDING_RESULTS_FILE" 2>/dev/null || true
+    rm -f "$SENDING_FILE"
+  fi
   exit 1
 }
+
+# Entregue com sucesso: so agora o lote pode ser descartado.
+rm -f "$SENDING_FILE"
 
 new_token=$(printf '%s' "$response" | sed -n 's/.*"token":"\\([^"]*\\)".*/\\1/p')
 if [[ -n "$new_token" && -z "$AGENT_TOKEN" ]]; then
@@ -163,6 +180,22 @@ fi
 log "heartbeat ok: $response"
 EOF
 chmod 755 "$AGENT_BIN"
+
+# O agente escreve uma linha por minuto e nenhuma distro rotaciona esse
+# arquivo sozinha -- sem isso ele cresce pra sempre em todo host.
+# tee -a reabre o arquivo a cada execucao, entao rotate simples basta
+# (nao precisa de copytruncate).
+mkdir -p /etc/logrotate.d
+cat > /etc/logrotate.d/rcaldas-agent <<'EOF'
+/var/log/rcaldas-agent.log {
+	weekly
+	rotate 4
+	missingok
+	notifempty
+	compress
+	delaycompress
+}
+EOF
 
 if command -v systemctl >/dev/null 2>&1; then
   cat > /etc/systemd/system/rcaldas-agent.service <<EOF
