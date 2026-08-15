@@ -28,18 +28,29 @@ function buildBinInstallScript() {
   try {
     entries = fs.readdirSync(SYNC_BIN_DIR, { withFileTypes: true });
   } catch {
-    return `# live/bin ainda nao sincronizado em ${SYNC_BIN_DIR}`;
+    // ":" (no-op) e necessario -- isso pode ser inserido dentro de um bloco
+    // if/else no script gerado, e um comentario sozinho deixa o bloco vazio,
+    // o que e erro de sintaxe em bash.
+    return `: # live/bin ainda nao sincronizado em ${SYNC_BIN_DIR}`;
   }
   const files = entries.filter((e) => e.isFile() && SAFE_FILENAME.test(e.name));
-  if (!files.length) return '# nenhum script em live/bin no momento do provisionamento';
+  if (!files.length) return ': # nenhum script em live/bin no momento do provisionamento';
 
-  return files
-    .map((entry, index) => {
+  const parts = files.map((entry, index) => {
+    // Alguns arquivos em live/bin sao propositalmente sem leitura para
+    // "outros" (o processo do container nao e nem o dono nem o grupo) --
+    // provavelmente por conterem algo sensivel. Pula em vez de derrubar a
+    // rota inteira com EACCES.
+    try {
       const content = fs.readFileSync(path.join(SYNC_BIN_DIR, entry.name), 'utf8').replace(/\r\n/g, '\n');
       const delim = `BINFILE_${index}_EOF`;
       return `cat <<'${delim}' > "$BIN_DIR"/${entry.name}\n${content}\n${delim}\nchmod +x "$BIN_DIR"/${entry.name}`;
-    })
-    .join('\n');
+    } catch {
+      return `: # ${entry.name} nao legivel pelo container, pulado`;
+    }
+  });
+
+  return parts.join('\n');
 }
 
 function script() {
