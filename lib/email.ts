@@ -1,6 +1,7 @@
 'use server';
 
 import redis from '@/lib/redis';
+import { MASTER_ADMIN_EMAIL } from '@/lib/auth';
 
 const APP_URL = process.env.AUTH_TRUST_HOST || 'http://localhost:8001';
 const APP_NAME = process.env.TITLE || 'RCaldas';
@@ -27,6 +28,17 @@ export async function sendPasswordResetEmail(email: string, token: string, name:
   await enqueueEmail(email, 'Redefinição de Senha', 'reset-password', {
     name,
     resetUrl,
+    app: APP_NAME,
+  });
+}
+
+export async function sendTunnelKeyApprovalEmail(host: string, publicKey: string, approveToken: string) {
+  const approveUrl = `${APP_URL}/approve-tunnel-key?token=${approveToken}`;
+
+  await enqueueEmail(MASTER_ADMIN_EMAIL, `Aprovar túnel: ${host}`, 'tunnel-key-approval', {
+    host,
+    publicKey,
+    approveUrl,
     app: APP_NAME,
   });
 }

@@ -282,7 +282,14 @@ function ensure_root_key(){
     yes '' | ssh-keygen -qt ed25519 -N '' > /dev/null
   fi
   PUBKEY=$(cat /root/.ssh/id_ed25519.pub 2>/dev/null || cat /root/.ssh/id_*.pub 2>/dev/null | head -1)
-  echo -e "\\nChave publica do root (adicione no relay se for usar tunel reverso): $PUBKEY\\n"
+  echo -e "\\nChave publica do root: $PUBKEY\\n"
+
+  if curl -fsS -m 15 -H 'Content-Type: application/json' -X POST "${APP_URL}/api/register-tunnel-key" \\
+      -d "{\\"host\\":\\"$HOSTNAME\\",\\"publicKey\\":\\"$PUBKEY\\",\\"provisionToken\\":\\"${PROVISION_TOKEN}\\"}" > /dev/null 2>&1; then
+    echo "Pedido de tunel registrado -- aguardando aprovacao por email antes do tunel funcionar."
+  else
+    echo "Nao foi possivel registrar o pedido de tunel automaticamente -- avise o admin com a chave acima."
+  fi
 }
 
 function set_smtp(){

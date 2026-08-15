@@ -1,6 +1,9 @@
 import crypto from 'crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Db, ObjectId } from 'mongodb';
 import clientPromise from './mongodb';
+import { sendTunnelKeyApprovalEmail } from './email';
 
 export type HeartbeatPayload = {
   host?: string;
@@ -424,4 +427,90 @@ export async function getMonitorOverview() {
       ts: serializeDate(event.ts),
     })),
   };
+}
+
+export type TunnelKeyRequest = {
+  _id: ObjectId;
+  host: string;
+  publicKey: string;
+  approveToken: string;
+  status: 'pending' | 'approved';
+  createdAt: Date;
+  updatedAt: Date;
+  approvedAt?: Date;
+};
+
+// /var/zxnet e o home do usuario dedicado no relay (`us`) que so serve pra
+// receber tuneis reversos -- nunca o usuario "rcaldas" normal. O container
+// web precisa desse diretorio montado com escrita (ver docker-compose.prod.yml)
+// so pra poder gravar authorized_keys apos aprovacao.
+const ZXNET_SSH_DIR = process.env.ZXNET_SSH_DIR || '/var/zxnet/.ssh';
+
+// Chamado pelo /init de um host novo (ensure_root_key), com a chave publica
+// de root recem-gerada. Nao confia direto -- so cria o pedido e manda um
+// email pro admin aprovar; a chave so vira valida em authorized_keys depois
+// do clique em approveTunnelKey. Idempotente: se essa exata chave desse
+// host ja foi aprovada antes, nao reenvia nada.
+export async function requestTunnelKeyApproval(hostName: string, publicKey: string) {
+  const host = normalizeHostName(hostName);
+  const key = publicKey.trim();
+  if (!host || !key) return;
+
+  const client = await clientPromise;
+  const db = client.db();
+  const col = db.collection<TunnelKeyRequest>('monitor_tunnel_key_requests');
+
+  const existing = await col.findOne({ host, publicKey: key });
+  if (existing?.status === 'approved') return;
+
+  const now = new Date();
+  const approveToken = crypto.randomBytes(24).toString('base64url');
+
+  await col.updateOne(
+    { host, publicKey: key },
+    { $set: { host, publicKey: key, approveToken, status: 'pending', updatedAt: now }, $setOnInsert: { createdAt: now } },
+    { upsert: true }
+  );
+
+  await sendTunnelKeyApprovalEmail(host, key, approveToken);
+}
+
+// Confirma um pedido pendente: acrescenta a chave em
+// $ZXNET_SSH_DIR/authorized_keys, restrita a so abrir tuneis (nada de shell,
+// X11, agent forwarding -- essa chave nao serve pra logar no relay, so pra
+// fazer -R). So chamado a partir do POST da pagina de confirmacao, nunca do
+// GET direto (scanners de seguranca de email costumam pre-visitar links).
+export async function approveTunnelKey(token: string): Promise<{ ok: boolean; host?: string; error?: string }> {
+  const client = await clientPromise;
+  const db = client.db();
+  const col = db.collection<TunnelKeyRequest>('monitor_tunnel_key_requests');
+
+  const request = await col.findOne({ approveToken: token });
+  if (!request) return { ok: false, error: 'token invalido' };
+  if (request.status === 'approved') return { ok: true, host: request.host };
+
+  const authorizedKeysPath = path.join(ZXNET_SSH_DIR, 'authorized_keys');
+  let current = '';
+  try {
+    current = fs.readFileSync(authorizedKeysPath, 'utf8');
+  } catch {
+    current = '';
+  }
+
+  if (!current.includes(request.publicKey)) {
+    const line = `restrict,port-forwarding ${request.publicKey} # ${request.host}, aprovado ${new Date().toISOString()}\n`;
+    fs.mkdirSync(ZXNET_SSH_DIR, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(authorizedKeysPath, current + (current && !current.endsWith('\n') ? '\n' : '') + line, {
+      mode: 0o600,
+    });
+  }
+
+  await col.updateOne({ _id: request._id }, { $set: { status: 'approved', approvedAt: new Date() } });
+  return { ok: true, host: request.host };
+}
+
+export async function getTunnelKeyRequest(token: string) {
+  const client = await clientPromise;
+  const db = client.db();
+  return db.collection<TunnelKeyRequest>('monitor_tunnel_key_requests').findOne({ approveToken: token });
 }

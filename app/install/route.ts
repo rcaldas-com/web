@@ -111,7 +111,7 @@ fi
 # Porta do tunel reverso que este agente ja tem aberto agora, se tiver --
 # reportado no heartbeat, e usado abaixo pra decidir se precisa abrir,
 # trocar ou derrubar, sem depender de nenhum job vindo do servidor.
-active_port=$(ps -Af | grep -- '-fNR ' | grep "$TUNNEL_RELAY" | grep -v grep | sed -n 's/.*-fNR \\([0-9]*\\):.*/\\1/p' | head -1)
+active_port=$(ps -Af | grep -- '-fNR ' | grep "$TUNNEL_RELAY" | grep -v grep | sed -n 's/.*-fNR \\([0-9]*\\):.*/\\1/p' | head -1 || true)
 
 payload=$(cat <<JSON
 {
@@ -154,8 +154,8 @@ if [[ "$ENABLE_TUNNEL" == "true" ]]; then
     log "abrindo tunel reverso na porta $wanted_port via $TUNNEL_RELAY"
     local_ssh_port=$(ss -4tlnp 2>/dev/null | awk '/sshd/ {print $4}' | cut -d: -f2 | head -1)
     local_ssh_port="${'$'}{local_ssh_port:-22}"
-    ssh -o UserKnownHostsFile=/etc/rcaldas-agent/known_hosts -o StrictHostKeyChecking=accept-new \
-        -fNR "$wanted_port:127.0.0.1:$local_ssh_port" -p "$TUNNEL_RELAY_PORT" "$TUNNEL_RELAY" 2>>"$LOG" \
+    ssh -i /root/.ssh/id_ed25519 -o UserKnownHostsFile=/etc/rcaldas-agent/known_hosts -o StrictHostKeyChecking=accept-new \
+        -fNR "$wanted_port:127.0.0.1:$local_ssh_port" -p "$TUNNEL_RELAY_PORT" "zxnet@$TUNNEL_RELAY" 2>>"$LOG" \
         || log "falha ao abrir tunel na porta $wanted_port"
   fi
 fi
