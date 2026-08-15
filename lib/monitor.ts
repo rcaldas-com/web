@@ -384,7 +384,7 @@ export async function openTunnel(hostName: string) {
 // capabilities pra indicar que so fala esse protocolo velho, sem heartbeat
 // completo. So define tunnelEnabled/porta na primeira vez que o host aparece
 // -- pings seguintes nao sobrescrevem o que o admin decidir depois no Monitor.
-export async function registerLegacyPing(hostName: string): Promise<number> {
+export async function registerLegacyPing(hostName: string, headers: Headers): Promise<number> {
   const host = normalizeHostName(hostName);
   if (!host) return 0;
 
@@ -396,17 +396,43 @@ export async function registerLegacyPing(hostName: string): Promise<number> {
   const port = existing?.tunnelPort ?? (await nextTunnelPort(db, host));
   const tunnelEnabled = existing?.tunnelEnabled ?? true;
 
+  // getRemoteIp ja cuida de pegar o IP real por tras do Cloudflare/HAProxy
+  // (cf-connecting-ip antes de x-forwarded-for) -- o zxnet antigo nao manda
+  // nenhum payload com IP, entao essa e a unica fonte que temos pra ele.
+  // Muitos desses hosts nao tem IPv6 (o proprio caso que motivou isso), daí
+  // guardar em ambos os campos em vez de exigir um ou outro: ipv6 alimenta
+  // o DDNS, ipv4 garante que pelo menos algum IP aparece no Monitor.
+  const ip = getRemoteIp(headers);
+  const isIpv6 = !!ip?.includes(':');
+  const network = {
+    ...existing?.network,
+    ...(isIpv6 ? { ipv6: ip } : { ipv4: ip }),
+  };
+
+  const set: Partial<MonitorHost> = {
+    name: host,
+    status: 'ok',
+    lastSeen: now,
+    updatedAt: now,
+    tunnelPort: port,
+    capabilities: ['tunnel-legacy'],
+    network,
+    lastIp: ip,
+  };
+
+  if (existing?.ddnsEnabled && isIpv6 && ip && (!existing.cfRecordId || ip !== existing.network?.ipv6)) {
+    try {
+      const recordId = await updateCloudflareDdns(host, ip, existing.cfRecordId);
+      if (recordId) set.cfRecordId = recordId;
+    } catch (error) {
+      console.error('ddns update failed (legacy ping):', error);
+    }
+  }
+
   await db.collection<MonitorHost>('monitor_hosts').updateOne(
     { name: host },
     {
-      $set: {
-        name: host,
-        status: 'ok',
-        lastSeen: now,
-        updatedAt: now,
-        tunnelPort: port,
-        capabilities: ['tunnel-legacy'],
-      },
+      $set: set,
       $setOnInsert: { createdAt: now, tunnelEnabled: true },
     },
     { upsert: true }

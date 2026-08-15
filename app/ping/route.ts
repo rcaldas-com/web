@@ -9,6 +9,6 @@ export async function GET(request: Request) {
     return new NextResponse('0', { headers: { 'content-type': 'text/plain' } });
   }
 
-  const port = await registerLegacyPing(host);
+  const port = await registerLegacyPing(host, request.headers);
   return new NextResponse(String(port), { headers: { 'content-type': 'text/plain' } });
 }
