@@ -4,7 +4,6 @@ import {
   toggleDdnsAction,
   disableTunnelAction,
   openTunnelAction,
-  setTunnelPortAction,
   createHostAction,
   deleteHostAction,
 } from '@/lib/actions/monitor';
@@ -134,53 +133,15 @@ export default async function MonitorPage() {
                       </form>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <form action={setTunnelPortAction} className="flex items-center gap-1">
-                          <input type="hidden" name="host" value={host.name} />
-                          <input
-                            type="number"
-                            name="port"
-                            placeholder="auto"
-                            min={1025}
-                            max={65535}
-                            defaultValue={host.tunnelPort ?? ''}
-                            className="w-20 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-                          />
-                          <button
-                            type="submit"
-                            className="rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                          >
-                            salvar
-                          </button>
-                        </form>
-                        <form action={openTunnelAction}>
-                          <input type="hidden" name="host" value={host.name} />
-                          <button
-                            type="submit"
-                            className={`rounded-full px-2 py-1 text-xs ${host.tunnelEnabled ? statusClass('ok') : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'}`}
-                          >
-                            abrir túnel
-                          </button>
-                        </form>
-                        {host.tunnelEnabled && (
-                          <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                            {host.tunnel?.activeRemotePort && host.tunnel.activeRemotePort === host.tunnelPort
-                              ? 'ativo'
-                              : 'aguardando agente'}
-                          </span>
-                        )}
-                        {host.tunnelEnabled && (
-                          <form action={disableTunnelAction}>
-                            <input type="hidden" name="host" value={host.name} />
-                            <button
-                              type="submit"
-                              className="text-xs text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
-                            >
-                              desativar
-                            </button>
-                          </form>
-                        )}
-                      </div>
+                      <form action={host.tunnelEnabled ? disableTunnelAction : openTunnelAction}>
+                        <input type="hidden" name="host" value={host.name} />
+                        <button
+                          type="submit"
+                          className={`rounded-full px-2 py-1 text-xs ${host.tunnelEnabled ? statusClass('ok') : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'}`}
+                        >
+                          {host.tunnelEnabled ? `ativo:${host.tunnelPort}` : 'inativo'}
+                        </button>
+                      </form>
                     </td>
                     <td className="px-4 py-3">
                       <form action={deleteHostAction}>
