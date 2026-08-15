@@ -376,10 +376,14 @@ export async function getMonitorOverview() {
   const now = Date.now();
   const staleCutoff = new Date(now - 2 * 60 * 1000);
 
+  // Nome, nao lastSeen -- lastSeen muda a cada heartbeat (ate a cada 60s
+  // pros hosts ativos), entao ordenar por ele faz a lista embaralhar
+  // sozinha o tempo todo, inclusive entre o clique num botao e a pagina
+  // re-renderizar. Nome mantem a posicao estavel independente disso.
   const hosts = await db
     .collection<MonitorHost>('monitor_hosts')
     .find({}, { projection: { tokenHash: 0 } })
-    .sort({ lastSeen: -1 })
+    .sort({ name: 1 })
     .limit(100)
     .toArray();
 
