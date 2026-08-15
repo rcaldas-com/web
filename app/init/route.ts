@@ -276,6 +276,24 @@ function set_ssh(){
   systemctl restart ssh &> /dev/null || /etc/init.d/ssh restart &> /dev/null
 }
 
+function set_fail2ban(){
+  echo fail2ban
+  package_installer "fail2ban"
+  # Jail propria em jail.d/ em vez de jail.local -- nao pisa em nenhuma
+  # config manual que ja exista no host (jail.d/*.conf convive com
+  # jail.local sem conflito, é o jeito recomendado de acrescentar).
+  cat > /etc/fail2ban/jail.d/rcaldas-sshd.conf <<EOF
+[sshd]
+enabled = true
+port = $SSH_PORT
+maxretry = 5
+findtime = 10m
+bantime = 1h
+EOF
+  systemctl enable fail2ban &> /dev/null
+  systemctl restart fail2ban &> /dev/null
+}
+
 function ensure_root_key(){
   echo ssh-root-key
   if [[ ! -f /root/.ssh/id_ed25519.pub ]] && ! ls /root/.ssh/id_*.pub &> /dev/null; then
@@ -600,6 +618,7 @@ else
   set_ssh
 fi
 
+set_fail2ban
 ensure_root_key
 set_smtp
 set_user
