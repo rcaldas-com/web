@@ -529,14 +529,23 @@ export async function getMonitorOverview() {
     .limit(20)
     .toArray();
 
-  const hostRows = hosts.map((host) => ({
-    ...host,
-    _id: host._id.toString(),
-    status: host.lastSeen && host.lastSeen > staleCutoff ? host.status || 'ok' : 'down',
-    lastSeen: host.lastSeen?.toISOString(),
-    updatedAt: host.updatedAt?.toISOString(),
-    createdAt: host.createdAt?.toISOString(),
-  }));
+  // Online primeiro, offline depois (cada grupo por nome) -- online/offline
+  // e computado aqui, nao vem do banco, entao esse agrupamento so da pra
+  // fazer depois do find, nao no sort do Mongo.
+  const hostRows = hosts
+    .map((host) => ({
+      ...host,
+      _id: host._id.toString(),
+      status: host.lastSeen && host.lastSeen > staleCutoff ? host.status || 'ok' : 'down',
+      lastSeen: host.lastSeen?.toISOString(),
+      updatedAt: host.updatedAt?.toISOString(),
+      createdAt: host.createdAt?.toISOString(),
+    }))
+    .sort((a, b) => {
+      const aDown = a.status === 'down' ? 1 : 0;
+      const bDown = b.status === 'down' ? 1 : 0;
+      return aDown - bDown || a.name.localeCompare(b.name);
+    });
 
   return {
     counts: {
