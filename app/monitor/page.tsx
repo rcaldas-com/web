@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { requireAdmin } from '@/lib/auth';
 import { getMonitorOverview } from '@/lib/monitor';
 import {
@@ -100,7 +101,9 @@ export default async function MonitorPage() {
                 {overview.hosts.map((host) => (
                   <tr key={host._id} className="text-zinc-700 dark:text-zinc-300">
                     <td className="px-4 py-3 font-medium text-zinc-950 dark:text-zinc-50">
-                      {host.name}
+                      <Link href={`/monitor/${host.name}`} className="hover:underline">
+                        {host.name}
+                      </Link>
                       {host.capabilities?.includes('tunnel-legacy') && (
                         <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
                           legado

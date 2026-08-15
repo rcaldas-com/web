@@ -2,7 +2,16 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireAdmin } from '@/lib/auth';
-import { setDdnsEnabled, setTunnelEnabled, openTunnel, setTunnelPort, createHost, deleteHost } from '@/lib/monitor';
+import {
+  setDdnsEnabled,
+  setTunnelEnabled,
+  openTunnel,
+  setTunnelPort,
+  createHost,
+  deleteHost,
+  setMonitoringConfig,
+  setBackupConfig,
+} from '@/lib/monitor';
 
 export async function toggleDdnsAction(formData: FormData) {
   await requireAdmin();
@@ -10,6 +19,7 @@ export async function toggleDdnsAction(formData: FormData) {
   if (!host) return;
   await setDdnsEnabled(host, formData.get('enabled') === 'true');
   revalidatePath('/monitor');
+  revalidatePath(`/monitor/${host}`);
 }
 
 export async function disableTunnelAction(formData: FormData) {
@@ -18,6 +28,7 @@ export async function disableTunnelAction(formData: FormData) {
   if (!host) return;
   await setTunnelEnabled(host, false);
   revalidatePath('/monitor');
+  revalidatePath(`/monitor/${host}`);
 }
 
 // Um clique so: habilita o tunel se preciso, atribui a proxima porta livre
@@ -33,6 +44,7 @@ export async function openTunnelAction(formData: FormData) {
     // proximo revalidate
   }
   revalidatePath('/monitor');
+  revalidatePath(`/monitor/${host}`);
 }
 
 export async function setTunnelPortAction(formData: FormData) {
@@ -42,6 +54,37 @@ export async function setTunnelPortAction(formData: FormData) {
   if (!host || !Number.isInteger(port) || port <= 1024 || port > 65535) return;
   await setTunnelPort(host, port);
   revalidatePath('/monitor');
+  revalidatePath(`/monitor/${host}`);
+}
+
+export async function setMonitoringConfigAction(formData: FormData) {
+  await requireAdmin();
+  const host = String(formData.get('host') || '');
+  if (!host) return;
+  const diskRaw = String(formData.get('diskThresholdPct') || '').trim();
+  const memRaw = String(formData.get('memoryThresholdPct') || '').trim();
+  const diskThresholdPct = diskRaw ? Number(diskRaw) : undefined;
+  const memoryThresholdPct = memRaw ? Number(memRaw) : undefined;
+  if (diskThresholdPct != null && (!Number.isInteger(diskThresholdPct) || diskThresholdPct < 1 || diskThresholdPct > 100)) return;
+  if (memoryThresholdPct != null && (!Number.isInteger(memoryThresholdPct) || memoryThresholdPct < 1 || memoryThresholdPct > 100)) return;
+  await setMonitoringConfig(host, { diskThresholdPct, memoryThresholdPct });
+  revalidatePath(`/monitor/${host}`);
+}
+
+export async function setBackupConfigAction(formData: FormData) {
+  await requireAdmin();
+  const host = String(formData.get('host') || '');
+  if (!host) return;
+  const retentionRaw = String(formData.get('retentionDays') || '').trim();
+  const retentionDays = retentionRaw ? Number(retentionRaw) : undefined;
+  if (retentionDays != null && (!Number.isInteger(retentionDays) || retentionDays < 1)) return;
+  await setBackupConfig(host, {
+    enabled: formData.get('enabled') === 'on',
+    encrypted: formData.get('encrypted') === 'on',
+    retentionDays,
+    target: String(formData.get('target') || '').trim() || undefined,
+  });
+  revalidatePath(`/monitor/${host}`);
 }
 
 export async function createHostAction(formData: FormData) {

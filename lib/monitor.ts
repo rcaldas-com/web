@@ -61,6 +61,22 @@ export type MonitorHost = {
   cfRecordId?: string;
   tunnelEnabled?: boolean;
   tunnelPort?: number;
+  // Limite que, se ultrapassado num heartbeat, abre um incidente em
+  // monitor_incidents (ver checkMonitoringThresholds) -- e resolvido
+  // sozinho no primeiro heartbeat de volta abaixo do limite.
+  monitoring?: {
+    diskThresholdPct?: number;
+    memoryThresholdPct?: number;
+  };
+  // So configuracao por enquanto -- a execucao do backup continua local em
+  // cada host (rsnapshot/cron existentes), isso aqui e so o que fica
+  // centralizado pra decidir/auditar, nao dispara nada sozinho ainda.
+  backup?: {
+    enabled?: boolean;
+    retentionDays?: number;
+    encrypted?: boolean;
+    target?: string;
+  };
 };
 
 export type MonitorIncident = {
@@ -150,6 +166,75 @@ async function updateCloudflareDdns(name: string, ipv6: string, cachedRecordId?:
   return createdData?.result?.id as string | undefined;
 }
 
+async function upsertIncident(
+  db: Db,
+  params: { key: string; target: string; severity: MonitorIncident['severity']; summary: string }
+) {
+  const now = new Date();
+  const existing = await db.collection<MonitorIncident>('monitor_incidents').findOne({ key: params.key, status: 'open' });
+  if (existing) {
+    await db
+      .collection<MonitorIncident>('monitor_incidents')
+      .updateOne({ _id: existing._id }, { $set: { summary: params.summary, severity: params.severity, updatedAt: now }, $inc: { count: 1 } });
+    return;
+  }
+  await db.collection<MonitorIncident>('monitor_incidents').insertOne({
+    _id: new ObjectId(),
+    key: params.key,
+    target: params.target,
+    status: 'open',
+    severity: params.severity,
+    summary: params.summary,
+    openedAt: now,
+    updatedAt: now,
+    count: 1,
+  });
+}
+
+async function resolveIncident(db: Db, key: string) {
+  await db
+    .collection<MonitorIncident>('monitor_incidents')
+    .updateMany({ key, status: 'open' }, { $set: { status: 'resolved', resolvedAt: new Date(), updatedAt: new Date() } });
+}
+
+// So faz alguma coisa se o admin configurou um limite pra esse host na
+// pagina de detalhe (MonitorHost.monitoring) -- sem config, e um no-op.
+// Abre/atualiza um incidente quando cruza o limite, resolve sozinho no
+// primeiro heartbeat de volta abaixo dele.
+async function checkMonitoringThresholds(db: Db, host: string, existing: MonitorHost | null, system?: HeartbeatPayload['system']) {
+  const cfg = existing?.monitoring;
+  if (!cfg || !system) return;
+
+  if (cfg.diskThresholdPct != null) {
+    const pct = Math.max(system.diskRootPct ?? 0, system.diskVarPct ?? 0, system.diskVarLogPct ?? 0);
+    const key = `disk:${host}`;
+    if (pct >= cfg.diskThresholdPct) {
+      await upsertIncident(db, {
+        key,
+        target: host,
+        severity: pct >= cfg.diskThresholdPct + 10 ? 'critical' : 'warning',
+        summary: `Disco em ${pct}% (limite ${cfg.diskThresholdPct}%)`,
+      });
+    } else {
+      await resolveIncident(db, key);
+    }
+  }
+
+  if (cfg.memoryThresholdPct != null && system.memoryPct != null) {
+    const key = `mem:${host}`;
+    if (system.memoryPct >= cfg.memoryThresholdPct) {
+      await upsertIncident(db, {
+        key,
+        target: host,
+        severity: system.memoryPct >= cfg.memoryThresholdPct + 10 ? 'critical' : 'warning',
+        summary: `Memoria em ${system.memoryPct}% (limite ${cfg.memoryThresholdPct}%)`,
+      });
+    } else {
+      await resolveIncident(db, key);
+    }
+  }
+}
+
 export async function registerHeartbeat(payload: HeartbeatPayload, headers: Headers) {
   if (!payload.host) {
     return { ok: false, status: 400, error: 'host is required' };
@@ -208,6 +293,8 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     },
     { upsert: true }
   );
+
+  await checkMonitoringThresholds(db, host, existing, payload.system);
 
   if (payload.results?.length) {
     await results.insertMany(
@@ -335,6 +422,47 @@ export async function setTunnelPort(hostName: string, port: number) {
   await db
     .collection<MonitorHost>('monitor_hosts')
     .updateOne({ name: host }, { $set: { tunnelPort: port, updatedAt: new Date() } });
+}
+
+export async function getMonitorHost(hostName: string) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db
+    .collection<MonitorHost>('monitor_hosts')
+    .findOne({ name: host }, { projection: { tokenHash: 0 } });
+  if (!doc) return null;
+
+  const staleCutoff = new Date(Date.now() - 2 * 60 * 1000);
+  return {
+    ...doc,
+    _id: doc._id.toString(),
+    status: doc.lastSeen && doc.lastSeen > staleCutoff ? doc.status || 'ok' : 'down',
+    lastSeen: doc.lastSeen?.toISOString(),
+    updatedAt: doc.updatedAt?.toISOString(),
+    createdAt: doc.createdAt?.toISOString(),
+  };
+}
+
+export async function setMonitoringConfig(hostName: string, config: { diskThresholdPct?: number; memoryThresholdPct?: number }) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  await db
+    .collection<MonitorHost>('monitor_hosts')
+    .updateOne({ name: host }, { $set: { monitoring: config, updatedAt: new Date() } });
+}
+
+export async function setBackupConfig(
+  hostName: string,
+  config: { enabled: boolean; retentionDays?: number; encrypted: boolean; target?: string }
+) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  await db
+    .collection<MonitorHost>('monitor_hosts')
+    .updateOne({ name: host }, { $set: { backup: config, updatedAt: new Date() } });
 }
 
 export async function createHost(hostName: string, options: { ddnsEnabled: boolean; tunnelEnabled: boolean }) {
