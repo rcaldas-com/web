@@ -475,11 +475,20 @@ export async function requestTunnelKeyApproval(hostName: string, publicKey: stri
   await sendTunnelKeyApprovalEmail(host, key, approveToken);
 }
 
-// Confirma um pedido pendente: acrescenta a chave em
-// $ZXNET_SSH_DIR/authorized_keys, restrita a so abrir tuneis (nada de shell,
-// X11, agent forwarding -- essa chave nao serve pra logar no relay, so pra
-// fazer -R). So chamado a partir do POST da pagina de confirmacao, nunca do
-// GET direto (scanners de seguranca de email costumam pre-visitar links).
+// authorized_keys precisa ficar dono=zxnet, modo 600 (sem escrita de grupo
+// nem "outros") ou o sshd recusa TODAS as chaves ali dentro via StrictModes
+// -- ja quebrou producao uma vez essa noite tentando deixar o container
+// escrever direto nele. Em vez disso o container so deixa a chave pronta
+// (ja com o prefixo restrict,port-forwarding) num diretorio "pendentes" que
+// ele mesmo pode possuir; um cron no host, rodando como root, e quem
+// efetivamente funde no authorized_keys de verdade com a permissao certa.
+const PENDING_KEYS_DIR = process.env.ZXNET_PENDING_KEYS_DIR || path.join(ZXNET_SSH_DIR, 'pending-keys');
+
+// Confirma um pedido pendente: deixa a chave pronta pro cron do host
+// aplicar, restrita a so abrir tuneis (nada de shell, X11, agent
+// forwarding -- essa chave nao serve pra logar no relay, so pra fazer -R).
+// So chamado a partir do POST da pagina de confirmacao, nunca do GET direto
+// (scanners de seguranca de email costumam pre-visitar links).
 export async function approveTunnelKey(token: string): Promise<{ ok: boolean; host?: string; error?: string }> {
   const client = await clientPromise;
   const db = client.db();
@@ -489,21 +498,9 @@ export async function approveTunnelKey(token: string): Promise<{ ok: boolean; ho
   if (!request) return { ok: false, error: 'token invalido' };
   if (request.status === 'approved') return { ok: true, host: request.host };
 
-  const authorizedKeysPath = path.join(ZXNET_SSH_DIR, 'authorized_keys');
-  let current = '';
-  try {
-    current = fs.readFileSync(authorizedKeysPath, 'utf8');
-  } catch {
-    current = '';
-  }
-
-  if (!current.includes(request.publicKey)) {
-    const line = `restrict,port-forwarding ${request.publicKey} # ${request.host}, aprovado ${new Date().toISOString()}\n`;
-    fs.mkdirSync(ZXNET_SSH_DIR, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(authorizedKeysPath, current + (current && !current.endsWith('\n') ? '\n' : '') + line, {
-      mode: 0o600,
-    });
-  }
+  const line = `restrict,port-forwarding ${request.publicKey} # ${request.host}, aprovado ${new Date().toISOString()}\n`;
+  fs.mkdirSync(PENDING_KEYS_DIR, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(PENDING_KEYS_DIR, `${request.host}-${request._id}.pub`), line, { mode: 0o600 });
 
   await col.updateOne({ _id: request._id }, { $set: { status: 'approved', approvedAt: new Date() } });
   return { ok: true, host: request.host };
