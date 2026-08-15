@@ -79,13 +79,27 @@ LOG="/var/log/rcaldas-agent.log"
 PENDING_RESULTS_FILE="/etc/rcaldas-agent/pending-results.json"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG" >/dev/null; }
-json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+json_escape() { printf '%s' "$1" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g'; }
 
 ipv4=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}' || true)
 ipv6=$(ip -6 addr show scope global 2>/dev/null | grep '/64' | grep -v 'temporary\|deprecated' | awk '{print $2}' | cut -d/ -f1 | head -1 || true)
 uptime_seconds=$(cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1 || echo 0)
 load1=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0)
-disk_root=$(df -P / 2>/dev/null | awk 'NR==2 {gsub("%", "", $5); print $5}' || echo 0)
+disk_pct() { df -P "$1" 2>/dev/null | awk 'NR==2 {gsub("%", "", $5); print $5}'; }
+disk_dev() { df -P "$1" 2>/dev/null | awk 'NR==2 {print $1}'; }
+
+disk_root=$(disk_pct / || echo 0)
+root_dev=$(disk_dev /)
+disk_var_pct="null"
+disk_varlog_pct="null"
+if [[ -d /var ]]; then
+  var_dev=$(disk_dev /var)
+  [[ -n "$var_dev" && "$var_dev" != "$root_dev" ]] && disk_var_pct=$(disk_pct /var)
+fi
+if [[ -d /var/log ]]; then
+  varlog_dev=$(disk_dev /var/log)
+  [[ -n "$varlog_dev" && "$varlog_dev" != "$root_dev" && "$varlog_dev" != "${var_dev:-}" ]] && disk_varlog_pct=$(disk_pct /var/log)
+fi
 memory_pct=$(awk '/MemTotal/ {total=$2} /MemAvailable/ {avail=$2} END {if(total>0) printf "%d", ((total-avail)*100/total); else print 0}' /proc/meminfo 2>/dev/null || echo 0)
 
 results_payload="[]"
@@ -101,7 +115,7 @@ payload=$(cat <<JSON
   "version":"$VERSION",
   "time":"$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
   "network":{"ipv4":"$(json_escape "$ipv4")","ipv6":"$(json_escape "$ipv6")"},
-  "system":{"uptime":$uptime_seconds,"load1":$load1,"diskRootPct":$disk_root,"memoryPct":$memory_pct},
+  "system":{"uptime":$uptime_seconds,"load1":$load1,"diskRootPct":$disk_root,"diskVarPct":$disk_var_pct,"diskVarLogPct":$disk_varlog_pct,"memoryPct":$memory_pct},
   "tunnel":{"enabled":$ENABLE_TUNNEL},
   "capabilities":["heartbeat","tcp_banner","tunnel"],
   "results":$results_payload
