@@ -213,6 +213,29 @@ if [[ -n "$new_token" && -z "$AGENT_TOKEN" ]]; then
   log "token do agente salvo"
 fi
 
+# Chave do host que faz backup da frota, distribuida pelo servidor. Fica
+# aqui, e nao so no /init, pra que TROCAR DE RUNNER nao exija reprovisionar
+# host nenhum: muda o arquivo no servidor e em ate 60s todo mundo autorizou
+# a chave nova sozinho.
+runner_key=$(printf '%s' "$response" | sed -n 's/.*"backupRunnerKey":"\\([^"]*\\)".*/\\1/p')
+if [[ -n "$runner_key" ]]; then
+  bkp_home=$(getent passwd rcaldas 2>/dev/null | cut -d: -f6)
+  if [[ -n "$bkp_home" && -d "$bkp_home" ]]; then
+    bkp_auth="$bkp_home/.ssh/authorized_keys"
+    mkdir -p "$bkp_home/.ssh" && chmod 700 "$bkp_home/.ssh"
+    touch "$bkp_auth"
+    if ! grep -qsF "$runner_key" "$bkp_auth"; then
+      # Remove chave de runner anterior antes de gravar a nova, senao a
+      # cada troca sobraria uma chave velha ainda valida no host.
+      sed -i '/backup-runner@/d' "$bkp_auth" 2>/dev/null || true
+      echo "$runner_key" >> "$bkp_auth"
+      chown rcaldas: "$bkp_auth" 2>/dev/null || true
+      chmod 600 "$bkp_auth" 2>/dev/null || true
+      log "chave do runner de backup autorizada"
+    fi
+  fi
+fi
+
 # Reconciliacao do tunel: compara o estado desejado com o que existe de
 # fato, a cada heartbeat. Se o processo cair, o ciclo seguinte (ate 60s)
 # reabre sozinho -- mesma ideia do polling do zxnet.

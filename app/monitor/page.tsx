@@ -26,6 +26,8 @@ function statusClass(status?: string) {
   return 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300';
 }
 
+const APP_URL = process.env.AUTH_TRUST_HOST || 'https://web.rcaldas.com';
+
 export default async function MonitorPage() {
   await requireAdmin();
   const overview = await getMonitorOverview();
@@ -39,10 +41,36 @@ export default async function MonitorPage() {
             <h1 className="text-2xl font-bold text-zinc-950 dark:text-zinc-50">Monitor</h1>
             <p className="text-sm text-zinc-500 dark:text-zinc-400">Hosts, incidentes e eventos operacionais.</p>
           </div>
-          <code className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-            curl -Ls {process.env.AUTH_TRUST_HOST || 'https://web.rcaldas.com'}/install | bash
-          </code>
         </div>
+
+        <details className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <summary className="cursor-pointer text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+            Comandos
+          </summary>
+          <div className="mt-3 space-y-3 text-xs">
+            {(
+              [
+                ['install', 'Só o agente: heartbeat, métricas, túnel e envio de log. Idempotente.'],
+                ['init', 'Provisionamento completo do host. No fim chama o /install.'],
+                ['remove-zxnet', 'Remove o sistema antigo (cron, túnel, symlink) de um host migrado.'],
+                ['sync-dotfiles', 'Troca os dotfiles estáticos pelos sincronizados via Syncthing.'],
+                ['setup-backup-runner', 'Transforma o host no runner de backup da frota.'],
+                ['backup-config', 'Regrava as configs de backup no runner. Rode após mudar diretórios aqui.'],
+              ] as const
+            ).map(([rota, desc]) => (
+              <div key={rota}>
+                <code className="block rounded bg-zinc-100 px-2 py-1 font-mono text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+                  curl -fsSL {APP_URL}/{rota} | sudo bash
+                </code>
+                <p className="mt-1 text-zinc-500 dark:text-zinc-400">{desc}</p>
+              </div>
+            ))}
+            <p className="border-t border-zinc-200 pt-3 text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+              O backup é <strong>puxado</strong> pelo runner: só ele roda o <code>backup-config</code>.
+              Os hosts copiados não rodam nada — o agente deles autoriza a chave do runner sozinho.
+            </p>
+          </div>
+        </details>
 
         <div className="mb-6 grid gap-3 sm:grid-cols-4">
           {[

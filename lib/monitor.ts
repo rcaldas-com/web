@@ -124,6 +124,22 @@ export type MonitorMailEvent = {
   message?: string;
 };
 
+// Chave publica do host que faz backup da frota. Vai no heartbeat pra
+// que cada agente a autorize sozinho -- assim trocar de runner e mudar
+// este arquivo, sem reprovisionar host nenhum.
+const SYNC_HOME_DIR = process.env.SYNC_HOME_DIR || '/var/rcaldas/live/home';
+
+function readBackupRunnerKey(): string | undefined {
+  try {
+    const k = fs.readFileSync(path.join(SYNC_HOME_DIR, '.ssh/backup-runner.pub'), 'utf8').trim();
+    // Sanity check: uma linha, formato de chave. Nunca mandar lixo pros
+    // hosts, que vao gravar isso em authorized_keys.
+    return /^ssh-[a-z0-9-]+ [A-Za-z0-9+/=]+( \S+)?$/.test(k) ? k : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // Tetos contra abuso: /heartbeat aceita qualquer host novo (e assim que
 // um host recem-provisionado se registra), entao o dano de quem abusar
 // precisa ser limitado por aqui.
@@ -441,6 +457,10 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     token: existing?.tokenHash ? undefined : nextToken,
     nextIntervalSec: 60,
     tunnel: tunnelEnabled && tunnelPort ? { enabled: true, port: tunnelPort } : { enabled: false },
+    // Vai DEPOIS do tunnel: o agente extrai a porta com um sed ancorado em
+    // "tunnel":{...}, entao nada pode ser inserido antes dele sem quebrar
+    // todos os agentes ja instalados.
+    backupRunnerKey: readBackupRunnerKey(),
   };
 }
 
