@@ -70,6 +70,10 @@ function script() {
   );
   const sshConfig = readSecret('.ssh/config', '# .ssh/config ainda nao sincronizado');
   const binInstallScript = buildBinInstallScript();
+  // Chave publica do host que faz backup dos outros (o `bag` hoje). Fica
+  // no mesmo diretorio sincronizado das outras chaves; se ainda nao existe,
+  // o /init so avisa em vez de quebrar -- o backup e opcional.
+  const backupRunnerKey = readSecret('.ssh/backup-runner.pub', '').trim();
 
   return `#!/usr/bin/env bash
 
@@ -388,6 +392,31 @@ EOF
     sed -i "1iMAILFROM=$HOSTNAME@$DOMAIN" /etc/crontab
 }
 
+function set_backup_access(){
+  echo backup-access
+  RUNNER_KEY="${backupRunnerKey}"
+  if [[ -z "$RUNNER_KEY" ]]; then
+    echo "  (sem chave de runner publicada -- backup deste host nao vai funcionar ate haver uma)"
+    return
+  fi
+
+  AUTH="$HOME_USER/.ssh/authorized_keys"
+  [[ -d $HOME_USER/.ssh ]] || return
+
+  # Idempotente: se a chave ja esta la, nao duplica. Sem restrict/command:
+  # o backup precisa rodar 'sudo rsync' no destino pra ler arquivo de root,
+  # e um forced command com rrsync nao eleva privilegio -- mesma escolha
+  # que o us.bkp que ja funciona (--rsync-path="sudo /usr/bin/rsync").
+  if grep -qsF "$RUNNER_KEY" "$AUTH"; then
+    echo "  chave do runner ja autorizada"
+  else
+    echo "$RUNNER_KEY" >> "$AUTH"
+    chown $USER: "$AUTH" 2>/dev/null || true
+    chmod 600 "$AUTH" 2>/dev/null || true
+    echo "  chave do runner autorizada em $AUTH"
+  fi
+}
+
 function set_user(){
   echo user
   if grep -q "^$USER:" /etc/passwd; then
@@ -633,6 +662,8 @@ set_fail2ban
 ensure_root_key
 set_smtp
 set_user
+# Depois do set_user: precisa do $HOME_USER/.ssh ja criado.
+set_backup_access
 set_tune2fs
 
 if [ "$INSTSYNC" == "y" ] || [ "$INSTSYNC" == "Y" ]; then
