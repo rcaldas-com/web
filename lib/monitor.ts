@@ -108,6 +108,25 @@ export type BackupPlanEntry = {
   retention: { hora: number; dia: number; semana: number; mes: number };
 };
 
+// Fila de acoes que o servidor quer que um host execute. O heartbeat so
+// avisa QUE existe algo (hasJobs), e o agente busca em /agent-jobs -- assim
+// o heartbeat, que roda a cada 60s em toda a frota, continua minusculo.
+//
+// `type` e uma acao NOMEADA que o agente sabe executar, nunca um comando
+// arbitrario vindo do banco: se o Monitor fosse comprometido, poder mandar
+// shell livre pra frota inteira seria bem pior do que poder pedir uma das
+// acoes conhecidas.
+export type AgentJob = {
+  _id: ObjectId;
+  host: string;
+  type: 'backup-config' | 'update-agent';
+  status: 'pending' | 'sent' | 'done' | 'failed';
+  createdAt: Date;
+  sentAt?: Date;
+  doneAt?: Date;
+  result?: string;
+};
+
 export type MonitorIncident = {
   _id: ObjectId;
   key: string;
@@ -442,6 +461,25 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     // Hoje quem manda e o proprio agente; amanha pode ser um alarme do
     // Netdata repassado (curl 127.0.0.1:19999/api/v1/alarms) ou qualquer
     // outra fonte -- sem mudar nada aqui.
+    // Confirmacao de execucao de job: fecha o ciclo enfileirar -> executar.
+    for (const result of lote) {
+      if (result.type !== 'job' || !result.id) continue;
+      try {
+        await db.collection<AgentJob>('monitor_agent_jobs').updateOne(
+          { _id: new ObjectId(result.id), host },
+          {
+            $set: {
+              status: result.status === 'ok' ? 'done' : 'failed',
+              doneAt: now,
+              result: result.message?.slice(0, 500),
+            },
+          }
+        );
+      } catch {
+        // id malformado -- ignora em vez de derrubar o heartbeat
+      }
+    }
+
     for (const result of lote) {
       if (result.type !== 'alarm' || !result.id) continue;
       const key = `alarm:${host}:${result.id}`;
@@ -466,6 +504,12 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
   const tunnelEnabled = existing?.tunnelEnabled ?? false;
   const tunnelPort = existing?.tunnelPort;
 
+  // Devolve pra fila o que ficou preso em 'sent' (host reiniciou no meio)
+  // antes de contar, senao um job travado nunca mais seria entregue.
+  await requeueStaleJobs(db, host);
+  const hasJobs =
+    (await db.collection<AgentJob>('monitor_agent_jobs').countDocuments({ host, status: 'pending' }, { limit: 1 })) > 0;
+
   return {
     ok: true,
     status: 200,
@@ -477,6 +521,9 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     // "tunnel":{...}, entao nada pode ser inserido antes dele sem quebrar
     // todos os agentes ja instalados.
     backupRunnerKey: readBackupRunnerKey(),
+    // So o SINAL. O agente busca o conteudo em /agent-jobs quando ha algo
+    // -- assim a resposta do heartbeat nao cresce com a fila.
+    hasJobs,
   };
 }
 
@@ -594,6 +641,71 @@ export async function registerLegacyPing(hostName: string, headers: Headers): Pr
   await db.collection<MonitorHost>('monitor_hosts').updateOne({ name: host }, { $set: set });
 
   return tunnelEnabled ? port : 0;
+}
+
+// Qual host executa os backups. So um por vez -- se marcarem dois, vence
+// o primeiro por nome, de forma estavel, em vez de alternar entre eles.
+export async function findBackupRunner(): Promise<string | undefined> {
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db
+    .collection<MonitorHost>('monitor_hosts')
+    .findOne({ 'backupRunner.enabled': true }, { projection: { name: 1 }, sort: { name: 1 } });
+  return doc?.name;
+}
+
+// Mesma comparacao que o heartbeat faz, exposta pras rotas que precisam
+// autenticar o agente sem processar um heartbeat inteiro.
+export async function verifyAgentToken(hostName: string, token: string) {
+  const host = normalizeHostName(hostName);
+  if (!host || !token) return false;
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db.collection<MonitorHost>('monitor_hosts').findOne({ name: host }, { projection: { tokenHash: 1 } });
+  if (!doc?.tokenHash) return false;
+  return doc.tokenHash === hashToken(token);
+}
+
+// Enfileira uma acao pra um host. Idempotente por (host, type, pending):
+// mexer nos diretorios de backup dez vezes seguidas nao gera dez jobs.
+export async function enqueueJob(hostName: string, type: AgentJob['type']) {
+  const host = normalizeHostName(hostName);
+  if (!host) return;
+  const client = await clientPromise;
+  const db = client.db();
+  const now = new Date();
+  await db.collection<AgentJob>('monitor_agent_jobs').updateOne(
+    { host, type, status: 'pending' },
+    { $set: { host, type, status: 'pending' }, $setOnInsert: { createdAt: now } },
+    { upsert: true }
+  );
+}
+
+// Chamado pela rota autenticada quando o agente vem buscar. Marca como
+// 'sent' pra nao entregar de novo no ciclo seguinte enquanto executa.
+export async function takePendingJobs(hostName: string) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  const col = db.collection<AgentJob>('monitor_agent_jobs');
+
+  const jobs = await col.find({ host, status: 'pending' }).limit(10).toArray();
+  if (jobs.length) {
+    await col.updateMany(
+      { _id: { $in: jobs.map((j) => j._id) } },
+      { $set: { status: 'sent', sentAt: new Date() } }
+    );
+  }
+  return jobs.map((j) => ({ id: j._id.toString(), type: j.type }));
+}
+
+// Jobs que ficaram 'sent' sem resposta viram 'pending' de novo: se o host
+// reiniciou no meio da execucao, o job se perderia pra sempre.
+async function requeueStaleJobs(db: Db, host: string) {
+  const limite = new Date(Date.now() - 10 * 60 * 1000);
+  await db
+    .collection<AgentJob>('monitor_agent_jobs')
+    .updateMany({ host, status: 'sent', sentAt: { $lt: limite } }, { $set: { status: 'pending' } });
 }
 
 export async function setTunnelPort(hostName: string, port: number) {

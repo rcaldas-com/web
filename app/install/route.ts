@@ -271,6 +271,53 @@ if [[ -n "$wanted_port" && -z "$active_port" ]]; then
       || log "falha ao abrir tunel na porta $wanted_port"
 fi
 
+# Jobs: o heartbeat so avisa que existe algo; o conteudo vem daqui. Cada
+# tipo e uma acao conhecida do agente -- nunca comando arbitrario vindo do
+# servidor. O resultado volta pela mesma fila dos results, que so e limpa
+# apos POST com sucesso, entao nada se perde se o servidor cair no meio.
+if printf '%s' "$response" | grep -q '"hasJobs":true'; then
+  jobs=$(curl -fsS -m 20 -H 'Content-Type: application/json' -X POST "$APP_URL/agent-jobs" \
+    -d "{\\"host\\":\\"$(json_escape "$HOST_NAME")\\",\\"token\\":\\"$(json_escape "$AGENT_TOKEN")\\"}" 2>/dev/null || true)
+  job_results=""
+  while IFS= read -r job; do
+    [[ -z "$job" ]] && continue
+    jid=$(printf '%s' "$job" | sed -n 's/.*"id":"\\([^"]*\\)".*/\\1/p')
+    jtype=$(printf '%s' "$job" | sed -n 's/.*"type":"\\([^"]*\\)".*/\\1/p')
+    [[ -z "$jid" || -z "$jtype" ]] && continue
+
+    jstatus="fail"; jmsg="tipo desconhecido: $jtype"
+    case "$jtype" in
+      backup-config)
+        log "job $jid: regerando configs de backup"
+        if curl -fsSL "$APP_URL/backup-config?runner=$HOST_NAME" | bash >> "$LOG" 2>&1; then
+          jstatus="ok"; jmsg="configs de backup atualizadas"
+        else
+          jmsg="falha ao aplicar configs de backup"
+        fi
+        ;;
+      update-agent)
+        log "job $jid: atualizando o proprio agente"
+        # Roda em background e desacoplado: o /install reescreve este
+        # mesmo arquivo, entao continuar executando daqui e furada.
+        setsid bash -c "sleep 2; curl -fsSL '$APP_URL/install' | bash" >> "$LOG" 2>&1 &
+        jstatus="ok"; jmsg="atualizacao do agente disparada"
+        ;;
+    esac
+
+    [[ -n "$job_results" ]] && job_results="$job_results,"
+    job_results="$job_results{\\"id\\":\\"$jid\\",\\"type\\":\\"job\\",\\"status\\":\\"$jstatus\\",\\"message\\":\\"$(json_escape "$jmsg")\\"}"
+  done < <(printf '%s' "$jobs" | grep -o '{[^}]*}')
+
+  if [[ -n "$job_results" ]]; then
+    if [[ -s "$PENDING_RESULTS_FILE" ]]; then
+      # Ja ha lote na fila: junta em vez de sobrescrever.
+      existente=$(sed 's/^\\[//; s/\\]$//' "$PENDING_RESULTS_FILE")
+      [[ -n "$existente" ]] && job_results="$existente,$job_results"
+    fi
+    printf '[%s]' "$job_results" > "$PENDING_RESULTS_FILE"
+  fi
+fi
+
 log "heartbeat ok: $response"
 EOF
 chmod 755 "$AGENT_BIN"

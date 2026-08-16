@@ -11,6 +11,8 @@ import {
   deleteHost,
   setMonitoringConfig,
   setBackupConfig,
+  enqueueJob,
+  findBackupRunner,
 } from '@/lib/monitor';
 
 export async function toggleDdnsAction(formData: FormData) {
@@ -114,6 +116,12 @@ export async function setBackupConfigAction(formData: FormData) {
       mes: intOuPadrao(formData.get('retMes'), 3),
     },
   });
+  // O runner e um host com agente como qualquer outro: em vez de voce
+  // rodar backup-config na mao, enfileira o job e ele mesmo regera a
+  // config no proximo heartbeat.
+  const runner = await findBackupRunner();
+  if (runner) await enqueueJob(runner, 'backup-config');
+
   revalidatePath(`/monitor/${host}`);
 }
 
