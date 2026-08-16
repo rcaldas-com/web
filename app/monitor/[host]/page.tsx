@@ -9,6 +9,7 @@ import {
   setTunnelPortAction,
   setMonitoringConfigAction,
   setBackupConfigAction,
+  setBackupRunnerAction,
   deleteHostAction,
 } from '@/lib/actions/monitor';
 import AutoRefresh from '@/app/finance/AutoRefresh';
@@ -243,6 +244,63 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
             <button
               type="submit"
               className="w-fit rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            >
+              salvar
+            </button>
+          </form>
+        </section>
+
+        <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="mb-1 font-semibold text-zinc-950 dark:text-zinc-50">Runner de backup</h2>
+          <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+            O host que <strong>executa</strong> os backups da frota, puxando os outros via SSH.
+            Só um por vez — marcar aqui desmarca o anterior, e os agentes passam a autorizar a
+            chave deste sozinhos, sem reprovisionar host nenhum.
+          </p>
+
+          {host.backupRunner?.enabled && (
+            <div className="mb-3 flex flex-wrap gap-6 rounded border border-zinc-200 p-3 dark:border-zinc-800">
+              {field(
+                'Uso do disco de backup',
+                host.system?.backupDiskPct != null ? (
+                  <span
+                    className={
+                      host.system.backupDiskPct >= 90
+                        ? 'font-semibold text-red-600 dark:text-red-400'
+                        : host.system.backupDiskPct >= 80
+                          ? 'font-semibold text-amber-600 dark:text-amber-400'
+                          : undefined
+                    }
+                  >
+                    {host.system.backupDiskPct}%
+                  </span>
+                ) : (
+                  'aguardando heartbeat'
+                )
+              )}
+              {field('Destino', host.backupRunner.snapshotRoot || '/tank/bkp')}
+            </div>
+          )}
+
+          <form action={setBackupRunnerAction} className="flex flex-wrap items-end gap-4 text-sm">
+            <input type="hidden" name="host" value={host.name} />
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="enabled" defaultChecked={host.backupRunner?.enabled} />
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Este host é o runner</span>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Onde guardar os backups</span>
+              <input
+                type="text"
+                name="snapshotRoot"
+                placeholder="/tank/bkp"
+                defaultValue={host.backupRunner?.snapshotRoot ?? ''}
+                className="w-48 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+              />
+            </label>
+            <button
+              type="submit"
+              className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
             >
               salvar
             </button>

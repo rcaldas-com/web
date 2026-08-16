@@ -708,6 +708,20 @@ async function requeueStaleJobs(db: Db, host: string) {
     .updateMany({ host, status: 'sent', sentAt: { $lt: limite } }, { $set: { status: 'pending' } });
 }
 
+export async function setBackupRunner(hostName: string, enabled: boolean, snapshotRoot?: string) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  const col = db.collection<MonitorHost>('monitor_hosts');
+  // So um runner por vez: marcar este desmarca os outros, senao dois hosts
+  // fariam o mesmo backup em paralelo, brigando pelos mesmos tuneis.
+  if (enabled) await col.updateMany({ name: { $ne: host } }, { $set: { 'backupRunner.enabled': false } });
+  await col.updateOne(
+    { name: host },
+    { $set: { backupRunner: { enabled, snapshotRoot: snapshotRoot || undefined }, updatedAt: new Date() } }
+  );
+}
+
 export async function setTunnelPort(hostName: string, port: number) {
   const host = normalizeHostName(hostName);
   const client = await clientPromise;

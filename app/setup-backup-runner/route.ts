@@ -71,6 +71,9 @@ RESTIC_REPOSITORY=s3:${S3_HOST}/${S3_BUCKET}
 EOF
 chmod 600 "$CONF_DIR/s3.env"
 
+# O agente le isto pra reportar quanto o disco de backup esta cheio.
+echo "$SNAPSHOT_ROOT" > "$CONF_DIR/snapshot-root"
+
 echo "configs dos hosts"
 curl -fsSL "${APP_URL}/backup-config?runner=$(hostname -s)" | bash
 

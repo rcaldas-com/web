@@ -13,6 +13,7 @@ import {
   setBackupConfig,
   enqueueJob,
   findBackupRunner,
+  setBackupRunner,
 } from '@/lib/monitor';
 
 export async function toggleDdnsAction(formData: FormData) {
@@ -122,6 +123,20 @@ export async function setBackupConfigAction(formData: FormData) {
   const runner = await findBackupRunner();
   if (runner) await enqueueJob(runner, 'backup-config');
 
+  revalidatePath(`/monitor/${host}`);
+}
+
+export async function setBackupRunnerAction(formData: FormData) {
+  await requireAdmin();
+  const host = String(formData.get('host') || '');
+  if (!host) return;
+  const enabled = formData.get('enabled') === 'on';
+  const snapshotRoot = String(formData.get('snapshotRoot') || '').trim();
+  if (snapshotRoot && !snapshotRoot.startsWith('/')) return;
+  await setBackupRunner(host, enabled, snapshotRoot || undefined);
+  // Virou runner agora: ja pede as configs de todos os hosts.
+  if (enabled) await enqueueJob(host, 'backup-config');
+  revalidatePath('/monitor');
   revalidatePath(`/monitor/${host}`);
 }
 

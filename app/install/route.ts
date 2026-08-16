@@ -159,6 +159,16 @@ if [[ -d /var/log ]]; then
 fi
 memory_pct=$(awk '/MemTotal/ {total=$2} /MemAvailable/ {avail=$2} END {if(total>0) printf "%d", ((total-avail)*100/total); else print 0}' /proc/meminfo 2>/dev/null || echo 0)
 
+# So o runner tem este arquivo (escrito pelo setup-backup-runner): uso do
+# disco onde os backups sao guardados. E o numero que decide se cabe mais
+# um host no plano -- sem ele, so se descobre quando enche.
+backup_disk_pct="null"
+if [[ -s /etc/rcaldas-backup/snapshot-root ]]; then
+  bkp_root=$(cat /etc/rcaldas-backup/snapshot-root)
+  [[ -d "$bkp_root" ]] && backup_disk_pct=$(disk_pct "$bkp_root")
+  [[ -z "$backup_disk_pct" ]] && backup_disk_pct="null"
+fi
+
 # Rename atomico em vez de truncar: se o POST falhar, o lote ainda existe
 # em .sending e volta pra fila no fim. Truncar antes de saber se o envio
 # deu certo perde o lote sempre que o servidor/rede estiver fora.
@@ -186,7 +196,7 @@ payload=$(cat <<JSON
   "version":"$VERSION",
   "time":"$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
   "network":{"ipv4":"$(json_escape "$ipv4")","ipv6":"$(json_escape "$ipv6")"},
-  "system":{"uptime":$uptime_seconds,"load1":$load1,"cpuPct":$cpu_pct,"cpuCount":$cpu_count,"topCpu":"$(json_escape "$top_cpu")","diskRootPct":$disk_root,"diskVarPct":$disk_var_pct,"diskVarLogPct":$disk_varlog_pct,"memoryPct":$memory_pct},
+  "system":{"uptime":$uptime_seconds,"load1":$load1,"cpuPct":$cpu_pct,"cpuCount":$cpu_count,"topCpu":"$(json_escape "$top_cpu")","diskRootPct":$disk_root,"diskVarPct":$disk_var_pct,"diskVarLogPct":$disk_varlog_pct,"backupDiskPct":$backup_disk_pct,"memoryPct":$memory_pct},
   "tunnel":{"enabled":$ENABLE_TUNNEL,"activeRemotePort":${'$'}{active_port:-null}},
   "capabilities":["heartbeat","tcp_banner","tunnel"],
   "results":$results_payload
