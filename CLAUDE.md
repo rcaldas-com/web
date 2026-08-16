@@ -216,6 +216,38 @@ cadastro do serviço no Monitor**, e o Monitor passa a usar isso pra
 configurar os fail2ban de forma centralizada, em vez de cada host ter
 caminhos hardcoded que silenciosamente apodrecem.
 
+### Inventário atual (levantado pelo usuário — base do cadastro)
+
+Tudo roda no `us`. Os caminhos são o que o cadastro do serviço deve
+guardar; hoje eles só existem espalhados por config de fail2ban, compose e
+memória.
+
+| Serviço | Endereço | Caminho | Notas |
+|---|---|---|---|
+| **haproxy** | — | `/var/rcaldas/live/haproxy` | entrada de tudo; é onde ficam as proteções (rate limit, ACL da Cloudflare) |
+| **mongodb** | `mongo.rcaldas.com:8417` + registro SRV | `/var/rcaldas/mongodb` | dados em `db/` — **excluir do backup de config**, vão por `mongodump` no backup de dados |
+| **RC Web** | `web.rcaldas.com` (e `rcaldas.com` quando o legado cair) | `/var/rcaldas/rcaldas`, serviço `web` | este app |
+| **Car App** | `car.rcaldas.com` | `/var/rcaldas/car` | |
+| **Wallet** | `wallet.rcaldas.com` | `/var/rcaldas/rcaldas`, serviço `wallet` | mesmo compose do RC Web |
+| **CCXT** | interno | `/var/rcaldas/rcaldas` | |
+| **emailer** ×2 | interno | um em `rcaldas`, um em `car` | fila de email |
+| **redis** ×2 | interno | idem | |
+| **S3** | externo | — | usado por car, wallet e backup; RC Web vai usar em breve. Se monitorar como serviço ainda está em aberto |
+| **Mailu** | MX `us.rcaldas.com` | `/mailu` | só SMTP; IMAP/POP desativados de propósito |
+| **Webssh** | `us.rcaldas.com` | `/var/rcaldas/webssh` | `wssh --address='127.0.0.1' --policy=reject --port=8899` — **script manual em background** |
+| **Webvnc** (noVNC) | `acesso.rcaldas.com` | `/var/rcaldas/webvnc` | `./utils/novnc_proxy --vnc localhost:7759 --listen localhost:6081` — **script manual em background** |
+
+Dois pontos que o cadastro deve atacar primeiro, porque já são fragilidade
+conhecida:
+
+- **Webssh e Webvnc rodam por script manual em background** — sem systemd,
+  sem restart automático, sem log rotacionado. Um reboot do `us` derruba os
+  dois silenciosamente, e são justamente as ferramentas de acesso de
+  emergência. Viraram unit de systemd é o conserto óbvio.
+- **`rcaldas.com` responde 503** — aponta pro `rcaldas-site` na 8608, que
+  foi aposentado. O apontamento pro serviço `web` depende de confirmar que
+  o legado não é mais necessário.
+
 Outros itens que caem nesse módulo:
 - Backup de serviço (dump do Mongo, buckets S3 de produção) — hoje coberto
   à mão por `rcaldas/scripts/restore_prod.sh`.
