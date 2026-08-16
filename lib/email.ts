@@ -42,3 +42,23 @@ export async function sendTunnelKeyApprovalEmail(host: string, publicKey: string
     app: APP_NAME,
   });
 }
+
+export async function sendIncidentEmail(params: {
+  host: string;
+  severity: string;
+  summary: string;
+  detail?: string;
+  resolved: boolean;
+}) {
+  const prefix = params.resolved ? 'Resolvido' : params.severity === 'critical' ? 'CRITICO' : 'Alerta';
+
+  await enqueueEmail(MASTER_ADMIN_EMAIL, `[${prefix}] ${params.host}: ${params.summary}`, 'incident', {
+    host: params.host,
+    severity: params.severity,
+    summary: params.summary,
+    detail: params.detail || '',
+    resolved: params.resolved ? 'sim' : '',
+    hostUrl: `${APP_URL}/monitor/${params.host}`,
+    app: APP_NAME,
+  });
+}

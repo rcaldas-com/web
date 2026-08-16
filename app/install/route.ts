@@ -85,6 +85,30 @@ ipv4=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="sr
 ipv6=$(ip -6 addr show scope global 2>/dev/null | grep '/64' | grep -v 'temporary\|deprecated' | awk '{print $2}' | cut -d/ -f1 | head -1 || true)
 uptime_seconds=$(cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1 || echo 0)
 load1=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0)
+
+# CPU% medio DESDE O CICLO ANTERIOR (delta de /proc/stat guardado em
+# arquivo de estado), nao amostra instantanea. Janela de ~60s: o provedor
+# (Linode) so alerta na media de 2 HORAS, entao aqui da pra ver o problema
+# muito antes. Mesma unidade do painel deles: 100% = 1 nucleo.
+CPU_STATE="/etc/rcaldas-agent/cpu.state"
+cpu_count=$(nproc 2>/dev/null || echo 1)
+cpu_pct=0
+cpu_now=$(awk '/^cpu /{t=0; for(i=2;i<=NF;i++) t+=$i; print t, $5+$6; exit}' /proc/stat 2>/dev/null || echo "0 0")
+cur_total=$(echo "$cpu_now" | cut -d' ' -f1)
+cur_idle=$(echo "$cpu_now" | cut -d' ' -f2)
+if [[ -s "$CPU_STATE" ]]; then
+  prev_total=$(cut -d' ' -f1 "$CPU_STATE" 2>/dev/null || echo 0)
+  prev_idle=$(cut -d' ' -f2 "$CPU_STATE" 2>/dev/null || echo 0)
+  dt=$((cur_total - prev_total))
+  di=$((cur_idle - prev_idle))
+  if [[ "$dt" -gt 0 ]]; then
+    cpu_pct=$(( (100 * cpu_count * (dt - di)) / dt ))
+  fi
+fi
+printf '%s %s' "$cur_total" "$cur_idle" > "$CPU_STATE" 2>/dev/null || true
+
+# Quem esta consumindo -- o detalhe que o alerta do provedor nao da.
+top_cpu=$(ps -eo pcpu,comm --sort=-pcpu --no-headers 2>/dev/null | head -3 | awk '{printf "%s%s %s%%", (NR>1?", ":""), $2, $1}' || true)
 disk_pct() { df -P "$1" 2>/dev/null | awk 'NR==2 {gsub("%", "", $5); print $5}'; }
 disk_dev() { df -P "$1" 2>/dev/null | awk 'NR==2 {print $1}'; }
 
@@ -129,7 +153,7 @@ payload=$(cat <<JSON
   "version":"$VERSION",
   "time":"$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
   "network":{"ipv4":"$(json_escape "$ipv4")","ipv6":"$(json_escape "$ipv6")"},
-  "system":{"uptime":$uptime_seconds,"load1":$load1,"diskRootPct":$disk_root,"diskVarPct":$disk_var_pct,"diskVarLogPct":$disk_varlog_pct,"memoryPct":$memory_pct},
+  "system":{"uptime":$uptime_seconds,"load1":$load1,"cpuPct":$cpu_pct,"cpuCount":$cpu_count,"topCpu":"$(json_escape "$top_cpu")","diskRootPct":$disk_root,"diskVarPct":$disk_var_pct,"diskVarLogPct":$disk_varlog_pct,"memoryPct":$memory_pct},
   "tunnel":{"enabled":$ENABLE_TUNNEL,"activeRemotePort":${'$'}{active_port:-null}},
   "capabilities":["heartbeat","tcp_banner","tunnel"],
   "results":$results_payload

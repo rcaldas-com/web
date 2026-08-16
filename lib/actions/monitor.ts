@@ -63,11 +63,15 @@ export async function setMonitoringConfigAction(formData: FormData) {
   if (!host) return;
   const diskRaw = String(formData.get('diskThresholdPct') || '').trim();
   const memRaw = String(formData.get('memoryThresholdPct') || '').trim();
+  const cpuRaw = String(formData.get('cpuThresholdPct') || '').trim();
   const diskThresholdPct = diskRaw ? Number(diskRaw) : undefined;
   const memoryThresholdPct = memRaw ? Number(memRaw) : undefined;
+  const cpuThresholdPct = cpuRaw ? Number(cpuRaw) : undefined;
   if (diskThresholdPct != null && (!Number.isInteger(diskThresholdPct) || diskThresholdPct < 1 || diskThresholdPct > 100)) return;
   if (memoryThresholdPct != null && (!Number.isInteger(memoryThresholdPct) || memoryThresholdPct < 1 || memoryThresholdPct > 100)) return;
-  await setMonitoringConfig(host, { diskThresholdPct, memoryThresholdPct });
+  // CPU vai ate cpuCount*100 (100% = 1 nucleo), entao o teto nao e 100.
+  if (cpuThresholdPct != null && (!Number.isInteger(cpuThresholdPct) || cpuThresholdPct < 1 || cpuThresholdPct > 6400)) return;
+  await setMonitoringConfig(host, { diskThresholdPct, memoryThresholdPct, cpuThresholdPct });
   revalidatePath(`/monitor/${host}`);
 }
 

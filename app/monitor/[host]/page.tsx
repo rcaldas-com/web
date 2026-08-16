@@ -71,6 +71,13 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
           {field('Versao do agente', host.version)}
           {field('Capacidades', host.capabilities?.join(', '))}
           {field('Carga', host.system?.load1)}
+          {field(
+            'CPU',
+            host.system?.cpuPct != null
+              ? `${host.system.cpuPct}%${host.system.cpuCount ? ` de ${host.system.cpuCount * 100}%` : ''}`
+              : undefined
+          )}
+          {field('Top CPU', host.system?.topCpu)}
           {field('Memoria', host.system?.memoryPct != null ? `${host.system.memoryPct}%` : undefined)}
           {field('Disco /', host.system?.diskRootPct != null ? `${host.system.diskRootPct}%` : undefined)}
           {field('Disco /var', host.system?.diskVarPct != null ? `${host.system.diskVarPct}%` : undefined)}
@@ -154,6 +161,20 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
                 max={100}
                 placeholder="desativado"
                 defaultValue={host.monitoring?.memoryThresholdPct ?? ''}
+                className="w-32 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                Alerta de CPU acima de (%){host.system?.cpuCount ? ` — max ${host.system.cpuCount * 100}%` : ''}
+              </span>
+              <input
+                type="number"
+                name="cpuThresholdPct"
+                min={1}
+                max={6400}
+                placeholder="desativado"
+                defaultValue={host.monitoring?.cpuThresholdPct ?? ''}
                 className="w-32 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
               />
             </label>

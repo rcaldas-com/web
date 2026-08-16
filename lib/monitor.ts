@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Db, ObjectId } from 'mongodb';
 import clientPromise from './mongodb';
-import { sendTunnelKeyApprovalEmail } from './email';
+import { sendTunnelKeyApprovalEmail, sendIncidentEmail } from './email';
 
 export type HeartbeatPayload = {
   host?: string;
@@ -18,6 +18,11 @@ export type HeartbeatPayload = {
   system?: {
     uptime?: number;
     load1?: number;
+    // Media desde o heartbeat anterior (~60s), na mesma unidade do painel
+    // do provedor: 100% = 1 nucleo. Num host de 2 nucleos o teto e 200%.
+    cpuPct?: number;
+    cpuCount?: number;
+    topCpu?: string;
     diskRootPct?: number;
     diskVarPct?: number | null;
     diskVarLogPct?: number | null;
@@ -67,6 +72,9 @@ export type MonitorHost = {
   monitoring?: {
     diskThresholdPct?: number;
     memoryThresholdPct?: number;
+    // Em unidade de nucleo (100% = 1 nucleo), pra bater com o que o
+    // provedor mostra. A janela aqui e de ~60s contra as 2h da Linode.
+    cpuThresholdPct?: number;
   };
   // So configuracao por enquanto -- a execucao do backup continua local em
   // cada host (rsnapshot/cron existentes), isso aqui e so o que fica
@@ -166,9 +174,18 @@ async function updateCloudflareDdns(name: string, ipv6: string, cachedRecordId?:
   return createdData?.result?.id as string | undefined;
 }
 
+// Notifica so na TRANSICAO (incidente novo), nunca a cada heartbeat --
+// senao um disco cheio viraria um email por minuto. Enquanto continua
+// aberto, so incrementa o contador.
 async function upsertIncident(
   db: Db,
-  params: { key: string; target: string; severity: MonitorIncident['severity']; summary: string }
+  params: {
+    key: string;
+    target: string;
+    severity: MonitorIncident['severity'];
+    summary: string;
+    detail?: string;
+  }
 ) {
   const now = new Date();
   const existing = await db.collection<MonitorIncident>('monitor_incidents').findOne({ key: params.key, status: 'open' });
@@ -189,12 +206,42 @@ async function upsertIncident(
     updatedAt: now,
     count: 1,
   });
+
+  // Incidente aberto agora: avisa. Falha de email nunca pode derrubar o
+  // heartbeat -- o registro do incidente ja esta salvo de qualquer forma.
+  try {
+    await sendIncidentEmail({
+      host: params.target,
+      severity: params.severity,
+      summary: params.summary,
+      detail: params.detail,
+      resolved: false,
+    });
+  } catch (error) {
+    console.error('incident email failed:', error);
+  }
 }
 
 async function resolveIncident(db: Db, key: string) {
+  const open = await db.collection<MonitorIncident>('monitor_incidents').find({ key, status: 'open' }).toArray();
+  if (!open.length) return;
+
   await db
     .collection<MonitorIncident>('monitor_incidents')
     .updateMany({ key, status: 'open' }, { $set: { status: 'resolved', resolvedAt: new Date(), updatedAt: new Date() } });
+
+  for (const incident of open) {
+    try {
+      await sendIncidentEmail({
+        host: incident.target,
+        severity: incident.severity,
+        summary: incident.summary,
+        resolved: true,
+      });
+    } catch (error) {
+      console.error('incident resolved email failed:', error);
+    }
+  }
 }
 
 // So faz alguma coisa se o admin configurou um limite pra esse host na
@@ -228,6 +275,23 @@ async function checkMonitoringThresholds(db: Db, host: string, existing: Monitor
         target: host,
         severity: system.memoryPct >= cfg.memoryThresholdPct + 10 ? 'critical' : 'warning',
         summary: `Memoria em ${system.memoryPct}% (limite ${cfg.memoryThresholdPct}%)`,
+      });
+    } else {
+      await resolveIncident(db, key);
+    }
+  }
+
+  if (cfg.cpuThresholdPct != null && system.cpuPct != null) {
+    const key = `cpu:${host}`;
+    if (system.cpuPct >= cfg.cpuThresholdPct) {
+      const cores = system.cpuCount ? ` de ${system.cpuCount * 100}%` : '';
+      await upsertIncident(db, {
+        key,
+        target: host,
+        severity: system.cpuPct >= cfg.cpuThresholdPct + 20 ? 'critical' : 'warning',
+        summary: `CPU em ${system.cpuPct}%${cores} (limite ${cfg.cpuThresholdPct}%)`,
+        // Isso e o que o alerta do provedor nao entrega: quem esta comendo CPU.
+        detail: system.topCpu ? `Processos no topo: ${system.topCpu}` : undefined,
       });
     } else {
       await resolveIncident(db, key);
@@ -304,6 +368,27 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
         receivedAt: now,
       }))
     );
+
+    // Pipeline de incidente agnostico de origem: qualquer result do tipo
+    // "alarm" vira incidente, sem o servidor precisar saber quem gerou.
+    // Hoje quem manda e o proprio agente; amanha pode ser um alarme do
+    // Netdata repassado (curl 127.0.0.1:19999/api/v1/alarms) ou qualquer
+    // outra fonte -- sem mudar nada aqui.
+    for (const result of payload.results) {
+      if (result.type !== 'alarm' || !result.id) continue;
+      const key = `alarm:${host}:${result.id}`;
+      if (result.status === 'ok') {
+        await resolveIncident(db, key);
+      } else {
+        await upsertIncident(db, {
+          key,
+          target: host,
+          severity: result.status === 'fail' ? 'critical' : 'warning',
+          summary: result.message || `Alarme ${result.id}`,
+          detail: result.details ? JSON.stringify(result.details) : undefined,
+        });
+      }
+    }
   }
 
   // Diretiva de tunel e autoritativa do servidor (o que o admin configurou
@@ -470,7 +555,10 @@ export async function getMonitorHost(hostName: string) {
   };
 }
 
-export async function setMonitoringConfig(hostName: string, config: { diskThresholdPct?: number; memoryThresholdPct?: number }) {
+export async function setMonitoringConfig(
+  hostName: string,
+  config: { diskThresholdPct?: number; memoryThresholdPct?: number; cpuThresholdPct?: number }
+) {
   const host = normalizeHostName(hostName);
   const client = await clientPromise;
   const db = client.db();
