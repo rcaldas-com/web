@@ -196,13 +196,11 @@ O objetivo declarado é modesto e por isso é bom teste: **um rock64 sendo
 configurado do zero, sem display, precisa ser identificado e acessado com
 o menor esforço possível. Do DHCP até o HTTP.**
 
-⚠️ **Discrepância a resolver antes:** a interface citada como LAN do teste,
-`enxd03745ea2d6b`, **não existe no `tp` neste momento**. As interfaces
-presentes são `enp0s31f6` (DOWN, ethernet embutida) e `wlp9s0` (UP, wifi).
-O prefixo `enx` indica adaptador USB nomeado por MAC — provavelmente não
-está conectado. Esse mesmo nome aparecia no `uptest.sh` como interface do
-raspberry, então pode ser um adaptador que migrou de máquina. Confirmar com
-`ip -br link` antes de começar.
+A interface LAN do teste é a `enxd03745ea2d6b` no `tp` — **um adaptador USB
+que só é conectado na hora de desenvolver**, então ela não aparece no
+`ip -br link` fora do teste (as fixas são `enp0s31f6` e `wlp9s0`). Como o
+nome vem do MAC, é estável: plugou, é essa. Nada a investigar aqui — só
+confirmar que subiu antes de configurar qualquer coisa em cima dela.
 
 ⚠️ **Risco alto e real:** subir DHCP na interface errada envenena a rede de
 casa inteira, competindo com o roteador da operadora. O servidor DHCP tem
