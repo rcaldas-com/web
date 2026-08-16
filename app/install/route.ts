@@ -213,31 +213,39 @@ if [[ -n "$new_token" && -z "$AGENT_TOKEN" ]]; then
   log "token do agente salvo"
 fi
 
-# Estado do tunel e decidido pelo servidor a cada heartbeat (o que o admin
-# configurou no Monitor), nao por um job avulso -- se o processo cair por
-# qualquer motivo, o proximo ciclo (ate 60s) reabre sozinho, do mesmo jeito
-# que o zxnet fazia com seu polling.
+# Reconciliacao do tunel: compara o estado desejado com o que existe de
+# fato, a cada heartbeat. Se o processo cair, o ciclo seguinte (ate 60s)
+# reabre sozinho -- mesma ideia do polling do zxnet.
+#
+# wanted_port vazio significa "nao deve haver tunel": ou o host desabilitou
+# localmente, ou o admin desligou no Monitor. A comparacao abaixo fica FORA
+# de qualquer if de ENABLE_TUNNEL de proposito -- com ela dentro, desligar
+# o tunel nunca derrubava o que ja estava aberto, e o us acabou com um
+# tunel orfao apontando pra ele mesmo.
+wanted_port=""
 if [[ "$ENABLE_TUNNEL" == "true" ]]; then
   wanted_port=$(printf '%s' "$response" | sed -n 's/.*"tunnel":{"enabled":true,"port":\\([0-9]*\\).*/\\1/p')
-  if [[ -n "$active_port" && "$active_port" != "$wanted_port" ]]; then
-    log "derrubando tunel antigo na porta $active_port"
-    pkill -f -- "-fNR $active_port:.*$TUNNEL_RELAY" &> /dev/null || true
-    active_port=""
-  fi
-  if [[ -n "$wanted_port" && -z "$active_port" ]]; then
-    log "abrindo tunel reverso na porta $wanted_port via $TUNNEL_RELAY"
-    local_ssh_port=$(ss -4tlnp 2>/dev/null | awk '/sshd/ {print $4}' | cut -d: -f2 | head -1)
-    local_ssh_port="${'$'}{local_ssh_port:-22}"
-    # O mesmo processo ssh leva as duas direcoes: -R da acesso ao host, -L
-    # leva o syslog daqui pro coletor do us. Um processo so, reaproveitando
-    # o loop de reconciliacao que ja se auto-recupera -- e nenhuma porta
-    # nova exposta na internet, porque tudo trafega dentro do SSH.
-    ssh -i /root/.ssh/id_ed25519 -o UserKnownHostsFile=/etc/rcaldas-agent/known_hosts -o StrictHostKeyChecking=accept-new \
-        -fNR "$wanted_port:127.0.0.1:$local_ssh_port" \
-        -L "$LOG_FORWARD_PORT:127.0.0.1:514" \
-        -p "$TUNNEL_RELAY_PORT" "zxnet@$TUNNEL_RELAY" 2>>"$LOG" \
-        || log "falha ao abrir tunel na porta $wanted_port"
-  fi
+fi
+
+if [[ -n "$active_port" && "$active_port" != "$wanted_port" ]]; then
+  log "derrubando tunel na porta $active_port (desejado: ${'$'}{wanted_port:-nenhum})"
+  pkill -f -- "-fNR $active_port:.*$TUNNEL_RELAY" &> /dev/null || true
+  active_port=""
+fi
+
+if [[ -n "$wanted_port" && -z "$active_port" ]]; then
+  log "abrindo tunel reverso na porta $wanted_port via $TUNNEL_RELAY"
+  local_ssh_port=$(ss -4tlnp 2>/dev/null | awk '/sshd/ {print $4}' | cut -d: -f2 | head -1)
+  local_ssh_port="${'$'}{local_ssh_port:-22}"
+  # O mesmo processo ssh leva as duas direcoes: -R da acesso ao host, -L
+  # leva o syslog daqui pro coletor do us. Um processo so, reaproveitando
+  # o loop de reconciliacao que ja se auto-recupera -- e nenhuma porta
+  # nova exposta na internet, porque tudo trafega dentro do SSH.
+  ssh -i /root/.ssh/id_ed25519 -o UserKnownHostsFile=/etc/rcaldas-agent/known_hosts -o StrictHostKeyChecking=accept-new \
+      -fNR "$wanted_port:127.0.0.1:$local_ssh_port" \
+      -L "$LOG_FORWARD_PORT:127.0.0.1:514" \
+      -p "$TUNNEL_RELAY_PORT" "zxnet@$TUNNEL_RELAY" 2>>"$LOG" \
+      || log "falha ao abrir tunel na porta $wanted_port"
 fi
 
 log "heartbeat ok: $response"

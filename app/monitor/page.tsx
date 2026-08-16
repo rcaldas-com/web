@@ -9,6 +9,7 @@ import {
   deleteHostAction,
 } from '@/lib/actions/monitor';
 import AutoRefresh from '@/app/finance/AutoRefresh';
+import ConfirmSubmit from '@/app/monitor/ConfirmSubmit';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -149,12 +150,12 @@ export default async function MonitorPage() {
                     <td className="px-4 py-3">
                       <form action={deleteHostAction}>
                         <input type="hidden" name="host" value={host.name} />
-                        <button
-                          type="submit"
+                        <ConfirmSubmit
+                          message={`Apagar "${host.name}"?\n\nO host volta sozinho no proximo heartbeat, mas SEM a configuracao: porta do tunel (pode mudar e quebrar o alias de ssh), limites de alerta (para de avisar) e DDNS.`}
                           className="rounded-full bg-red-100 px-2 py-1 text-xs text-red-700 hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900"
                         >
                           apagar
-                        </button>
+                        </ConfirmSubmit>
                       </form>
                     </td>
                   </tr>

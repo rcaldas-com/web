@@ -12,6 +12,7 @@ import {
   deleteHostAction,
 } from '@/lib/actions/monitor';
 import AutoRefresh from '@/app/finance/AutoRefresh';
+import ConfirmSubmit from '@/app/monitor/ConfirmSubmit';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -233,14 +234,18 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
 
         <section className="rounded-lg border border-red-200 bg-white p-4 dark:border-red-900 dark:bg-zinc-900">
           <h2 className="mb-3 font-semibold text-zinc-950 dark:text-zinc-50">Zona de risco</h2>
+          <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+            O host volta sozinho no proximo heartbeat, mas sem a configuracao: porta do tunel,
+            limites de alerta, DDNS e backup precisam ser refeitos.
+          </p>
           <form action={deleteHostAction}>
             <input type="hidden" name="host" value={host.name} />
-            <button
-              type="submit"
+            <ConfirmSubmit
+              message={`Apagar "${host.name}"?\n\nPerde porta do tunel, limites de alerta, DDNS e historico. O host reaparece, mas desconfigurado.`}
               className="rounded-full bg-red-100 px-3 py-1 text-xs text-red-700 hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900"
             >
               apagar host
-            </button>
+            </ConfirmSubmit>
           </form>
         </section>
       </div>
