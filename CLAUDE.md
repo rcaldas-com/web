@@ -100,6 +100,31 @@ That repo/service is retired (not deleted — candidate for archival).
   `systemctl reload haproxy` after editing.
 - `web` service in `docker-compose.prod.yml` has a `ro` bind mount of
   `/var/rcaldas/live/home` and is joined to `mailu_default`.
+- Central log collector: `/etc/rsyslog.d/10-collector.conf` on `us` binds
+  `imtcp` to **127.0.0.1 only** and writes `/var/log/remote/<host>/syslog.log`
+  (keyed on the syslog HOSTNAME, not the source IP — through the tunnel every
+  host arrives as 127.0.0.1). Hosts reach it via the `-L 5514:127.0.0.1:514`
+  the agent adds to its own reverse tunnel. Retention is deliberately short
+  (`/etc/logrotate.d/rcaldas-remote`, 7 days, `maxsize 200M`) because `/var`
+  on `us` is tight; long-term history is supposed to come from the backup.
+
+**Recuperar acesso a um host cuja chave não conhecemos** (procedimento
+usado para o `lev`, que só fala o protocolo zxnet antigo e não tinha chave
+autorizada em `/var/zxnet/.ssh/authorized_keys`):
+
+O `sshd` pode entregar a chave que o cliente está *oferecendo* a um script
+via `AuthorizedKeysCommand ... %t %k`. Como ele **só consulta o comando
+quando a chave não está no `authorized_keys`**, nenhum túnel existente é
+afetado. O script pode devolver a chave oferecida como autorizada, o que
+aceita o host cegamente — daí a trava obrigatória: um `Match User zxnet
+Address <ip-do-host>` (mais específico, inserido **antes** do
+`Match User zxnet` genérico) e `restrict,port-forwarding` na linha
+devolvida, para valer só para aquele IP e só para abrir túnel, nunca shell.
+
+Riscos e cuidados: é aceitação cega enquanto estiver ativo, e IP
+residencial é dinâmico — remover assim que a chave real estiver gravada.
+Sempre `cp` do `sshd_config`, `sshd -t` antes de aplicar, e `reload` (não
+`restart`) para não derrubar as sessões existentes.
 
 **Real-world bugs already found and fixed** (from actually running
 `/init` on physical Debian 13 laptops — don't reintroduce these):
