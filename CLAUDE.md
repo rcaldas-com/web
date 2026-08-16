@@ -137,6 +137,20 @@ diff the served output against what you intend (`printf '%b'` locally
 approximates the `\\`-collapse rule closely enough to catch it before a
 build or a deploy does).
 
+**Second trap in the same file: `/install` serves TWO scripts with
+separate variable scopes.** The outer installer, and the agent it writes
+via `cat > "$AGENT_BIN" <<'EOF'` (quoted heredoc — nothing expands at
+install time). Variables defined inside the agent (`LOG`, `VERSION`,
+`LOG_FORWARD_PORT`, …) do **not** exist in the installer. Both scripts
+run under `set -euo pipefail`, so referencing one from the other is a
+*fatal* unbound-variable error, and because `cat > file <<EOF` truncates
+the target before expanding, it leaves an **empty config file behind and
+aborts mid-install** — the agent silently stays on its old version while
+the run looks like it merely printed a warning. Hit twice: once with
+`$LOG`, once with `$LOG_FORWARD_PORT`. Anything needed by both must be
+declared in the installer scope (top of the file, next to `CONFIG_DIR`)
+and passed into the agent through `config.env`.
+
 **Still open / next steps:** the DDNS toggle and tunnel-request flow in
 `/monitor` have now been exercised end-to-end against a real host
 (`tp`) — this surfaced and fixed the two escaping bugs above, a token-

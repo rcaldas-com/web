@@ -9,6 +9,9 @@ CONFIG_DIR="/etc/rcaldas-agent"
 CONFIG_FILE="$CONFIG_DIR/config.env"
 AGENT_BIN="/usr/local/bin/rcaldas-agent"
 CRON_FILE="/etc/cron.d/rcaldas-agent"
+# Precisa existir NESTE escopo (o do instalador), nao so no do agente:
+# e usado tanto pra escrever o config.env quanto pro rsyslog.d abaixo.
+LOG_FORWARD_PORT="5514"
 
 need_root() {
   if [[ "${'$'}EUID" -ne 0 ]]; then
@@ -58,7 +61,7 @@ AGENT_TOKEN=$AGENT_TOKEN
 ENABLE_TUNNEL=$ENABLE_TUNNEL
 TUNNEL_RELAY=us.rcaldas.com
 TUNNEL_RELAY_PORT=8422
-LOG_FORWARD_PORT=5514
+LOG_FORWARD_PORT=$LOG_FORWARD_PORT
 EOF
 chmod 600 "$CONFIG_FILE"
 
