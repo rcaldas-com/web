@@ -124,6 +124,12 @@ export type MonitorMailEvent = {
   message?: string;
 };
 
+// Tetos contra abuso: /heartbeat aceita qualquer host novo (e assim que
+// um host recem-provisionado se registra), entao o dano de quem abusar
+// precisa ser limitado por aqui.
+const MAX_RESULTS_POR_HEARTBEAT = 20;
+const MAX_EMAILS_POR_HOST_HORA = 10;
+
 function normalizeHostName(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '-').slice(0, 80);
 }
@@ -220,8 +226,22 @@ async function upsertIncident(
     count: 1,
   });
 
-  // Incidente aberto agora: avisa. Falha de email nunca pode derrubar o
-  // heartbeat -- o registro do incidente ja esta salvo de qualquer forma.
+  // Teto de emails por host/hora. O incidente sempre fica registrado; o
+  // que e limitado e o AVISO. Sem isso, quem conseguisse mandar alarmes
+  // variando o id gerava um email por alarme -- flood na caixa e risco de
+  // queimar a reputacao do dominio como remetente.
+  const umaHoraAtras = new Date(now.getTime() - 60 * 60 * 1000);
+  const recentes = await db
+    .collection<MonitorIncident>('monitor_incidents')
+    .countDocuments({ target: params.target, openedAt: { $gte: umaHoraAtras } });
+
+  if (recentes > MAX_EMAILS_POR_HOST_HORA) {
+    console.warn(`incident email throttled for ${params.target} (${recentes} na ultima hora)`);
+    return;
+  }
+
+  // Falha de email nunca pode derrubar o heartbeat -- o incidente ja esta
+  // salvo de qualquer forma.
   try {
     await sendIncidentEmail({
       host: params.target,
@@ -374,8 +394,11 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
   await checkMonitoringThresholds(db, host, existing, payload.system);
 
   if (payload.results?.length) {
+    // Teto no lote: sem isso um POST unico com 100k entradas vira 100k
+    // inserts no Mongo. O agente real manda poucas por ciclo.
+    const lote = payload.results.slice(0, MAX_RESULTS_POR_HEARTBEAT);
     await results.insertMany(
-      payload.results.map((result) => ({
+      lote.map((result) => ({
         ...result,
         host,
         receivedAt: now,
@@ -387,7 +410,7 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     // Hoje quem manda e o proprio agente; amanha pode ser um alarme do
     // Netdata repassado (curl 127.0.0.1:19999/api/v1/alarms) ou qualquer
     // outra fonte -- sem mudar nada aqui.
-    for (const result of payload.results) {
+    for (const result of lote) {
       if (result.type !== 'alarm' || !result.id) continue;
       const key = `alarm:${host}:${result.id}`;
       if (result.status === 'ok') {
