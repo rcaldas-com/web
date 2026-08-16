@@ -58,8 +58,36 @@ AGENT_TOKEN=$AGENT_TOKEN
 ENABLE_TUNNEL=$ENABLE_TUNNEL
 TUNNEL_RELAY=us.rcaldas.com
 TUNNEL_RELAY_PORT=8422
+LOG_FORWARD_PORT=5514
 EOF
 chmod 600 "$CONFIG_FILE"
+
+# Encaminha o syslog local pro coletor central, por dentro do tunel SSH
+# (o -L abre 127.0.0.1:$LOG_FORWARD_PORT apontando pro rsyslog do relay).
+# So faz sentido se o tunel estiver ligado -- sem ele nao ha caminho.
+# Debian 13 nao traz rsyslog (so journald), entao instala se faltar --
+# e o rsyslog quem fala com o coletor.
+if [[ "$ENABLE_TUNNEL" == "true" ]] && ! command -v rsyslogd >/dev/null 2>&1; then
+  echo "instalando rsyslog (necessario pra centralizar logs)..."
+  DEBIAN_FRONTEND=noninteractive apt-get -qq install rsyslog > /dev/null 2>&1 || \
+    echo "  AVISO: nao consegui instalar rsyslog -- logs nao serao centralizados"
+fi
+
+if [[ "$ENABLE_TUNNEL" == "true" ]] && [[ -d /etc/rsyslog.d ]]; then
+  cat > /etc/rsyslog.d/60-forward-central.conf <<EOF
+# Fila EM DISCO com teto: se o coletor cair, enfileira ate 200MB e drena
+# sozinho quando voltar; se estourar o teto, descarta o mais antigo em vez
+# de encher o disco do host. resumeRetryCount=-1 = tenta pra sempre.
+action(type="omfwd"
+       target="127.0.0.1" port="$LOG_FORWARD_PORT" protocol="tcp"
+       queue.type="LinkedList"
+       queue.filename="fwd-central"
+       queue.maxdiskspace="200m"
+       queue.saveonshutdown="on"
+       action.resumeRetryCount="-1")
+EOF
+  systemctl restart rsyslog &> /dev/null || true
+fi
 
 cat > "$AGENT_BIN" <<'EOF'
 #!/usr/bin/env bash
@@ -74,7 +102,9 @@ AGENT_TOKEN="${'$'}{AGENT_TOKEN:-}"
 ENABLE_TUNNEL="${'$'}{ENABLE_TUNNEL:-false}"
 TUNNEL_RELAY="${'$'}{TUNNEL_RELAY:-us.rcaldas.com}"
 TUNNEL_RELAY_PORT="${'$'}{TUNNEL_RELAY_PORT:-8422}"
-VERSION="2.1.0"
+# Porta local que o -L do tunel expoe apontando pro rsyslog do relay.
+LOG_FORWARD_PORT="${'$'}{LOG_FORWARD_PORT:-5514}"
+VERSION="2.2.0"
 LOG="/var/log/rcaldas-agent.log"
 PENDING_RESULTS_FILE="/etc/rcaldas-agent/pending-results.json"
 
@@ -195,8 +225,14 @@ if [[ "$ENABLE_TUNNEL" == "true" ]]; then
     log "abrindo tunel reverso na porta $wanted_port via $TUNNEL_RELAY"
     local_ssh_port=$(ss -4tlnp 2>/dev/null | awk '/sshd/ {print $4}' | cut -d: -f2 | head -1)
     local_ssh_port="${'$'}{local_ssh_port:-22}"
+    # O mesmo processo ssh leva as duas direcoes: -R da acesso ao host, -L
+    # leva o syslog daqui pro coletor do us. Um processo so, reaproveitando
+    # o loop de reconciliacao que ja se auto-recupera -- e nenhuma porta
+    # nova exposta na internet, porque tudo trafega dentro do SSH.
     ssh -i /root/.ssh/id_ed25519 -o UserKnownHostsFile=/etc/rcaldas-agent/known_hosts -o StrictHostKeyChecking=accept-new \
-        -fNR "$wanted_port:127.0.0.1:$local_ssh_port" -p "$TUNNEL_RELAY_PORT" "zxnet@$TUNNEL_RELAY" 2>>"$LOG" \
+        -fNR "$wanted_port:127.0.0.1:$local_ssh_port" \
+        -L "$LOG_FORWARD_PORT:127.0.0.1:514" \
+        -p "$TUNNEL_RELAY_PORT" "zxnet@$TUNNEL_RELAY" 2>>"$LOG" \
         || log "falha ao abrir tunel na porta $wanted_port"
   fi
 fi
