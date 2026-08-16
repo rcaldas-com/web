@@ -150,16 +150,40 @@ now get an auto-assigned `tunnelPort` (next free from 7701, checked
 against other hosts so two never collide on the shared relay) and a
 single "abrir túnel" action replaces the old toggle-then-type-a-port-
 then-click-pedir flow, which had zero user-facing feedback on failure.
-Not yet done: verifying this in production after the next image build
-(built locally as of this writing, not yet deployed), and the bigger
-follow-ups the user flagged — retiring the old `rcaldas-com/init` /
-`rcaldas-init` Docker service (still unused but not archived), and
-observability/alerting (`monitor_incidents` is defined but nothing ever
-writes to it — no automatic incident on a host going stale or on
-repeated invalid-heartbeat attempts; disk/log-volume monitoring exists
-per-host via `diskRootPct`/`diskVarPct`/`diskVarLogPct` but nothing acts
-on thresholds; nftables drop-log noise reduction plus a fail2ban-style
-response was discussed — decision was to lean on real `fail2ban` per
-host rather than rebuild its pattern-matching, with Monitor staying
-observe-only and at most surfacing AI-assisted suggestions from curated
-data, not making block decisions itself).
+Not yet done: retiring the old `rcaldas-com/init` / `rcaldas-init` Docker
+service (still unused but not archived). Alerting is now live: thresholds
+(`monitoring.diskThresholdPct`/`memoryThresholdPct`/`cpuThresholdPct`) open
+and resolve incidents in `monitor_incidents` and email the admin on the
+*transition* (never per-heartbeat). Incident creation is source-agnostic —
+any heartbeat result with `type: "alarm"` becomes an incident, so a Netdata
+alarm relayed from `127.0.0.1:19999/api/v1/alarms` would drop in without
+server changes. `cpuPct` is a real average over the interval since the last
+heartbeat (delta of `/proc/stat` via a state file), in the provider's unit
+where 100% = one core — deliberately so it can be compared to (and beat)
+Linode's own alert, which only averages over 2 hours.
+
+## Próximo módulo: monitoramento/backup por SERVIÇO (não por host)
+
+O que existe hoje é tudo orientado a **host** (disco, CPU, memória, túnel,
+backup de diretórios). O próximo módulo é orientado a **serviço** — o
+usuário tem uma lista pra cadastrar (Mongo, este próprio app, e outros).
+
+A ideia central, que apareceu de um caso real: hoje a jail `mongodb-auth`
+do fail2ban no `us` apontava pra `/var/mongodb/logs/mongodb.log`, mas o
+deploy do Mongo tinha mudado pra `/var/rcaldas/mongodb/logs/`. Ninguém
+percebeu até um restart derrubar o fail2ban inteiro. **Esse tipo de
+informação — onde o serviço está deployado, onde ele loga — pertence ao
+cadastro do serviço no Monitor**, e o Monitor passa a usar isso pra
+configurar os fail2ban de forma centralizada, em vez de cada host ter
+caminhos hardcoded que silenciosamente apodrecem.
+
+Outros itens que caem nesse módulo:
+- Backup de serviço (dump do Mongo, buckets S3 de produção) — hoje coberto
+  à mão por `rcaldas/scripts/restore_prod.sh`.
+- Rotação de log por serviço: `/var/rcaldas/mongodb/logs/mongodb.log`
+  estava com **834MB sem rotação** (mesmo padrão dos logs de host que já
+  foram corrigidos).
+- Nota: `car` e `wallet` são apps irmãos (mesmo padrão de código, mesmo
+  Mongo, mesmo emailer) e usam as `S3_*` de produção — por isso o backup
+  precisa de um bucket/credenciais **separados** (`BACKUP_S3_*`), nunca o
+  mesmo bucket que guarda o dado a ser copiado.
