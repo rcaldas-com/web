@@ -26,6 +26,8 @@ export type HeartbeatPayload = {
     diskRootPct?: number;
     diskVarPct?: number | null;
     diskVarLogPct?: number | null;
+    // So o runner reporta: uso do disco onde os backups sao guardados.
+    backupDiskPct?: number | null;
     memoryPct?: number;
   };
   tunnel?: {
@@ -86,6 +88,12 @@ export type MonitorHost = {
     // Mesmos intervalos do rsnapshot atual (hora/dia/semana/mes).
     retention?: { hora?: number; dia?: number; semana?: number; mes?: number };
   };
+  // Marca este host como o que EXECUTA os backups da frota. So um por vez;
+  // trocar e marcar outro e rodar o setup nele.
+  backupRunner?: {
+    enabled?: boolean;
+    snapshotRoot?: string;
+  };
 };
 
 // Um host da frota faz o backup dos outros (o `bag` hoje). Puxa via SSH,
@@ -129,13 +137,21 @@ export type MonitorMailEvent = {
 // este arquivo, sem reprovisionar host nenhum.
 const SYNC_HOME_DIR = process.env.SYNC_HOME_DIR || '/var/rcaldas/live/home';
 
+// Cache: sem isso seria um read de disco por heartbeat de cada host,
+// pra um arquivo que quase nunca muda.
+let runnerKeyCache: { valor?: string; ate: number } = { ate: 0 };
+
 function readBackupRunnerKey(): string | undefined {
+  if (Date.now() < runnerKeyCache.ate) return runnerKeyCache.valor;
   try {
     const k = fs.readFileSync(path.join(SYNC_HOME_DIR, '.ssh/backup-runner.pub'), 'utf8').trim();
     // Sanity check: uma linha, formato de chave. Nunca mandar lixo pros
     // hosts, que vao gravar isso em authorized_keys.
-    return /^ssh-[a-z0-9-]+ [A-Za-z0-9+/=]+( \S+)?$/.test(k) ? k : undefined;
+    const valor = /^ssh-[a-z0-9-]+ [A-Za-z0-9+/=]+( \S+)?$/.test(k) ? k : undefined;
+    runnerKeyCache = { valor, ate: Date.now() + 60_000 };
+    return valor;
   } catch {
+    runnerKeyCache = { valor: undefined, ate: Date.now() + 60_000 };
     return undefined;
   }
 }
