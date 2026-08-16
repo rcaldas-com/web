@@ -491,8 +491,16 @@ export async function registerLegacyPing(hostName: string, headers: Headers): Pr
   const now = new Date();
 
   const existing = await db.collection<MonitorHost>('monitor_hosts').findOne({ name: host });
-  const port = existing?.tunnelPort ?? (await nextTunnelPort(db, host));
-  const tunnelEnabled = existing?.tunnelEnabled ?? true;
+
+  // O protocolo legado nao tem como se autenticar (o zxnet so faz um GET
+  // sem segredo nenhum), entao esta rota NAO cria host. Sem isso, qualquer
+  // um cria hosts a vontade com um curl -- inclusive em loop, enchendo a
+  // base. Host novo tem que ser cadastrado no Monitor de proposito, e so
+  // depois o ping dele passa a valer.
+  if (!existing) return 0;
+
+  const port = existing.tunnelPort ?? (await nextTunnelPort(db, host));
+  const tunnelEnabled = existing.tunnelEnabled ?? true;
 
   // getRemoteIp ja cuida de pegar o IP real por tras do Cloudflare/HAProxy
   // (cf-connecting-ip antes de x-forwarded-for) -- o zxnet antigo nao manda
@@ -518,23 +526,13 @@ export async function registerLegacyPing(hostName: string, headers: Headers): Pr
     lastIp: ip,
   };
 
-  if (existing?.ddnsEnabled && isIpv6 && ip && (!existing.cfRecordId || ip !== existing.network?.ipv6)) {
-    try {
-      const recordId = await updateCloudflareDdns(host, ip, existing.cfRecordId);
-      if (recordId) set.cfRecordId = recordId;
-    } catch (error) {
-      console.error('ddns update failed (legacy ping):', error);
-    }
-  }
+  // DDNS NAO sai daqui de proposito. Como este endpoint nao autentica
+  // ninguem, quem chamasse /ping?host=X apontaria o DNS de X pro proprio
+  // IP -- sequestro de subdominio com um curl. Ja aconteceu por acidente:
+  // um teste feito do tp reescreveu o registro do lev. DDNS so pelo
+  // /heartbeat, que exige token do agente.
 
-  await db.collection<MonitorHost>('monitor_hosts').updateOne(
-    { name: host },
-    {
-      $set: set,
-      $setOnInsert: { createdAt: now, tunnelEnabled: true },
-    },
-    { upsert: true }
-  );
+  await db.collection<MonitorHost>('monitor_hosts').updateOne({ name: host }, { $set: set });
 
   return tunnelEnabled ? port : 0;
 }
