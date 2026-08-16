@@ -279,10 +279,15 @@ function set_ssh(){
 function set_fail2ban(){
   echo fail2ban
   package_installer "fail2ban"
-  # Jail propria em jail.d/ em vez de jail.local -- nao pisa em nenhuma
-  # config manual que ja exista no host (jail.d/*.conf convive com
-  # jail.local sem conflito, é o jeito recomendado de acrescentar).
-  cat > /etc/fail2ban/jail.d/rcaldas-sshd.conf <<EOF
+  # Se o host ja tem jail.local com um [sshd] proprio, nao encosta: sao
+  # valores ajustados a mao que nao devem ser atropelados. Precedencia do
+  # fail2ban e traicoeira -- [sshd] no nosso jail.d perde pro [sshd] do
+  # jail.local, mas GANHA do [DEFAULT] dele. Ja aconteceu de afrouxar um
+  # bantime de 1 dia pra 1 hora sem ninguem perceber.
+  if grep -qs '^\\[sshd\\]' /etc/fail2ban/jail.local; then
+    echo "  jail.local ja tem [sshd] proprio -- preservando"
+  else
+    cat > /etc/fail2ban/jail.d/rcaldas-sshd.conf <<EOF
 [sshd]
 enabled = true
 port = $SSH_PORT
@@ -290,8 +295,14 @@ maxretry = 5
 findtime = 10m
 bantime = 1h
 EOF
+  fi
   systemctl enable fail2ban &> /dev/null
-  systemctl restart fail2ban &> /dev/null
+  # restart --now-if-failed: se a config do host tiver algum jail quebrado
+  # (ex: logpath que mudou de lugar), o restart derruba o fail2ban inteiro
+  # e o host fica sem protecao nenhuma. Avisa alto em vez de sair calado.
+  if ! systemctl restart fail2ban &> /dev/null; then
+    echo "  AVISO: fail2ban NAO subiu -- host sem protecao. Ver: journalctl -u fail2ban"
+  fi
 }
 
 function ensure_root_key(){
