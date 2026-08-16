@@ -191,41 +191,58 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
         <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <h2 className="mb-1 font-semibold text-zinc-950 dark:text-zinc-50">Backup</h2>
           <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-            So configuracao por enquanto -- a execucao continua local em cada host (rsnapshot/cron existentes).
+            O runner puxa via SSH (usando o túnel quando o host está atrás de NAT). Depois de
+            salvar, atualize as configs no runner com{' '}
+            <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">curl -fsSL .../backup-config | sudo bash</code>.
           </p>
-          <form action={setBackupConfigAction} className="flex flex-wrap items-end gap-4 text-sm">
+          <form action={setBackupConfigAction} className="flex flex-col gap-4 text-sm">
             <input type="hidden" name="host" value={host.name} />
+
             <label className="flex items-center gap-2">
               <input type="checkbox" name="enabled" defaultChecked={host.backup?.enabled} />
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">Ativo</span>
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Fazer backup deste host</span>
             </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" name="encrypted" defaultChecked={host.backup?.encrypted} />
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">Criptografado</span>
-            </label>
+
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">Retencao (dias)</span>
-              <input
-                type="number"
-                name="retentionDays"
-                min={1}
-                defaultValue={host.backup?.retentionDays ?? ''}
-                className="w-24 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                Diretórios — um por linha. Para ignorar algo, acrescente <code>!caminho</code> na mesma linha.
+              </span>
+              <textarea
+                name="includes"
+                rows={6}
+                placeholder={'/etc/\n/var/rcaldas/live\n/var/mongodb !/var/mongodb/db !/var/mongodb/logs'}
+                defaultValue={(host.backup?.includes ?? [])
+                  .map((i) => [i.path, ...(i.excludes ?? []).map((e) => `!${e}`)].join(' '))
+                  .join('\n')}
+                className="w-full rounded border border-zinc-200 bg-white px-2 py-1 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-950"
               />
             </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">Destino</span>
-              <input
-                type="text"
-                name="target"
-                placeholder="ex: tank/bkp"
-                defaultValue={host.backup?.target ?? ''}
-                className="w-40 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-              />
-            </label>
+
+            <div className="flex flex-wrap items-end gap-3">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Manter cópias:</span>
+              {(
+                [
+                  ['retHora', 'de hora', host.backup?.retention?.hora ?? 6],
+                  ['retDia', 'diárias', host.backup?.retention?.dia ?? 7],
+                  ['retSemana', 'semanais', host.backup?.retention?.semana ?? 4],
+                  ['retMes', 'mensais', host.backup?.retention?.mes ?? 3],
+                ] as const
+              ).map(([name, label, valor]) => (
+                <label key={name} className="flex flex-col gap-1">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">{label}</span>
+                  <input
+                    type="number"
+                    name={name}
+                    min={0}
+                    defaultValue={valor}
+                    className="w-16 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                  />
+                </label>
+              ))}
+            </div>
             <button
               type="submit"
-              className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              className="w-fit rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
             >
               salvar
             </button>

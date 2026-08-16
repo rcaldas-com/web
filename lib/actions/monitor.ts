@@ -75,18 +75,44 @@ export async function setMonitoringConfigAction(formData: FormData) {
   revalidatePath(`/monitor/${host}`);
 }
 
+// Diretorios chegam como texto (um por linha), no formato:
+//   /caminho
+//   /caminho !exclude1 !exclude2
+// Textarea em vez de campos dinamicos porque e mais rapido de editar a mao
+// e nao exige JS pra adicionar/remover linha.
+function parseIncludes(raw: string) {
+  return raw
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((linha) => {
+      const partes = linha.split(/\s+/);
+      const path = partes[0];
+      const excludes = partes.slice(1).filter((p) => p.startsWith('!')).map((p) => p.slice(1));
+      return excludes.length ? { path, excludes } : { path };
+    })
+    .filter((i) => i.path.startsWith('/'));
+}
+
+function intOuPadrao(raw: FormDataEntryValue | null, padrao: number) {
+  const n = Number(String(raw || '').trim());
+  return Number.isInteger(n) && n >= 0 ? n : padrao;
+}
+
 export async function setBackupConfigAction(formData: FormData) {
   await requireAdmin();
   const host = String(formData.get('host') || '');
   if (!host) return;
-  const retentionRaw = String(formData.get('retentionDays') || '').trim();
-  const retentionDays = retentionRaw ? Number(retentionRaw) : undefined;
-  if (retentionDays != null && (!Number.isInteger(retentionDays) || retentionDays < 1)) return;
+
   await setBackupConfig(host, {
     enabled: formData.get('enabled') === 'on',
-    encrypted: formData.get('encrypted') === 'on',
-    retentionDays,
-    target: String(formData.get('target') || '').trim() || undefined,
+    includes: parseIncludes(String(formData.get('includes') || '')),
+    retention: {
+      hora: intOuPadrao(formData.get('retHora'), 6),
+      dia: intOuPadrao(formData.get('retDia'), 7),
+      semana: intOuPadrao(formData.get('retSemana'), 4),
+      mes: intOuPadrao(formData.get('retMes'), 3),
+    },
   });
   revalidatePath(`/monitor/${host}`);
 }

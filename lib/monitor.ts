@@ -76,15 +76,28 @@ export type MonitorHost = {
     // provedor mostra. A janela aqui e de ~60s contra as 2h da Linode.
     cpuThresholdPct?: number;
   };
-  // So configuracao por enquanto -- a execucao do backup continua local em
-  // cada host (rsnapshot/cron existentes), isso aqui e so o que fica
-  // centralizado pra decidir/auditar, nao dispara nada sozinho ainda.
+  // O que copiar deste host. A execucao continua local no runner
+  // (rsnapshot), isso aqui e a fonte da verdade que gera a config dele --
+  // mesmo formato que os .bkp escritos a mao usam hoje.
   backup?: {
     enabled?: boolean;
-    retentionDays?: number;
-    encrypted?: boolean;
-    target?: string;
+    // Varios diretorios, cada um com seus proprios excludes.
+    includes?: { path: string; excludes?: string[] }[];
+    // Mesmos intervalos do rsnapshot atual (hora/dia/semana/mes).
+    retention?: { hora?: number; dia?: number; semana?: number; mes?: number };
   };
+};
+
+// Um host da frota faz o backup dos outros (o `bag` hoje). Puxa via SSH,
+// usando os tuneis quando o host esta atras de NAT -- por isso a config
+// precisa ser gerada aqui, que e quem sabe a porta de cada um.
+export type BackupPlanEntry = {
+  host: string;
+  // Como o runner alcanca esse host: porta do tunel no relay, ou direto.
+  sshPort: number;
+  sshHost: string;
+  includes: { path: string; excludes?: string[] }[];
+  retention: { hora: number; dia: number; semana: number; mes: number };
 };
 
 export type MonitorIncident = {
@@ -567,16 +580,53 @@ export async function setMonitoringConfig(
     .updateOne({ name: host }, { $set: { monitoring: config, updatedAt: new Date() } });
 }
 
-export async function setBackupConfig(
-  hostName: string,
-  config: { enabled: boolean; retentionDays?: number; encrypted: boolean; target?: string }
-) {
+export async function setBackupConfig(hostName: string, config: MonitorHost['backup']) {
   const host = normalizeHostName(hostName);
   const client = await clientPromise;
   const db = client.db();
   await db
     .collection<MonitorHost>('monitor_hosts')
     .updateOne({ name: host }, { $set: { backup: config, updatedAt: new Date() } });
+}
+
+const TUNNEL_RELAY_HOST = process.env.TUNNEL_RELAY_HOST || 'us.rcaldas.com';
+const DIRECT_SSH_PORT = Number(process.env.DIRECT_SSH_PORT || 8422);
+
+// Monta o plano que o runner executa. E aqui que "o sistema resolve as
+// questoes de acesso": o Monitor sabe quem tem tunel e em que porta, entao
+// traduz isso pra como o rsnapshot deve alcancar cada host.
+//
+// Host atras de NAT: vai pelo relay, na porta do tunel dele.
+// Host com IP proprio e porta aberta (o us): direto na 8422.
+// Quem faz o backup nao entra no proprio plano.
+export async function getBackupPlan(runnerHost: string): Promise<BackupPlanEntry[]> {
+  const runner = normalizeHostName(runnerHost);
+  const client = await clientPromise;
+  const db = client.db();
+
+  const hosts = await db
+    .collection<MonitorHost>('monitor_hosts')
+    .find({ 'backup.enabled': true }, { projection: { tokenHash: 0 } })
+    .sort({ name: 1 })
+    .toArray();
+
+  return hosts
+    .filter((h) => h.name !== runner && (h.backup?.includes?.length ?? 0) > 0)
+    .map((h) => {
+      const viaTunnel = Boolean(h.tunnelEnabled && h.tunnelPort);
+      return {
+        host: h.name,
+        sshHost: TUNNEL_RELAY_HOST,
+        sshPort: viaTunnel ? (h.tunnelPort as number) : DIRECT_SSH_PORT,
+        includes: h.backup?.includes ?? [],
+        retention: {
+          hora: h.backup?.retention?.hora ?? 6,
+          dia: h.backup?.retention?.dia ?? 7,
+          semana: h.backup?.retention?.semana ?? 4,
+          mes: h.backup?.retention?.mes ?? 3,
+        },
+      };
+    });
 }
 
 export async function createHost(hostName: string, options: { ddnsEnabled: boolean; tunnelEnabled: boolean }) {
