@@ -11,8 +11,8 @@ import {
   resolveIncidentAction,
 } from '@/lib/actions/monitor';
 import AutoRefresh from '@/app/finance/AutoRefresh';
-import ConfirmSubmit from '@/app/monitor/ConfirmSubmit';
 import SubmitButton from '@/components/SubmitButton';
+import HostsSection from '@/app/monitor/HostsSection';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -151,110 +151,14 @@ export default async function MonitorPage() {
           </section>
         </div>
 
-        <section className="mb-6 rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-            <h2 className="font-semibold text-zinc-950 dark:text-zinc-50">Hosts</h2>
-          </div>
-          <form action={createHostAction} className="flex flex-wrap items-center gap-3 border-b border-zinc-200 px-4 py-3 text-sm dark:border-zinc-800">
-            <input
-              type="text"
-              name="host"
-              placeholder="nome do host"
-              required
-              className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-            />
-            <label className="flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300">
-              <input type="checkbox" name="ddnsEnabled" /> DDNS
-            </label>
-            <label className="flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300">
-              <input type="checkbox" name="tunnelEnabled" /> Túnel
-            </label>
-            <SubmitButton className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
-              novo host
-            </SubmitButton>
-          </form>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
-                <tr>
-                  <th className="px-4 py-3">Host</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Ultimo heartbeat</th>
-                  <th className="px-4 py-3">IP</th>
-                  <th className="px-4 py-3">Carga</th>
-                  <th className="px-4 py-3">Disco</th>
-                  <th className="px-4 py-3">DDNS</th>
-                  <th className="px-4 py-3">Túnel</th>
-                  <th className="px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {overview.hosts.map((host) => (
-                  <tr key={host._id} className="text-zinc-700 dark:text-zinc-300">
-                    <td className="px-4 py-3 font-medium text-zinc-950 dark:text-zinc-50">
-                      <Link href={`/monitor/${host.name}`} className="hover:underline">
-                        {host.name}
-                      </Link>
-                      {host.capabilities?.includes('tunnel-legacy') && (
-                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                          legado
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${statusClass(host.status)}`}>{host.status}</span></td>
-                    <td className="px-4 py-3">{formatDate(host.lastSeen)}</td>
-                    <td className="px-4 py-3">{host.network?.publicIp || host.network?.ipv4 || host.lastIp || '-'}</td>
-                    <td className="px-4 py-3">{host.system?.load1 ?? '-'}</td>
-                    <td className="px-4 py-3">
-                      {host.system?.diskRootPct != null ? `${host.system.diskRootPct}%` : '-'}
-                      {host.system?.diskVarPct != null && (
-                        <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">/var {host.system.diskVarPct}%</span>
-                      )}
-                      {host.system?.diskVarLogPct != null && (
-                        <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">/var/log {host.system.diskVarLogPct}%</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <form action={toggleDdnsAction}>
-                        <input type="hidden" name="host" value={host.name} />
-                        <input type="hidden" name="enabled" value={host.ddnsEnabled ? 'false' : 'true'} />
-                        <SubmitButton
-                          className={`rounded-full px-2 py-1 text-xs ${host.ddnsEnabled ? statusClass('ok') : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'}`}
-                        >
-                          {host.ddnsEnabled ? 'ativo' : 'inativo'}
-                        </SubmitButton>
-                      </form>
-                    </td>
-                    <td className="px-4 py-3">
-                      <form action={host.tunnelEnabled ? disableTunnelAction : openTunnelAction}>
-                        <input type="hidden" name="host" value={host.name} />
-                        <SubmitButton
-                          className={`rounded-full px-2 py-1 text-xs ${host.tunnelEnabled ? statusClass('ok') : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'}`}
-                        >
-                          {host.tunnelEnabled ? `ativo:${host.tunnelPort}` : 'inativo'}
-                        </SubmitButton>
-                      </form>
-                    </td>
-                    <td className="px-4 py-3">
-                      <form action={deleteHostAction}>
-                        <input type="hidden" name="host" value={host.name} />
-                        <ConfirmSubmit
-                          message={`Apagar "${host.name}"?\n\nO host volta sozinho no proximo heartbeat, mas SEM a configuracao: porta do tunel (pode mudar e quebrar o alias de ssh), limites de alerta (para de avisar) e DDNS.`}
-                          className="rounded-full bg-red-100 px-2 py-1 text-xs text-red-700 hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900"
-                        >
-                          apagar
-                        </ConfirmSubmit>
-                      </form>
-                    </td>
-                  </tr>
-                ))}
-                {!overview.hosts.length && (
-                  <tr><td className="px-4 py-8 text-center text-zinc-500" colSpan={9}>Nenhum host registrado ainda.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <HostsSection
+          hosts={overview.hosts}
+          createHostAction={createHostAction}
+          toggleDdnsAction={toggleDdnsAction}
+          disableTunnelAction={disableTunnelAction}
+          openTunnelAction={openTunnelAction}
+          deleteHostAction={deleteHostAction}
+        />
 
         <div className="mb-6 grid gap-3 sm:grid-cols-3">
           {[
