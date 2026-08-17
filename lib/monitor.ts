@@ -78,6 +78,14 @@ export type MonitorHost = {
     // provedor mostra. A janela aqui e de ~60s contra as 2h da Linode.
     cpuThresholdPct?: number;
   };
+  // Heartbeats CONSECUTIVOS acima do limite, pra memoria/cpu -- um pico de
+  // build/GC de 1 minuto nao deveria abrir e fechar incidente sozinho.
+  // Disco fica de fora de proposito: nao tem "pico passageiro" de disco,
+  // se passou do limite e porque encheu de verdade.
+  breachStreaks?: {
+    memory?: number;
+    cpu?: number;
+  };
   // O que copiar deste host. A execucao continua local no runner
   // (rsnapshot), isso aqui e a fonte da verdade que gera a config dele --
   // mesmo formato que os .bkp escritos a mao usam hoje.
@@ -106,6 +114,14 @@ export type MonitorHost = {
     enabled?: boolean;
     snapshotRoot?: string;
   };
+  // Fastfetch filtrado do host (mesmo comando que roda no fim do /init).
+  // NAO vem no heartbeat -- e bem maior que o resto do payload, entao e
+  // buscado por job (ver enqueueJob 'host-info'), no maximo 1-2x por dia,
+  // reaproveitando o mesmo hasJobs que ja existe pra backup-config etc.
+  info?: {
+    text: string;
+    collectedAt: Date;
+  };
 };
 
 // Um host da frota faz o backup dos outros (o `bag` hoje). Puxa via SSH,
@@ -131,7 +147,7 @@ export type BackupPlanEntry = {
 export type AgentJob = {
   _id: ObjectId;
   host: string;
-  type: 'backup-config' | 'update-agent';
+  type: 'backup-config' | 'update-agent' | 'host-info';
   status: 'pending' | 'sent' | 'done' | 'failed';
   createdAt: Date;
   sentAt?: Date;
@@ -378,6 +394,11 @@ export async function resolveIncidentManually(incidentId: string) {
   await resolveIncident(db, incident.key);
 }
 
+// Heartbeats seguidos acima do limite antes de abrir incidente de
+// memoria/cpu -- ~3 minutos sustentados, nao um pico de build/GC de 60s
+// que se resolve sozinho sem ninguem fazer nada. Ver MonitorHost.breachStreaks.
+const CONSECUTIVE_BREACHES_REQUIRED = 3;
+
 // So faz alguma coisa se o admin configurou um limite pra esse host na
 // pagina de detalhe (MonitorHost.monitoring) -- sem config, e um no-op.
 // Abre/atualiza um incidente quando cruza o limite, resolve sozinho no
@@ -402,17 +423,28 @@ async function checkMonitoringThresholds(db: Db, host: string, existing: Monitor
     }
   }
 
+  const streaks = { ...existing?.breachStreaks };
+  let streaksChanged = false;
+
   if (cfg.memoryThresholdPct != null && system.memoryPct != null) {
     const key = `mem:${host}`;
     if (system.memoryPct >= cfg.memoryThresholdPct) {
-      await upsertIncident(db, {
-        key,
-        target: host,
-        severity: system.memoryPct >= cfg.memoryThresholdPct + 10 ? 'critical' : 'warning',
-        summary: `Memoria em ${system.memoryPct}% (limite ${cfg.memoryThresholdPct}%)`,
-        emailSubject: `memoria acima do limite (${cfg.memoryThresholdPct}%)`,
-      });
+      streaks.memory = (streaks.memory ?? 0) + 1;
+      streaksChanged = true;
+      if (streaks.memory >= CONSECUTIVE_BREACHES_REQUIRED) {
+        await upsertIncident(db, {
+          key,
+          target: host,
+          severity: system.memoryPct >= cfg.memoryThresholdPct + 10 ? 'critical' : 'warning',
+          summary: `Memoria em ${system.memoryPct}% (limite ${cfg.memoryThresholdPct}%)`,
+          emailSubject: `memoria acima do limite (${cfg.memoryThresholdPct}%)`,
+        });
+      }
     } else {
+      if (streaks.memory) {
+        streaks.memory = 0;
+        streaksChanged = true;
+      }
       await resolveIncident(db, key);
     }
   }
@@ -420,19 +452,31 @@ async function checkMonitoringThresholds(db: Db, host: string, existing: Monitor
   if (cfg.cpuThresholdPct != null && system.cpuPct != null) {
     const key = `cpu:${host}`;
     if (system.cpuPct >= cfg.cpuThresholdPct) {
-      const cores = system.cpuCount ? ` de ${system.cpuCount * 100}%` : '';
-      await upsertIncident(db, {
-        key,
-        target: host,
-        severity: system.cpuPct >= cfg.cpuThresholdPct + 20 ? 'critical' : 'warning',
-        summary: `CPU em ${system.cpuPct}%${cores} (limite ${cfg.cpuThresholdPct}%)`,
-        emailSubject: `cpu acima do limite (${cfg.cpuThresholdPct}%)`,
-        // Isso e o que o alerta do provedor nao entrega: quem esta comendo CPU.
-        detail: system.topCpu ? `Processos no topo: ${system.topCpu}` : undefined,
-      });
+      streaks.cpu = (streaks.cpu ?? 0) + 1;
+      streaksChanged = true;
+      if (streaks.cpu >= CONSECUTIVE_BREACHES_REQUIRED) {
+        const cores = system.cpuCount ? ` de ${system.cpuCount * 100}%` : '';
+        await upsertIncident(db, {
+          key,
+          target: host,
+          severity: system.cpuPct >= cfg.cpuThresholdPct + 20 ? 'critical' : 'warning',
+          summary: `CPU em ${system.cpuPct}%${cores} (limite ${cfg.cpuThresholdPct}%)`,
+          emailSubject: `cpu acima do limite (${cfg.cpuThresholdPct}%)`,
+          // Isso e o que o alerta do provedor nao entrega: quem esta comendo CPU.
+          detail: system.topCpu ? `Processos no topo: ${system.topCpu}` : undefined,
+        });
+      }
     } else {
+      if (streaks.cpu) {
+        streaks.cpu = 0;
+        streaksChanged = true;
+      }
       await resolveIncident(db, key);
     }
+  }
+
+  if (streaksChanged) {
+    await db.collection<MonitorHost>('monitor_hosts').updateOne({ name: host }, { $set: { breachStreaks: streaks } });
   }
 }
 
@@ -497,6 +541,8 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
 
   await checkMonitoringThresholds(db, host, existing, payload.system);
 
+  let infoCollectedAt = existing?.info?.collectedAt;
+
   if (payload.results?.length) {
     // Teto no lote: sem isso um POST unico com 100k entradas vira 100k
     // inserts no Mongo. O agente real manda poucas por ciclo.
@@ -533,6 +579,21 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
       }
     }
 
+    // Ficha do host (fastfetch filtrado). Canal separado do 'job' acima de
+    // proposito: o result de um job comum trunca em 500 chars (o bastante
+    // pra um "ok"/"falhou -- ver log"), mas o texto do fastfetch e maior
+    // que isso -- por isso vai pro documento do host, nao pro registro do
+    // job.
+    for (const result of lote) {
+      if (result.type !== 'info' || result.id !== 'host-info' || !result.message) continue;
+      await hosts.updateOne({ name: host }, { $set: { info: { text: result.message.slice(0, 8000), collectedAt: now } } });
+      // Reflete no mesmo ciclo -- sem isso, a checagem de idade la embaixo
+      // ainda ve o 'existing' capturado antes deste update (info de 14h+
+      // atras) e enfileiraria outro job redundante bem no heartbeat que
+      // acabou de entregar o resultado fresco.
+      infoCollectedAt = now;
+    }
+
     for (const result of lote) {
       if (result.type !== 'alarm' || !result.id) continue;
       const key = `alarm:${host}:${result.id}`;
@@ -556,6 +617,16 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
   // heartbeat, sem depender de um job avulso e com expiracao.
   const tunnelEnabled = existing?.tunnelEnabled ?? false;
   const tunnelPort = existing?.tunnelPort;
+
+  // Ficha do host: busca no maximo 1-2x por dia, nunca a cada heartbeat --
+  // e um payload bem maior que o resto, sem necessidade de ficar fresco
+  // minuto a minuto. Mesmo mecanismo hasJobs que ja existe pra
+  // backup-config/update-agent, so que agendado por idade em vez de por
+  // mudanca de configuracao.
+  const infoStaleCutoff = new Date(now.getTime() - 14 * 60 * 60 * 1000);
+  if (!infoCollectedAt || infoCollectedAt < infoStaleCutoff) {
+    await enqueueJob(host, 'host-info');
+  }
 
   // Devolve pra fila o que ficou preso em 'sent' (host reiniciou no meio)
   // antes de contar, senao um job travado nunca mais seria entregue.
@@ -801,6 +872,7 @@ export async function getMonitorHost(hostName: string) {
     lastSeen: doc.lastSeen?.toISOString(),
     updatedAt: doc.updatedAt?.toISOString(),
     createdAt: doc.createdAt?.toISOString(),
+    info: doc.info ? { text: doc.info.text, collectedAt: doc.info.collectedAt?.toISOString() } : undefined,
   };
 }
 

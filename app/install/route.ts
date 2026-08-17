@@ -112,7 +112,7 @@ LOG="/var/log/rcaldas-agent.log"
 PENDING_RESULTS_FILE="/etc/rcaldas-agent/pending-results.json"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG" >/dev/null; }
-json_escape() { printf '%s' "$1" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g'; }
+json_escape() { printf '%s' "$1" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g' | sed -z 's/\\n/\\\\n/g; s/\\t/\\\\t/g'; }
 
 ipv4=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}' || true)
 ipv6=$(ip -6 addr show scope global 2>/dev/null | grep '/64' | grep -v 'temporary\|deprecated' | awk '{print $2}' | cut -d/ -f1 | head -1 || true)
@@ -295,7 +295,7 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
     jtype=$(printf '%s' "$job" | sed -n 's/.*"type":"\\([^"]*\\)".*/\\1/p')
     [[ -z "$jid" || -z "$jtype" ]] && continue
 
-    jstatus="fail"; jmsg="tipo desconhecido: $jtype"
+    jstatus="fail"; jmsg="tipo desconhecido: $jtype"; info_result=""
     case "$jtype" in
       backup-config)
         log "job $jid: regerando configs de backup"
@@ -312,10 +312,28 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
         setsid bash -c "sleep 2; curl -fsSL '$APP_URL/install' | bash" >> "$LOG" 2>&1 &
         jstatus="ok"; jmsg="atualizacao do agente disparada"
         ;;
+      host-info)
+        log "job $jid: coletando informacoes do host (fastfetch)"
+        # Mesmo comando filtrado que roda no fim do /init. Vai como result
+        # SEPARADO (type:info, id fixo "host-info", nao o $jid do job) --
+        # o texto e bem maior que o resto e o servidor trata os dois canais
+        # de forma diferente (job trunca em 500 chars, info nao).
+        if ! command -v fastfetch >/dev/null 2>&1; then
+          jmsg="fastfetch nao instalado neste host"
+        else
+          info_text=$(fastfetch --logo none --pipe true -s "OS:Host:Kernel:Uptime:Packages:Shell:CPU:GPU:Memory:Swap:Disk:LocalIP:Locale" 2>&1)
+          if [[ -n "$info_text" ]]; then
+            jstatus="ok"; jmsg="fastfetch coletado"
+            info_result=",{\\"id\\":\\"host-info\\",\\"type\\":\\"info\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$info_text")\\"}"
+          else
+            jmsg="fastfetch sem saida"
+          fi
+        fi
+        ;;
     esac
 
     [[ -n "$job_results" ]] && job_results="$job_results,"
-    job_results="$job_results{\\"id\\":\\"$jid\\",\\"type\\":\\"job\\",\\"status\\":\\"$jstatus\\",\\"message\\":\\"$(json_escape "$jmsg")\\"}"
+    job_results="$job_results{\\"id\\":\\"$jid\\",\\"type\\":\\"job\\",\\"status\\":\\"$jstatus\\",\\"message\\":\\"$(json_escape "$jmsg")\\"}$info_result"
   done < <(printf '%s' "$jobs" | grep -o '{[^}]*}')
 
   if [[ -n "$job_results" ]]; then

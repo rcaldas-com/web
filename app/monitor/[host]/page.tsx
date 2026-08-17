@@ -32,10 +32,14 @@ function statusClass(status?: string) {
 }
 
 function field(label: string, value: React.ReactNode) {
+  // Sem dado nao e "-" -- e a linha inteira sumindo. Um host sem /var
+  // separado nunca vai ter diskVarPct, e mostrar "Disco /var: -" pra
+  // sempre e so ruido; melhor a metrica nem aparecer nesse host.
+  if (value == null) return null;
   return (
     <div>
       <div className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{label}</div>
-      <div className="mt-1 text-sm text-zinc-900 dark:text-zinc-100">{value ?? '-'}</div>
+      <div className="mt-1 text-sm text-zinc-900 dark:text-zinc-100">{value}</div>
     </div>
   );
 }
@@ -87,6 +91,20 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
           {field('Disco /var/log', host.system?.diskVarLogPct != null ? `${host.system.diskVarLogPct}%` : undefined)}
           {field('Uptime', host.system?.uptime != null ? `${Math.floor(host.system.uptime / 3600)}h` : undefined)}
         </section>
+
+        {host.info?.text && (
+          <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h2 className="font-semibold text-zinc-950 dark:text-zinc-50">Ficha do host</h2>
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                coletado {formatDate(host.info.collectedAt)}
+              </span>
+            </div>
+            <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-zinc-50 p-3 text-xs text-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+              {host.info.text}
+            </pre>
+          </section>
+        )}
 
         <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <h2 className="mb-3 font-semibold text-zinc-950 dark:text-zinc-50">Acesso</h2>
