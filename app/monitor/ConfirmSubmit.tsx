@@ -1,5 +1,7 @@
 'use client';
 
+import SubmitButton from '@/components/SubmitButton';
+
 // Botao de submit que exige confirmacao antes de enviar o form.
 // Existe por causa de apagar host: o host reaparece sozinho no proximo
 // heartbeat, mas volta SEM tunnelPort (pode ganhar outra porta e quebrar
@@ -15,14 +17,13 @@ export default function ConfirmSubmit({
   className?: string;
 }) {
   return (
-    <button
-      type="submit"
+    <SubmitButton
       className={className}
       onClick={(e) => {
         if (!window.confirm(message)) e.preventDefault();
       }}
     >
       {children}
-    </button>
+    </SubmitButton>
   );
 }

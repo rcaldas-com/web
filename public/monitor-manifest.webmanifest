@@ -1,0 +1,17 @@
+{
+  "name": "RCaldas Monitor",
+  "short_name": "Monitor",
+  "description": "Hosts, túneis, incidentes e backups da frota.",
+  "start_url": "/monitor",
+  "scope": "/monitor",
+  "display": "standalone",
+  "background_color": "#18181b",
+  "theme_color": "#18181b",
+  "orientation": "any",
+  "icons": [
+    { "src": "/icons/monitor-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/monitor-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/monitor-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/monitor-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

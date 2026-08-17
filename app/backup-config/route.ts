@@ -37,6 +37,10 @@ function rsnapshotConfig(entry: BackupPlanEntry) {
     '',
   ];
 
+  if (mountPoints(entry).length) {
+    linhas.push(`cmd_preexec${t}/etc/rsnapshot/${entry.host}.preexec.sh`);
+  }
+
   for (const inc of entry.includes) {
     linhas.push(`backup${t}${BACKUP_USER}@${entry.sshHost}:${inc.path}${t}./`);
     for (const ex of inc.excludes ?? []) {
@@ -47,18 +51,47 @@ function rsnapshotConfig(entry: BackupPlanEntry) {
   return linhas.join('\n') + '\n';
 }
 
+function mountPoints(entry: BackupPlanEntry) {
+  return [...new Set(entry.includes.map((i) => i.mountPoint).filter((m): m is string => Boolean(m)))];
+}
+
+// rsnapshot roda cmd_preexec UMA vez, antes de qualquer 'backup' da config
+// inteira -- se sair != 0, ele recusa o ciclo inteiro (nao so o diretorio
+// do HD). E o comportamento certo: sem essa trava, HD desconectado vira
+// origem vazia pro rsync e o '--delete' do rsync_long_args apaga o destino
+// inteiro, com sucesso (exit 0) -- nenhum alerta dispara pra isso.
+function preexecScript(entry: BackupPlanEntry) {
+  const checks = mountPoints(entry).map((mp) => {
+    // Aspas simples, escapando aspas simples embutidas -- o valor vem do
+    // formulario do Monitor (admin-only, mas nao custa nada nao confiar).
+    const seguro = mp.replace(/'/g, `'\\''`);
+    return `mountpoint -q '${seguro}' || { echo "preexec: '${seguro}' nao esta montado -- abortando backup de ${entry.host}" >&2; exit 1; }`;
+  });
+  return `#!/usr/bin/env bash\nset -e\n${checks.join('\n')}\n`;
+}
+
 export async function GET(request: Request) {
   const runner = new URL(request.url).searchParams.get('runner') || 'bag';
   const plano = await getBackupPlan(runner);
 
   const partes = plano.map((entry, i) => {
     const delim = `BKPCONF_${i}_EOF`;
-    return [
+    const linhas = [
       `echo "  ${entry.host} (porta ${entry.sshPort})"`,
       `cat <<'${delim}' > /etc/rsnapshot/${entry.host}.conf`,
       rsnapshotConfig(entry),
       delim,
-    ].join('\n');
+    ];
+    if (mountPoints(entry).length) {
+      const preexecDelim = `BKPPRE_${i}_EOF`;
+      linhas.push(
+        `cat <<'${preexecDelim}' > /etc/rsnapshot/${entry.host}.preexec.sh`,
+        preexecScript(entry),
+        preexecDelim,
+        `chmod 755 /etc/rsnapshot/${entry.host}.preexec.sh`
+      );
+    }
+    return linhas.join('\n');
   });
 
   const script = `#!/usr/bin/env bash

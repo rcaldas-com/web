@@ -14,6 +14,7 @@ import {
   enqueueJob,
   findBackupRunner,
   setBackupRunner,
+  resolveIncidentManually,
 } from '@/lib/monitor';
 
 export async function toggleDdnsAction(formData: FormData) {
@@ -81,6 +82,7 @@ export async function setMonitoringConfigAction(formData: FormData) {
 // Diretorios chegam como texto (um por linha), no formato:
 //   /caminho
 //   /caminho !exclude1 !exclude2
+//   /caminho/dentro/do/hd @mount=/ponto/de/montagem
 // Textarea em vez de campos dinamicos porque e mais rapido de editar a mao
 // e nao exige JS pra adicionar/remover linha.
 function parseIncludes(raw: string) {
@@ -92,7 +94,13 @@ function parseIncludes(raw: string) {
       const partes = linha.split(/\s+/);
       const path = partes[0];
       const excludes = partes.slice(1).filter((p) => p.startsWith('!')).map((p) => p.slice(1));
-      return excludes.length ? { path, excludes } : { path };
+      const mountToken = partes.slice(1).find((p) => p.startsWith('@mount='));
+      const mountPoint = mountToken ? mountToken.slice('@mount='.length) : undefined;
+      return {
+        path,
+        ...(excludes.length ? { excludes } : {}),
+        ...(mountPoint ? { mountPoint } : {}),
+      };
     })
     .filter((i) => i.path.startsWith('/'));
 }
@@ -156,5 +164,13 @@ export async function deleteHostAction(formData: FormData) {
   const host = String(formData.get('host') || '');
   if (!host) return;
   await deleteHost(host);
+  revalidatePath('/monitor');
+}
+
+export async function resolveIncidentAction(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get('id') || '');
+  if (!id) return;
+  await resolveIncidentManually(id);
   revalidatePath('/monitor');
 }

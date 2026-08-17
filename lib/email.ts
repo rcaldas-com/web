@@ -47,12 +47,16 @@ export async function sendIncidentEmail(params: {
   host: string;
   severity: string;
   summary: string;
+  emailSubject?: string;
   detail?: string;
   resolved: boolean;
 }) {
-  const prefix = params.resolved ? 'Resolvido' : params.severity === 'critical' ? 'CRITICO' : 'Alerta';
-
-  await enqueueEmail(MASTER_ADMIN_EMAIL, `[${prefix}] ${params.host}: ${params.summary}`, 'incident', {
+  // Sem prefixo tipo "[CRITICO]"/"[Resolvido]" no assunto -- ele ja aparece
+  // como badge colorido no corpo do email. Se o assunto variasse entre
+  // abertura e resolucao, o Gmail (que agrupa por assunto identico quando
+  // nao ha cabecalho de thread) nunca juntaria os dois na mesma conversa,
+  // e cada incidente virava dois emails soltos na caixa de entrada.
+  await enqueueEmail(MASTER_ADMIN_EMAIL, `${params.host}: ${params.emailSubject || params.summary}`, 'incident', {
     host: params.host,
     severity: params.severity,
     summary: params.summary,

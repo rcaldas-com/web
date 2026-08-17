@@ -84,7 +84,19 @@ export type MonitorHost = {
   backup?: {
     enabled?: boolean;
     // Varios diretorios, cada um com seus proprios excludes.
-    includes?: { path: string; excludes?: string[] }[];
+    includes?: {
+      path: string;
+      excludes?: string[];
+      // Ponto de montagem a exigir ANTES de rodar. Nao e sempre igual a
+      // 'path' -- ex: HD externo monta em /media/rcaldas/1TB, mas o que se
+      // quer copiar e /media/rcaldas/1TB/pics (subdiretorio, nunca o
+      // mountpoint em si). Se preenchido e nao estiver montado, o
+      // rsnapshot RECUSA rodar (o host inteiro, nesse ciclo) em vez de
+      // seguir com origem vazia -- que com --delete (rsync_long_args do
+      // gerador) apagaria o destino inteiro silenciosamente, exit 0, sem
+      // nenhum alerta disparando.
+      mountPoint?: string;
+    }[];
     // Mesmos intervalos do rsnapshot atual (hora/dia/semana/mes).
     retention?: { hora?: number; dia?: number; semana?: number; mes?: number };
   };
@@ -104,7 +116,7 @@ export type BackupPlanEntry = {
   // Como o runner alcanca esse host: porta do tunel no relay, ou direto.
   sshPort: number;
   sshHost: string;
-  includes: { path: string; excludes?: string[] }[];
+  includes: { path: string; excludes?: string[]; mountPoint?: string }[];
   retention: { hora: number; dia: number; semana: number; mes: number };
 };
 
@@ -134,6 +146,15 @@ export type MonitorIncident = {
   status: 'open' | 'resolved';
   severity: 'info' | 'warning' | 'critical';
   summary: string;
+  // Definido SO na criacao, nunca reescrito enquanto o incidente segue
+  // aberto (ao contrario de 'summary', que upsertIncident atualiza a cada
+  // re-ocorrencia). Existe pra manter o assunto do email identico entre a
+  // abertura e a resolucao -- disco/memoria/cpu tem valor ao vivo no
+  // summary (ex: "Disco em 87%"), que muda a cada heartbeat; sem um campo
+  // separado e estavel, o email de resolucao levaria o ULTIMO valor visto,
+  // quase sempre diferente do primeiro, e o Gmail nunca agruparia os dois
+  // na mesma conversa.
+  emailSubject?: string;
   openedAt: Date;
   updatedAt: Date;
   resolvedAt?: Date;
@@ -255,9 +276,15 @@ async function upsertIncident(
     severity: MonitorIncident['severity'];
     summary: string;
     detail?: string;
+    // Texto estavel pro assunto do email. Se omitido, usa 'summary' --
+    // seguro pra quem ja e invariavel (ex: alarme de backup, sempre a
+    // mesma frase pra um mesmo id). So precisa ser passado por quem tem
+    // valor ao vivo no summary (disco/memoria/cpu).
+    emailSubject?: string;
   }
 ) {
   const now = new Date();
+  const emailSubject = params.emailSubject || params.summary;
   const existing = await db.collection<MonitorIncident>('monitor_incidents').findOne({ key: params.key, status: 'open' });
   if (existing) {
     await db
@@ -272,6 +299,7 @@ async function upsertIncident(
     status: 'open',
     severity: params.severity,
     summary: params.summary,
+    emailSubject,
     openedAt: now,
     updatedAt: now,
     count: 1,
@@ -298,6 +326,7 @@ async function upsertIncident(
       host: params.target,
       severity: params.severity,
       summary: params.summary,
+      emailSubject,
       detail: params.detail,
       resolved: false,
     });
@@ -320,12 +349,33 @@ async function resolveIncident(db: Db, key: string) {
         host: incident.target,
         severity: incident.severity,
         summary: incident.summary,
+        // Sempre o valor gravado na abertura, nunca 'incident.summary' --
+        // aquele muda a cada re-ocorrencia (o pct de disco/memoria/cpu
+        // sobe/desce), este fica fixo. E o que faz o email de resolucao
+        // ter o MESMO assunto do de abertura, pro Gmail agrupar os dois.
+        emailSubject: incident.emailSubject || incident.summary,
         resolved: true,
       });
     } catch (error) {
       console.error('incident resolved email failed:', error);
     }
   }
+}
+
+// Encerramento manual pelo admin -- pro caso do "copia offsite falhou" que
+// so seria checado de novo pelo cron do dia seguinte, mas a causa raiz ja
+// foi corrigida por fora (ex: bucket criado na mao). Reusa resolveIncident
+// (mesmo email, mesmo agrupamento por assunto) em vez de duplicar logica.
+// Sem risco real: se a causa nao tiver sido corrigida de verdade, o proximo
+// heartbeat/cron que falhar reabre sozinho.
+export async function resolveIncidentManually(incidentId: string) {
+  const client = await clientPromise;
+  const db = client.db();
+  const incident = await db
+    .collection<MonitorIncident>('monitor_incidents')
+    .findOne({ _id: new ObjectId(incidentId), status: 'open' });
+  if (!incident) return;
+  await resolveIncident(db, incident.key);
 }
 
 // So faz alguma coisa se o admin configurou um limite pra esse host na
@@ -345,6 +395,7 @@ async function checkMonitoringThresholds(db: Db, host: string, existing: Monitor
         target: host,
         severity: pct >= cfg.diskThresholdPct + 10 ? 'critical' : 'warning',
         summary: `Disco em ${pct}% (limite ${cfg.diskThresholdPct}%)`,
+        emailSubject: `disco acima do limite (${cfg.diskThresholdPct}%)`,
       });
     } else {
       await resolveIncident(db, key);
@@ -359,6 +410,7 @@ async function checkMonitoringThresholds(db: Db, host: string, existing: Monitor
         target: host,
         severity: system.memoryPct >= cfg.memoryThresholdPct + 10 ? 'critical' : 'warning',
         summary: `Memoria em ${system.memoryPct}% (limite ${cfg.memoryThresholdPct}%)`,
+        emailSubject: `memoria acima do limite (${cfg.memoryThresholdPct}%)`,
       });
     } else {
       await resolveIncident(db, key);
@@ -374,6 +426,7 @@ async function checkMonitoringThresholds(db: Db, host: string, existing: Monitor
         target: host,
         severity: system.cpuPct >= cfg.cpuThresholdPct + 20 ? 'critical' : 'warning',
         summary: `CPU em ${system.cpuPct}%${cores} (limite ${cfg.cpuThresholdPct}%)`,
+        emailSubject: `cpu acima do limite (${cfg.cpuThresholdPct}%)`,
         // Isso e o que o alerta do provedor nao entrega: quem esta comendo CPU.
         detail: system.topCpu ? `Processos no topo: ${system.topCpu}` : undefined,
       });
@@ -781,7 +834,8 @@ const DIRECT_SSH_PORT = Number(process.env.DIRECT_SSH_PORT || 8422);
 //
 // Host atras de NAT: vai pelo relay, na porta do tunel dele.
 // Host com IP proprio e porta aberta (o us): direto na 8422.
-// Quem faz o backup nao entra no proprio plano.
+// O runner entra na propria lista tambem, se tiver includes -- por
+// loopback (ver isSelf abaixo), nunca pelo relay.
 export async function getBackupPlan(runnerHost: string): Promise<BackupPlanEntry[]> {
   const runner = normalizeHostName(runnerHost);
   const client = await clientPromise;
@@ -794,13 +848,19 @@ export async function getBackupPlan(runnerHost: string): Promise<BackupPlanEntry
     .toArray();
 
   return hosts
-    .filter((h) => h.name !== runner && (h.backup?.includes?.length ?? 0) > 0)
+    .filter((h) => (h.backup?.includes?.length ?? 0) > 0)
     .map((h) => {
+      // O runner pode fazer backup de si mesmo: nesse caso vai por
+      // loopback, nunca pelo relay -- SSH em si mesmo atraves do
+      // us.rcaldas.com so funcionaria se o runner tivesse tunel reverso
+      // pra si proprio, o que nao existe e nao precisa existir. E mais
+      // simples e nao depende de rede/tunel pra uma operacao que e local.
+      const isSelf = h.name === runner;
       const viaTunnel = Boolean(h.tunnelEnabled && h.tunnelPort);
       return {
         host: h.name,
-        sshHost: TUNNEL_RELAY_HOST,
-        sshPort: viaTunnel ? (h.tunnelPort as number) : DIRECT_SSH_PORT,
+        sshHost: isSelf ? '127.0.0.1' : TUNNEL_RELAY_HOST,
+        sshPort: isSelf ? DIRECT_SSH_PORT : viaTunnel ? (h.tunnelPort as number) : DIRECT_SSH_PORT,
         includes: h.backup?.includes ?? [],
         retention: {
           hora: h.backup?.retention?.hora ?? 6,
@@ -876,9 +936,18 @@ export async function getMonitorOverview() {
     .limit(20)
     .toArray();
 
-  // Online primeiro, offline depois (cada grupo por nome) -- online/offline
-  // e computado aqui, nao vem do banco, entao esse agrupamento so da pra
-  // fazer depois do find, nao no sort do Mongo.
+  // Online primeiro, offline depois -- online/offline e computado aqui, nao
+  // vem do banco, entao esse agrupamento so da pra fazer depois do find, nao
+  // no sort do Mongo. Dentro de cada grupo o criterio muda:
+  // - online: por nome, ordem fixa. lastSeen muda a cada heartbeat (ate a
+  //   cada 60s pros hosts ativos), entao ordenar por ele faria a lista
+  //   embaralhar sozinha o tempo todo, inclusive entre o clique num botao
+  //   e a pagina re-renderizar.
+  // - offline: por lastSeen decrescente. Aqui o problema oposto: por nome,
+  //   um host caido ha meses fica misturado com um que caiu agora. Nao
+  //   embaralha feito o caso online porque um host offline, por definicao,
+  //   nao esta gerando heartbeat novo -- lastSeen so muda quando ele volta,
+  //   e ai sai desse grupo. Nunca visto (sem lastSeen) vai pro final.
   const hostRows = hosts
     .map((host) => ({
       ...host,
@@ -891,7 +960,11 @@ export async function getMonitorOverview() {
     .sort((a, b) => {
       const aDown = a.status === 'down' ? 1 : 0;
       const bDown = b.status === 'down' ? 1 : 0;
-      return aDown - bDown || a.name.localeCompare(b.name);
+      if (aDown !== bDown) return aDown - bDown;
+      if (!aDown) return a.name.localeCompare(b.name);
+      const aTime = a.lastSeen ? new Date(a.lastSeen).getTime() : -Infinity;
+      const bTime = b.lastSeen ? new Date(b.lastSeen).getTime() : -Infinity;
+      return bTime - aTime;
     });
 
   return {

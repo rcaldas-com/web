@@ -3,6 +3,7 @@ const S3_HOST = process.env.BACKUP_S3_HOST || '';
 const S3_KEY = process.env.BACKUP_S3_KEY || '';
 const S3_SECRET = process.env.BACKUP_S3_SECRET || '';
 const S3_BUCKET = process.env.BACKUP_S3_BUCKET || 'rcaldas-backup';
+const S3_REGION = process.env.BACKUP_S3_REGION || 'us-east-1';
 const SNAPSHOT_ROOT = process.env.BACKUP_SNAPSHOT_ROOT || '/tank/bkp';
 
 function script() {
@@ -68,8 +69,30 @@ cat > "$CONF_DIR/s3.env" <<EOF
 AWS_ACCESS_KEY_ID=${S3_KEY}
 AWS_SECRET_ACCESS_KEY=${S3_SECRET}
 RESTIC_REPOSITORY=s3:${S3_HOST}/${S3_BUCKET}
+# Sem isso, o CreateBucket do primeiro 'restic init' falha na Wasabi com
+# "NoSuchEntity" mesmo com a chave certa -- o endpoint generico aceita
+# leitura mas rejeita criacao sem a regiao explicita. Descoberto rodando
+# de verdade contra a conta, nao esta documentado com destaque pela Wasabi.
+AWS_DEFAULT_REGION=${S3_REGION}
 EOF
 chmod 600 "$CONF_DIR/s3.env"
+
+echo "bucket"
+# Cria o bucket se ainda nao existir -- restic tambem tenta isso sozinho
+# no primeiro 'restic init' (ver script de execucao abaixo), mas fazer
+# aqui da erro imediato e legivel em vez de silencioso dentro do cron.
+if command -v aws >/dev/null 2>&1; then
+  set -a; . "$CONF_DIR/s3.env"; set +a
+  if ! aws --endpoint-url "${S3_HOST}" s3api head-bucket --bucket "${S3_BUCKET}" >/dev/null 2>&1; then
+    aws --endpoint-url "${S3_HOST}" --region "${S3_REGION}" s3 mb "s3://${S3_BUCKET}" >/dev/null 2>&1 \\
+      && echo "  bucket ${S3_BUCKET} criado" \\
+      || echo "  AVISO: nao consegui criar o bucket -- confira as credenciais/permissoes"
+  else
+    echo "  bucket ${S3_BUCKET} ja existe"
+  fi
+else
+  echo "  aws-cli ausente -- pulando (restic tenta criar sozinho no primeiro backup)"
+fi
 
 # O agente le isto pra reportar quanto o disco de backup esta cheio.
 echo "$SNAPSHOT_ROOT" > "$CONF_DIR/snapshot-root"
@@ -102,10 +125,21 @@ for conf in /etc/rsnapshot/*.conf; do
   [[ -e "$conf" ]] || continue
   host=$(basename "$conf" .conf)
   inicio=$(date +%s)
-  if rsnapshot -c "$conf" "$INTERVALO" >> "$LOG" 2>&1; then
+  saida=$(rsnapshot -c "$conf" "$INTERVALO" 2>&1)
+  codigo=$?
+  echo "$saida" >> "$LOG"
+  if [[ $codigo -eq 0 ]]; then
     dur=$(( $(date +%s) - inicio ))
     log "$host: ok em ${'$'}{dur}s"
     add_resultado "$host" "ok" "backup $INTERVALO ok em ${'$'}{dur}s"
+  elif echo "$saida" | grep -q "refusing to rotate this level"; then
+    # Esperado nos primeiros dias/semanas de um backup novo: o nivel de
+    # baixo (hora/dia) ainda nao acumulou historico suficiente pra
+    # promover pro de cima (retain hora=6 a cada 4h = 24h pra "dia" poder
+    # rodar; retain dia=7 = 7 dias pra "semana"). Se resolve sozinho com
+    # o tempo, sem nenhuma acao possivel -- alertar isso so ensina a
+    # ignorar alerta critico. So loga.
+    log "$host: $INTERVALO ainda sem historico suficiente pra rotacionar (normal em backup novo)"
   else
     log "$host: FALHOU"
     add_resultado "$host" "fail" "backup $INTERVALO falhou -- ver $LOG"
@@ -118,7 +152,23 @@ if [[ "$INTERVALO" == "dia" ]] && command -v restic >/dev/null 2>&1; then
     set -a; . "$CONF_DIR/s3.env"; set +a
     export RESTIC_PASSWORD_FILE="$CONF_DIR/restic-pass"
     restic snapshots >/dev/null 2>&1 || restic init >> "$LOG" 2>&1 || true
-    if restic backup --tag diario SNAPSHOT_ROOT_PLACEHOLDER/*/hora.0 >> "$LOG" 2>&1; then
+
+    # Fontes vem de /etc/rsnapshot/*.conf -- a MESMA lista usada no loop
+    # do rsnapshot acima -- nunca de um glob solto em SNAPSHOT_ROOT. Um
+    # glob pega qualquer diretorio que exista ali, inclusive host que ja
+    # foi desativado no Monitor e cujo .conf sumiu mas a arvore antiga de
+    # snapshots ficou pra tras -- foi exatamente isso que mandou 22GB de
+    # dados desativados pro S3 numa execucao manual de teste.
+    fontes=()
+    for conf in /etc/rsnapshot/*.conf; do
+      [[ -e "$conf" ]] || continue
+      h=$(basename "$conf" .conf)
+      [[ -d "SNAPSHOT_ROOT_PLACEHOLDER/$h/hora.0" ]] && fontes+=("SNAPSHOT_ROOT_PLACEHOLDER/$h/hora.0")
+    done
+
+    if [[ ${'$'}{#fontes[@]} -eq 0 ]]; then
+      log "restic: nada pra enviar ainda (nenhum host com hora.0)"
+    elif restic backup --tag diario "${'$'}{fontes[@]}" >> "$LOG" 2>&1; then
       log "restic: enviado pro S3"
       add_resultado "offsite" "ok" "copia offsite enviada"
     else

@@ -14,6 +14,7 @@ import {
 } from '@/lib/actions/monitor';
 import AutoRefresh from '@/app/finance/AutoRefresh';
 import ConfirmSubmit from '@/app/monitor/ConfirmSubmit';
+import SubmitButton from '@/components/SubmitButton';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -94,23 +95,21 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
               <input type="hidden" name="host" value={host.name} />
               <input type="hidden" name="enabled" value={host.ddnsEnabled ? 'false' : 'true'} />
               <span className="text-zinc-500 dark:text-zinc-400">DDNS</span>
-              <button
-                type="submit"
+              <SubmitButton
                 className={`rounded-full px-2 py-1 text-xs ${host.ddnsEnabled ? statusClass('ok') : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'}`}
               >
                 {host.ddnsEnabled ? 'ativo' : 'inativo'}
-              </button>
+              </SubmitButton>
             </form>
 
             <form action={host.tunnelEnabled ? disableTunnelAction : openTunnelAction} className="flex items-center gap-2">
               <input type="hidden" name="host" value={host.name} />
               <span className="text-zinc-500 dark:text-zinc-400">Tunel</span>
-              <button
-                type="submit"
+              <SubmitButton
                 className={`rounded-full px-2 py-1 text-xs ${host.tunnelEnabled ? statusClass('ok') : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'}`}
               >
                 {host.tunnelEnabled ? `ativo:${host.tunnelPort}` : 'inativo'}
-              </button>
+              </SubmitButton>
             </form>
 
             <form action={setTunnelPortAction} className="flex items-center gap-2">
@@ -125,12 +124,9 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
                 defaultValue={host.tunnelPort ?? ''}
                 className="w-20 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
               />
-              <button
-                type="submit"
-                className="rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-              >
+              <SubmitButton className="rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
                 salvar
-              </button>
+              </SubmitButton>
             </form>
           </div>
         </section>
@@ -180,12 +176,9 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
                 className="w-32 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
               />
             </label>
-            <button
-              type="submit"
-              className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-            >
+            <SubmitButton className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
               salvar
-            </button>
+            </SubmitButton>
           </form>
         </section>
 
@@ -207,13 +200,22 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
             <label className="flex flex-col gap-1">
               <span className="text-xs text-zinc-500 dark:text-zinc-400">
                 Diretórios — um por linha. Para ignorar algo, acrescente <code>!caminho</code> na mesma linha.
+                Se o diretório vive num disco que pode não estar montado (HD externo), acrescente{' '}
+                <code>@mount=/ponto/de/montagem</code> — sem montagem, o backup desse host é recusado
+                em vez de apagar o que já existe.
               </span>
               <textarea
                 name="includes"
                 rows={6}
-                placeholder={'/etc/\n/var/rcaldas/live\n/var/mongodb !/var/mongodb/db !/var/mongodb/logs'}
+                placeholder={
+                  '/etc/\n/var/rcaldas/live\n/var/mongodb !/var/mongodb/db !/var/mongodb/logs\n/media/rcaldas/1TB/pics @mount=/media/rcaldas/1TB'
+                }
                 defaultValue={(host.backup?.includes ?? [])
-                  .map((i) => [i.path, ...(i.excludes ?? []).map((e) => `!${e}`)].join(' '))
+                  .map((i) =>
+                    [i.path, ...(i.excludes ?? []).map((e) => `!${e}`), ...(i.mountPoint ? [`@mount=${i.mountPoint}`] : [])].join(
+                      ' '
+                    )
+                  )
                   .join('\n')}
                 className="w-full rounded border border-zinc-200 bg-white px-2 py-1 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-950"
               />
@@ -241,16 +243,13 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
                 </label>
               ))}
             </div>
-            <button
-              type="submit"
-              className="w-fit rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-            >
+            <SubmitButton className="w-fit rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
               salvar
-            </button>
+            </SubmitButton>
           </form>
         </section>
 
-        <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <section id="backup-runner" className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <h2 className="mb-1 font-semibold text-zinc-950 dark:text-zinc-50">Runner de backup</h2>
           <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
             O host que <strong>executa</strong> os backups da frota, puxando os outros via SSH.
@@ -298,12 +297,9 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
                 className="w-48 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
               />
             </label>
-            <button
-              type="submit"
-              className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-            >
+            <SubmitButton className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
               salvar
-            </button>
+            </SubmitButton>
           </form>
         </section>
 
