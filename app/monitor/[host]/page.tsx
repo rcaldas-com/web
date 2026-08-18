@@ -13,7 +13,7 @@ import {
   deleteHostAction,
 } from '@/lib/actions/monitor';
 import AutoRefresh from '@/app/finance/AutoRefresh';
-import ConfirmSubmit from '@/app/monitor/ConfirmSubmit';
+import ConfirmSubmit from '@/components/ConfirmSubmit';
 import SubmitButton from '@/components/SubmitButton';
 
 function formatDate(value?: string) {

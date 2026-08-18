@@ -13,15 +13,15 @@ export default async function UsersSettingsPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-5 py-10 space-y-6">
+    <div className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">Gerenciamento de Usuários</h1>
+        <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">Usuários</h2>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           Controle permissões dos módulos RCaldas. Admin é reservado ao usuário master.
         </p>
       </div>
 
       <UsersManager users={users} masterEmail={MASTER_ADMIN_EMAIL} />
-    </main>
+    </div>
   );
 }

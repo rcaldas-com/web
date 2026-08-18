@@ -2,7 +2,7 @@
 
 import { useDeferredValue, useMemo, useState } from 'react';
 import Link from 'next/link';
-import ConfirmSubmit from '@/app/monitor/ConfirmSubmit';
+import ConfirmSubmit from '@/components/ConfirmSubmit';
 import SubmitButton from '@/components/SubmitButton';
 
 type Host = {
