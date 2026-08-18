@@ -109,8 +109,15 @@ function parseIncludes(raw: string) {
 }
 
 function intOuPadrao(raw: FormDataEntryValue | null, padrao: number) {
+  // Number('') === 0 em JS -- campo deixado em branco (a intencao de
+  // "usa o padrao") virava um 0 EXPLICITO gravado no banco, nao o padrao.
+  // rsnapshot rejeita retain 0 em qualquer nivel ("must be at least 1 or
+  // higher"), entao isso quebrava o cron inteiro daquele host ate alguem
+  // notar pelo alerta -- foi exatamente o que aconteceu com o "bag".
+  // Minimo real e 1, entao a checagem certa e >= 1, que tambem resolve o
+  // caso do campo vazio de graca.
   const n = Number(String(raw || '').trim());
-  return Number.isInteger(n) && n >= 0 ? n : padrao;
+  return Number.isInteger(n) && n >= 1 ? n : padrao;
 }
 
 export async function setBackupConfigAction(formData: FormData) {

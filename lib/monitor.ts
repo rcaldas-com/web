@@ -966,11 +966,17 @@ export async function getBackupPlan(runnerHost: string): Promise<BackupPlanEntry
         sshHost: isSelf ? '127.0.0.1' : TUNNEL_RELAY_HOST,
         sshPort: isSelf ? DIRECT_SSH_PORT : viaTunnel ? (h.tunnelPort as number) : DIRECT_SSH_PORT,
         includes: h.backup?.includes ?? [],
+        // Math.max(1, ...) e nao so '??': rsnapshot rejeita retain 0 em
+        // QUALQUER nivel ("must be at least 1 or higher") e derruba o
+        // cron do host inteiro -- ja aconteceu uma vez com um 0 explicito
+        // vindo do form (?? so pega null/undefined, nao 0). Isso aqui e
+        // a segunda camada: mesmo que um 0 volte a entrar no banco por
+        // outro caminho, o .conf gerado nunca consegue ficar invalido.
         retention: {
-          hora: h.backup?.retention?.hora ?? 6,
-          dia: h.backup?.retention?.dia ?? 7,
-          semana: h.backup?.retention?.semana ?? 4,
-          mes: h.backup?.retention?.mes ?? 3,
+          hora: Math.max(1, h.backup?.retention?.hora ?? 6),
+          dia: Math.max(1, h.backup?.retention?.dia ?? 7),
+          semana: Math.max(1, h.backup?.retention?.semana ?? 4),
+          mes: Math.max(1, h.backup?.retention?.mes ?? 3),
         },
       };
     });
