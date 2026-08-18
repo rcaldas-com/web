@@ -114,6 +114,20 @@ export type MonitorHost = {
     enabled?: boolean;
     snapshotRoot?: string;
   };
+  // 'standard' (padrao, ate undefined): host comum, sem exposicao publica
+  // esperada. 'proxy'/'home': precisa aceitar trafego de fora por design
+  // (web/mail/roteador) -- muda qual regra de firewall faz sentido, ver
+  // getFirewallPlan().
+  role?: 'standard' | 'proxy' | 'home';
+  // Toggle unico pras duas roles, mas gera coisas diferentes:
+  // standard  -> so hosts conhecidos da frota (ip/ip6 saddr accept)
+  // proxy/home -> as portas de 'ports', abertas pro mundo
+  // O include so tem accept -- nunca policy, nunca drop. Ver o .md do
+  // desenho ou CLAUDE.md quando existir.
+  firewall?: {
+    enabled?: boolean;
+    ports?: number[];
+  };
   // Fastfetch filtrado do host (mesmo comando que roda no fim do /init).
   // NAO vem no heartbeat -- e bem maior que o resto do payload, entao e
   // buscado por job (ver enqueueJob 'host-info'), no maximo 1-2x por dia,
@@ -897,6 +911,24 @@ export async function setBackupConfig(hostName: string, config: MonitorHost['bac
     .updateOne({ name: host }, { $set: { backup: config, updatedAt: new Date() } });
 }
 
+export async function setHostRole(hostName: string, role: MonitorHost['role']) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  await db
+    .collection<MonitorHost>('monitor_hosts')
+    .updateOne({ name: host }, { $set: { role, updatedAt: new Date() } });
+}
+
+export async function setFirewallConfig(hostName: string, config: MonitorHost['firewall']) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  await db
+    .collection<MonitorHost>('monitor_hosts')
+    .updateOne({ name: host }, { $set: { firewall: config, updatedAt: new Date() } });
+}
+
 const TUNNEL_RELAY_HOST = process.env.TUNNEL_RELAY_HOST || 'us.rcaldas.com';
 const DIRECT_SSH_PORT = Number(process.env.DIRECT_SSH_PORT || 8422);
 
@@ -942,6 +974,60 @@ export async function getBackupPlan(runnerHost: string): Promise<BackupPlanEntry
         },
       };
     });
+}
+
+export type FirewallPlan = {
+  host: string;
+  role: 'standard' | 'proxy' | 'home';
+  enabled: boolean;
+  // standard: quem mais a frota conhece hoje (accept, nunca policy/drop).
+  knownHostsV4?: string[];
+  knownHostsV6?: string[];
+  // proxy/home: portas TCP publicas escolhidas pelo admin.
+  ports?: number[];
+};
+
+// So gera o CONTEUDO do include -- policy/invariantes/onde o include entra
+// no arquivo ficam no esqueleto fixo (/firewall-config escreve os dois,
+// mas so o include e regerado depois; o esqueleto e escrito uma vez).
+export async function getFirewallPlan(hostName: string): Promise<FirewallPlan | null> {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db.collection<MonitorHost>('monitor_hosts').findOne({ name: host });
+  if (!doc) return null;
+
+  const role = doc.role ?? 'standard';
+  const enabled = Boolean(doc.firewall?.enabled);
+
+  if (role !== 'standard') {
+    return { host, role, enabled, ports: [...new Set(doc.firewall?.ports ?? [])].sort((a, b) => a - b) };
+  }
+
+  const others = await db
+    .collection<MonitorHost>('monitor_hosts')
+    .find({ name: { $ne: host } }, { projection: { tokenHash: 0 } })
+    .toArray();
+
+  // publicIp e' "de onde o servidor viu a conexao chegar" -- desde que o
+  // HAProxy aceita IPv6, isso pode vir em qualquer uma das duas familias
+  // pro MESMO host (foi assim que achei este bug: tp/bag/lev tem IPv6
+  // proprio, entao publicIp deles e' IPv6, nao IPv4). Confiar no NOME do
+  // campo pra decidir a familia e' o erro -- classifica pelo FORMATO de
+  // verdade, senao um IPv6 cai dentro de "ip saddr" (so aceita IPv4) e o
+  // nft rejeita a config inteira na hora de aplicar.
+  const v4 = new Set<string>();
+  const v6 = new Set<string>();
+  for (const h of others) {
+    for (const candidate of [h.network?.publicIp, h.network?.ipv4, h.network?.ipv6, h.lastIp]) {
+      if (!candidate) continue;
+      (candidate.includes(':') ? v6 : v4).add(candidate);
+    }
+  }
+  const knownHostsV4 = [...v4].sort();
+  const knownHostsV6 = [...v6].sort();
+
+  return { host, role, enabled, knownHostsV4, knownHostsV6 };
 }
 
 export async function createHost(hostName: string, options: { ddnsEnabled: boolean; tunnelEnabled: boolean }) {

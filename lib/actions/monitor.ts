@@ -15,6 +15,9 @@ import {
   findBackupRunner,
   setBackupRunner,
   resolveIncidentManually,
+  setHostRole,
+  setFirewallConfig,
+  type MonitorHost,
 } from '@/lib/monitor';
 
 export async function toggleDdnsAction(formData: FormData) {
@@ -173,4 +176,32 @@ export async function resolveIncidentAction(formData: FormData) {
   if (!id) return;
   await resolveIncidentManually(id);
   revalidatePath('/monitor');
+}
+
+export async function setHostRoleAction(formData: FormData) {
+  await requireAdmin();
+  const host = String(formData.get('host') || '');
+  if (!host) return;
+  const raw = String(formData.get('role') || 'standard');
+  const role: MonitorHost['role'] = raw === 'proxy' || raw === 'home' ? raw : 'standard';
+  await setHostRole(host, role);
+  revalidatePath(`/monitor/${host}`);
+}
+
+function parsePorts(raw: string): number[] {
+  return raw
+    .split(/[\s,]+/)
+    .map((p) => Number(p.trim()))
+    .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
+}
+
+export async function setFirewallConfigAction(formData: FormData) {
+  await requireAdmin();
+  const host = String(formData.get('host') || '');
+  if (!host) return;
+  await setFirewallConfig(host, {
+    enabled: formData.get('enabled') === 'on',
+    ports: parsePorts(String(formData.get('ports') || '')),
+  });
+  revalidatePath(`/monitor/${host}`);
 }

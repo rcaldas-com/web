@@ -186,6 +186,8 @@ export default async function MonitorPage() {
                 ['sync-dotfiles', 'Troca os dotfiles estáticos pelos sincronizados via Syncthing.'],
                 ['setup-backup-runner', 'Transforma o host no runner de backup da frota.'],
                 ['backup-config', 'Regrava as configs de backup no runner. Rode após mudar diretórios aqui.'],
+                ['firewall-config?host=<nome>', 'Aplica o firewall configurado na página do host. Reverte sozinho em 5min sem confirmação.'],
+                ['firewall-confirm', 'Confirma o firewall aplicado, cancelando a reversão automática.'],
               ] as const
             ).map(([rota, desc]) => (
               <div key={rota}>

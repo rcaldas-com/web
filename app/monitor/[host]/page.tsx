@@ -11,10 +11,14 @@ import {
   setBackupConfigAction,
   setBackupRunnerAction,
   deleteHostAction,
+  setHostRoleAction,
+  setFirewallConfigAction,
 } from '@/lib/actions/monitor';
 import AutoRefresh from '@/app/finance/AutoRefresh';
 import ConfirmSubmit from '@/components/ConfirmSubmit';
 import SubmitButton from '@/components/SubmitButton';
+
+const APP_URL = process.env.AUTH_TRUST_HOST || 'https://web.rcaldas.com';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -198,6 +202,70 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
               salvar
             </SubmitButton>
           </form>
+        </section>
+
+        <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="mb-1 font-semibold text-zinc-950 dark:text-zinc-50">Firewall</h2>
+          <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+            Papel <strong>Padrão</strong>: firewall nega tudo, exceto SSH e a frota que o Monitor já conhece. Papel{' '}
+            <strong>Proxy</strong>/<strong>Home</strong>: nega tudo, exceto SSH e as portas públicas que você escolher —
+            esse host precisa aceitar conexão de fora por natureza.
+          </p>
+
+          <form action={setHostRoleAction} className="mb-4 flex flex-wrap items-end gap-3 text-sm">
+            <input type="hidden" name="host" value={host.name} />
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Papel do host</span>
+              <select
+                name="role"
+                defaultValue={host.role ?? 'standard'}
+                className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+              >
+                <option value="standard">Padrão</option>
+                <option value="proxy">Proxy</option>
+                <option value="home">Home</option>
+              </select>
+            </label>
+            <SubmitButton className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
+              salvar papel
+            </SubmitButton>
+          </form>
+
+          <form action={setFirewallConfigAction} className="flex flex-col gap-3 text-sm">
+            <input type="hidden" name="host" value={host.name} />
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="enabled" defaultChecked={host.firewall?.enabled} />
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Gerenciar firewall deste host</span>
+            </label>
+
+            {(host.role === 'proxy' || host.role === 'home') && (
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Portas públicas — separadas por espaço ou vírgula
+                </span>
+                <input
+                  type="text"
+                  name="ports"
+                  placeholder="80 443 25 587"
+                  defaultValue={(host.firewall?.ports ?? []).join(' ')}
+                  className="w-full rounded border border-zinc-200 bg-white px-2 py-1 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                />
+              </label>
+            )}
+
+            <SubmitButton className="w-fit rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
+              salvar firewall
+            </SubmitButton>
+          </form>
+
+          <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+            Salvar aqui só guarda a configuração — <strong>não aplica sozinho</strong> (de propósito: firewall remoto
+            merece você presente, não um job silencioso de madrugada). Depois de salvar, rode no host:
+            <code className="mt-1 block rounded bg-zinc-100 px-2 py-1 font-mono text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+              curl -fsSL {APP_URL}/firewall-config?host={host.name} | sudo bash
+            </code>
+            Reverte sozinho em 5 min se você não confirmar com <code>curl -fsSL {APP_URL}/firewall-confirm | sudo bash</code>.
+          </p>
         </section>
 
         <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
