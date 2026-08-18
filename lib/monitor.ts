@@ -966,14 +966,24 @@ export async function getBackupPlan(runnerHost: string): Promise<BackupPlanEntry
         sshHost: isSelf ? '127.0.0.1' : TUNNEL_RELAY_HOST,
         sshPort: isSelf ? DIRECT_SSH_PORT : viaTunnel ? (h.tunnelPort as number) : DIRECT_SSH_PORT,
         includes: h.backup?.includes ?? [],
-        // Math.max(1, ...) e nao so '??': rsnapshot rejeita retain 0 em
+        // Math.max(N, ...) e nao so '??': rsnapshot rejeita retain 0 em
         // QUALQUER nivel ("must be at least 1 or higher") e derruba o
         // cron do host inteiro -- ja aconteceu uma vez com um 0 explicito
         // vindo do form (?? so pega null/undefined, nao 0). Isso aqui e
         // a segunda camada: mesmo que um 0 volte a entrar no banco por
         // outro caminho, o .conf gerado nunca consegue ficar invalido.
+        //
+        // 'hora' especificamente precisa de pelo menos 2, nao 1 -- e o
+        // UNICO nivel que puxa dado de verdade (os de cima so promovem
+        // por hardlink o que ja esta aqui), entao com so 1 slot uma nova
+        // puxada correria contra o 'dia' ainda nao ter promovido a
+        // anterior, perdendo ela. rsnapshot recusa 'hora' com retain 1
+        // sempre que existe um nivel acima -- e como aqui sempre existe
+        // (dia/semana/mes sao fixos no modelo), o minimo real e' 2.
+        // Confirmado testando os dois: 'dia' com retain 1 e' aceito
+        // (a trava e' so do PRIMEIRO nivel, nao de todos).
         retention: {
-          hora: Math.max(1, h.backup?.retention?.hora ?? 6),
+          hora: Math.max(2, h.backup?.retention?.hora ?? 6),
           dia: Math.max(1, h.backup?.retention?.dia ?? 7),
           semana: Math.max(1, h.backup?.retention?.semana ?? 4),
           mes: Math.max(1, h.backup?.retention?.mes ?? 3),

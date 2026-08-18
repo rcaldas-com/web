@@ -311,18 +311,21 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
               <span className="text-xs text-zinc-500 dark:text-zinc-400">Manter cópias:</span>
               {(
                 [
-                  ['retHora', 'de hora', host.backup?.retention?.hora ?? 6],
-                  ['retDia', 'diárias', host.backup?.retention?.dia ?? 7],
-                  ['retSemana', 'semanais', host.backup?.retention?.semana ?? 4],
-                  ['retMes', 'mensais', host.backup?.retention?.mes ?? 3],
+                  ['retHora', 'de hora', host.backup?.retention?.hora ?? 6, 2],
+                  ['retDia', 'diárias', host.backup?.retention?.dia ?? 7, 1],
+                  ['retSemana', 'semanais', host.backup?.retention?.semana ?? 4, 1],
+                  ['retMes', 'mensais', host.backup?.retention?.mes ?? 3, 1],
                 ] as const
-              ).map(([name, label, valor]) => (
+              ).map(([name, label, valor, minimo]) => (
                 <label key={name} className="flex flex-col gap-1">
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400">{label}</span>
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                    {label}
+                    {minimo > 1 && <span title="Mínimo 2: é o único nível que puxa dado de verdade, os de cima só promovem o que já está aqui.">*</span>}
+                  </span>
                   <input
                     type="number"
                     name={name}
-                    min={0}
+                    min={minimo}
                     defaultValue={valor}
                     className="w-16 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
                   />

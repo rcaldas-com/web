@@ -108,16 +108,17 @@ function parseIncludes(raw: string) {
     .filter((i) => i.path.startsWith('/'));
 }
 
-function intOuPadrao(raw: FormDataEntryValue | null, padrao: number) {
+function intOuPadrao(raw: FormDataEntryValue | null, padrao: number, minimo = 1) {
   // Number('') === 0 em JS -- campo deixado em branco (a intencao de
   // "usa o padrao") virava um 0 EXPLICITO gravado no banco, nao o padrao.
   // rsnapshot rejeita retain 0 em qualquer nivel ("must be at least 1 or
   // higher"), entao isso quebrava o cron inteiro daquele host ate alguem
   // notar pelo alerta -- foi exatamente o que aconteceu com o "bag".
-  // Minimo real e 1, entao a checagem certa e >= 1, que tambem resolve o
-  // caso do campo vazio de graca.
+  // 'minimo' e' 1 por padrao mas 'hora' passa 2 -- ver getBackupPlan pro
+  // porque (e' o unico nivel que puxa dado de verdade, retain 1 nele
+  // corre risco de perder a puxada anterior antes do 'dia' promover).
   const n = Number(String(raw || '').trim());
-  return Number.isInteger(n) && n >= 1 ? n : padrao;
+  return Number.isInteger(n) && n >= minimo ? n : padrao;
 }
 
 export async function setBackupConfigAction(formData: FormData) {
@@ -129,7 +130,7 @@ export async function setBackupConfigAction(formData: FormData) {
     enabled: formData.get('enabled') === 'on',
     includes: parseIncludes(String(formData.get('includes') || '')),
     retention: {
-      hora: intOuPadrao(formData.get('retHora'), 6),
+      hora: intOuPadrao(formData.get('retHora'), 6, 2),
       dia: intOuPadrao(formData.get('retDia'), 7),
       semana: intOuPadrao(formData.get('retSemana'), 4),
       mes: intOuPadrao(formData.get('retMes'), 3),
