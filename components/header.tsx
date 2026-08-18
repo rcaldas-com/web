@@ -4,20 +4,27 @@ import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState, useTransition } from "react"
-import { Bars3Icon, MoonIcon, SunIcon, XMarkIcon } from "@heroicons/react/24/outline"
+import { Bars3Icon, ChevronDownIcon, MoonIcon, SunIcon, XMarkIcon } from "@heroicons/react/24/outline"
 import { updateThemePreference } from "@/lib/actions/preferences"
 import type { ThemePreference } from "@/lib/definitions"
 
 type HeaderLink = { href: string; label: string; requires?: 'wallet' | 'admin' };
 
+// Os mais usados ficam direto na barra. O resto entra no submenu "Mais"
+// (moreLinks, abaixo) so' no desktop -- no mobile tudo continua numa
+// lista so', ja que la' nao tem barra pra aliviar.
 const publicLinks: HeaderLink[] = [
     { href: "/", label: "Home" },
     { href: "/finance", label: "Finance" },
-    { href: "/habitar", label: "HabitaR" },
-    { href: "/digitar", label: "DigitaR" },
     { href: "/wallet", label: "Wallet", requires: "wallet" },
     { href: "/monitor", label: "Monitor", requires: "admin" },
     { href: "/configuracoes/usuarios", label: "Configurações", requires: "admin" },
+]
+
+const moreLinks: HeaderLink[] = [
+    { href: "/habitar", label: "HabitaR" },
+    { href: "/digitar", label: "DigitaR" },
+    { href: "/upload", label: "Upload/Links" },
 ]
 
 interface HeaderProps {
@@ -36,6 +43,7 @@ function getSystemTheme(): ThemePreference {
 export default function Header({ userName, canAccessWallet = false, canAccessAdmin = false, theme, walletUrl = '/wallet' }: HeaderProps) {
     const pathname = usePathname()
     const [open, setOpen] = useState(false)
+    const [moreOpen, setMoreOpen] = useState(false)
     const [currentTheme, setCurrentTheme] = useState<ThemePreference>(theme ?? 'light')
     const [, startTransition] = useTransition()
     const links = publicLinks
@@ -45,9 +53,13 @@ export default function Header({ userName, canAccessWallet = false, canAccessAdm
             return true;
         })
         .map(link => (link.requires === 'wallet' ? { ...link, href: walletUrl } : link));
+    const more = moreLinks;
     const isActive = (href: string) =>
         href === '/' ? pathname === '/' : pathname.startsWith(href);
-    const currentLabel = links.find(link => isActive(link.href))?.label || 'Menu';
+    const currentLabel =
+        links.find(link => isActive(link.href))?.label ||
+        more.find(link => isActive(link.href))?.label ||
+        'Menu';
 
     useEffect(() => {
         const rootTheme = document.documentElement.dataset.userTheme;
@@ -63,6 +75,7 @@ export default function Header({ userName, canAccessWallet = false, canAccessAdm
     }, [theme, userName]);
 
     useEffect(() => setOpen(false), [pathname]);
+    useEffect(() => setMoreOpen(false), [pathname]);
 
     const toggleTheme = () => {
         const nextTheme: ThemePreference = currentTheme === 'dark' ? 'light' : 'dark';
@@ -123,6 +136,35 @@ export default function Header({ userName, canAccessWallet = false, canAccessAdm
                             )}
                         </li>
                     ))}
+                    <li className="relative">
+                        <button
+                            type="button"
+                            onClick={() => setMoreOpen(v => !v)}
+                            className={`inline-flex items-center gap-1 ${more.some(l => isActive(l.href)) ? 'text-zinc-950 font-medium dark:text-white' : 'text-zinc-500 dark:text-zinc-300'} hover:text-zinc-900 dark:hover:text-white transition`}
+                            aria-expanded={moreOpen}
+                            aria-haspopup="true"
+                        >
+                            Mais
+                            <ChevronDownIcon className={`h-4 w-4 transition-transform ${moreOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        {moreOpen && (
+                            <>
+                                {/* Camada transparente pra fechar ao clicar fora, sem precisar de ref/listener global. */}
+                                <div className="fixed inset-0 z-[90]" onClick={() => setMoreOpen(false)} />
+                                <div className="absolute left-1/2 top-[calc(100%+10px)] z-[100] w-40 -translate-x-1/2 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-600 dark:bg-zinc-800">
+                                    {more.map(link => (
+                                        <Link
+                                            key={link.href}
+                                            href={link.href}
+                                            className={`block rounded-md px-3 py-2 text-sm ${isActive(link.href) ? 'bg-zinc-100 text-zinc-950 font-medium dark:bg-zinc-700 dark:text-white' : 'text-zinc-600 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-700'}`}
+                                        >
+                                            {link.label}
+                                        </Link>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                    </li>
                 </ul>
             </nav>
 
@@ -177,6 +219,16 @@ export default function Header({ userName, canAccessWallet = false, canAccessAdm
                                 </Link>
                             );
                         })}
+                        <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
+                        {more.map(link => (
+                            <Link
+                                key={link.href}
+                                href={link.href}
+                                className={`rounded-md px-3 py-2 text-sm ${isActive(link.href) ? 'bg-zinc-100 text-zinc-950 font-medium dark:bg-zinc-700 dark:text-white' : 'text-zinc-600 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-700'}`}
+                            >
+                                {link.label}
+                            </Link>
+                        ))}
                         <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
                         {userName ? (
                             <Link

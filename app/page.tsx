@@ -6,6 +6,9 @@ import { getCurrentUser, hasRole, canAccessWallet } from '@/lib/auth';
 // /wallet no mesmo host. WALLET_URL cobre as duas topologias.
 const WALLET_URL = process.env.WALLET_URL || '/wallet';
 
+// Mais usados primeiro (Finance/Wallet/Monitor), depois os secundarios
+// que tambem vivem no submenu "Mais" do header, Configuracoes por ultimo
+// (utilitario administrativo, nao um modulo de uso diario).
 const modules = [
   {
     href: '/finance',
@@ -27,6 +30,16 @@ const modules = [
     requires: 'wallet',
   },
   {
+    href: '/monitor',
+    icon: '🛰️',
+    title: 'Monitor',
+    description: 'Hosts, túneis, backups, incidentes e firewall da frota.',
+    color: 'from-indigo-500 to-indigo-600',
+    bg: 'bg-indigo-50',
+    darkBg: 'dark:bg-indigo-950/30 dark:hover:bg-indigo-950/45 dark:border-indigo-900/60',
+    requires: 'admin',
+  },
+  {
     href: '/habitar',
     icon: '🏠',
     title: 'HabitaR',
@@ -43,6 +56,15 @@ const modules = [
     color: 'from-rose-500 to-orange-500',
     bg: 'bg-rose-50',
     darkBg: 'dark:bg-rose-950/30 dark:hover:bg-rose-950/45 dark:border-rose-900/60',
+  },
+  {
+    href: '/upload',
+    icon: '📎',
+    title: 'Upload/Links',
+    description: 'Envie arquivos por drag-drop ou Ctrl+V e gere links curtos para compartilhar.',
+    color: 'from-cyan-500 to-cyan-600',
+    bg: 'bg-cyan-50',
+    darkBg: 'dark:bg-cyan-950/30 dark:hover:bg-cyan-950/45 dark:border-cyan-900/60',
   },
   {
     href: '/configuracoes/usuarios',

@@ -6,6 +6,13 @@ import { resolveCallbackUrl } from '@/lib/callback-url';
 const protectedRoutes = ['/dashboard', '/wallet', '/configuracoes', '/monitor'];
 const authRoutes = ['/login', '/register', '/forgot-password', '/reset-password'];
 
+// Convencao de arquivo do Next gera rotas de verdade pra esses dois,
+// dentro do prefixo /monitor -- sem essa excecao, um instalador de PWA ou
+// navegador nao autenticado levava redirect pro login em vez do PNG, e o
+// resultado era cair no fallback (icone da app raiz), sem erro nenhum
+// visivel que apontasse pra causa.
+const publicAssetPaths = ['/monitor/icon.png', '/monitor/apple-icon.png'];
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   // Um cookie presente mas adulterado deve contar como "não autenticado".
@@ -26,7 +33,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Protect dashboard routes - redirect to login if not authenticated
-  if (protectedRoutes.some((route) => pathname.startsWith(route))) {
+  if (protectedRoutes.some((route) => pathname.startsWith(route)) && !publicAssetPaths.includes(pathname)) {
     if (!userId) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('callbackUrl', pathname);
