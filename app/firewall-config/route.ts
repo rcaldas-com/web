@@ -36,6 +36,18 @@ set -euo pipefail
 
 [ "$(id -u)" = 0 ] || { echo "Precisa rodar como root."; exit 1; }
 
+# UM backup so, tirado ANTES de qualquer escrita, e reusado tanto pro
+# registro historico quanto pro timer de reversao. Tirar um segundo
+# backup mais tarde (depois do esqueleto ja escrito) foi o bug real que
+# derrubou a rede de seguranca na primeira tentativa: o "backup" usado
+# pela reversao era copia do arquivo NOVO, entao reverter nao revertia
+# nada -- so' copiava a config em cima dela mesma. Se nao existir arquivo
+# nenhum ainda, o backup fica vazio de proposito: reverter pra "vazio" e'
+# a semantica certa de "nao tinha firewall nenhum antes".
+BACKUP="/etc/nftables.conf.pre-monitor-$(date +%s)"
+touch "$BACKUP"
+[[ -f /etc/nftables.conf ]] && cp /etc/nftables.conf "$BACKUP"
+
 mkdir -p /etc/nftables.d
 cat > "${INCLUDE_PATH}" <<'INCLUDEEOF'
 ${include}
@@ -47,7 +59,6 @@ INCLUDE_LINE='include "${INCLUDE_PATH}"'
 if ! grep -q "policy drop" /etc/nftables.conf 2>/dev/null; then
   echo
   echo ":: host sem firewall existente -- escrevendo esqueleto novo ::"
-  [[ -f /etc/nftables.conf ]] && cp /etc/nftables.conf /etc/nftables.conf.pre-monitor-$(date +%s)
   cat > /etc/nftables.conf <<'SKELEOF'
 #!/usr/sbin/nft -f
 flush ruleset
@@ -76,7 +87,16 @@ table inet filter {
 		include "${INCLUDE_PATH}"
 	}
 	chain forward {
-		type filter hook forward priority filter; policy drop;
+		# accept, nao drop: um host rodando Docker roteia o trafego dos
+		# proprios containers por aqui (bridge -> internet). Docker
+		# gerencia suas proprias tabelas iptables-nft (ip filter/ip nat)
+		# pra isso, mas nftables avalia TODAS as chains casando o hook,
+		# de qualquer tabela -- um forward:drop aqui bloqueia mesmo com
+		# as regras do Docker corretas. Confirmado ao vivo: quebrou a
+		# rede de todo container em bag/tp ate reverter pra accept,
+		# igual o 'bag' ja fazia antes desta mudanca (nao foi acidente
+		# o padrao de referencia ter policy accept aqui).
+		type filter hook forward priority filter; policy accept;
 	}
 	chain output {
 		type filter hook output priority filter; policy accept;
@@ -105,10 +125,8 @@ nft -c -f /etc/nftables.conf
 echo ":: agendando reversao automatica em ${REVERT_DELAY_SEC}s (cancelavel) ::"
 systemctl stop ${REVERT_UNIT}.service 2>/dev/null || true
 systemctl reset-failed ${REVERT_UNIT}.service 2>/dev/null || true
-BACKUP="/etc/nftables.conf.pre-monitor-$(date +%s)"
-cp /etc/nftables.conf "$BACKUP"
 systemd-run --unit=${REVERT_UNIT} --on-active=${REVERT_DELAY_SEC} \\
-  /bin/bash -c "cp '$BACKUP' /etc/nftables.conf; systemctl reload nftables 2>/dev/null; logger -t monitor-firewall 'revertido automaticamente (sem confirmacao em ${REVERT_DELAY_SEC}s)'" \\
+  /bin/bash -c "cp '$BACKUP' /etc/nftables.conf; systemctl reload nftables 2>/dev/null || systemctl restart nftables 2>/dev/null; logger -t monitor-firewall 'revertido automaticamente (sem confirmacao em ${REVERT_DELAY_SEC}s)'" \\
   > /dev/null
 
 echo ":: aplicando ::"
@@ -134,6 +152,21 @@ export async function GET(request: Request) {
   if (!plan || !plan.enabled) {
     return new Response(
       `echo "Host '${hostParam}' nao encontrado no Monitor, ou firewall nao habilitado pra ele. Nada a fazer."`,
+      { headers: { 'content-type': 'text/x-shellscript; charset=utf-8' } }
+    );
+  }
+
+  // Trava de seguranca no SERVIDOR, nao so na UI: papel proxy/home com
+  // enabled=true e ZERO portas geraria um include que so libera SSH --
+  // bloquearia tudo mais nesse host (web, mail, o que for). A UI ja evita
+  // salvar assim sem querer, mas essa checagem aqui garante que nem um
+  // dado antigo/editado direto no banco consiga gerar esse script.
+  if (plan.role !== 'standard' && (plan.ports?.length ?? 0) === 0) {
+    return new Response(
+      `echo "RECUSANDO: host '${hostParam}' e role '${plan.role}' com firewall habilitado mas ZERO portas publicas configuradas."
+echo "Isso bloquearia tudo, exceto SSH, num host que precisa aceitar trafego de fora."
+echo "Configure as portas em /monitor/${hostParam} antes de aplicar."
+exit 1`,
       { headers: { 'content-type': 'text/x-shellscript; charset=utf-8' } }
     );
   }

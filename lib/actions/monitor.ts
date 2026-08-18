@@ -186,16 +186,6 @@ export async function resolveIncidentAction(formData: FormData) {
   revalidatePath('/monitor');
 }
 
-export async function setHostRoleAction(formData: FormData) {
-  await requireAdmin();
-  const host = String(formData.get('host') || '');
-  if (!host) return;
-  const raw = String(formData.get('role') || 'standard');
-  const role: MonitorHost['role'] = raw === 'proxy' || raw === 'home' ? raw : 'standard';
-  await setHostRole(host, role);
-  revalidatePath(`/monitor/${host}`);
-}
-
 function parsePorts(raw: string): number[] {
   return raw
     .split(/[\s,]+/)
@@ -203,13 +193,33 @@ function parsePorts(raw: string): number[] {
     .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
 }
 
-export async function setFirewallConfigAction(formData: FormData) {
+// Papel e firewall salvam juntos, num clique so -- eram dois forms/dois
+// botoes separados antes, e isso escondia uma armadilha real: salvar so
+// o papel revelava o campo de portas vazio (nada pra pre-preencher, e'
+// host novo), e um segundo clique no botao errado gravava enabled+ports
+// vazio -- que bloqueia TUDO num proxy/home, sem nenhum aviso.
+export async function setFirewallSectionAction(formData: FormData) {
   await requireAdmin();
   const host = String(formData.get('host') || '');
   if (!host) return;
+  const raw = String(formData.get('role') || 'standard');
+  const role: MonitorHost['role'] = raw === 'proxy' || raw === 'home' ? raw : 'standard';
+  await setHostRole(host, role);
   await setFirewallConfig(host, {
     enabled: formData.get('enabled') === 'on',
     ports: parsePorts(String(formData.get('ports') || '')),
   });
+  revalidatePath(`/monitor/${host}`);
+}
+
+// A checagem de idade em registerHeartbeat so enfileira sozinha quando
+// passa de ~14h -- bom pro dia a dia, ruim pra testar agora. Isso pula a
+// espera: enfileira direto, sem olhar timestamp nenhum. O proximo
+// heartbeat (ate 60s) ja busca e roda.
+export async function forceHostInfoAction(formData: FormData) {
+  await requireAdmin();
+  const host = String(formData.get('host') || '');
+  if (!host) return;
+  await enqueueJob(host, 'host-info');
   revalidatePath(`/monitor/${host}`);
 }

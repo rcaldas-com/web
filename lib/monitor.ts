@@ -792,6 +792,13 @@ export async function findBackupRunner(): Promise<string | undefined> {
   return doc?.name;
 }
 
+export async function findHostByRole(role: 'proxy' | 'home'): Promise<string | undefined> {
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db.collection<MonitorHost>('monitor_hosts').findOne({ role }, { projection: { name: 1 }, sort: { name: 1 } });
+  return doc?.name;
+}
+
 // Mesma comparacao que o heartbeat faz, exposta pras rotas que precisam
 // autenticar o agente sem processar um heartbeat inteiro.
 export async function verifyAgentToken(hostName: string, token: string) {

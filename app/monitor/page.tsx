@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { HomeIcon, CircleStackIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, CircleStackIcon, ShieldCheckIcon } from '@heroicons/react/24/outline';
 import { requireAdmin } from '@/lib/auth';
-import { getMonitorOverview, findBackupRunner } from '@/lib/monitor';
+import { getMonitorOverview, findBackupRunner, findHostByRole } from '@/lib/monitor';
 import {
   toggleDdnsAction,
   disableTunnelAction,
@@ -42,7 +42,11 @@ const APP_URL = process.env.AUTH_TRUST_HOST || 'https://web.rcaldas.com';
 
 export default async function MonitorPage() {
   await requireAdmin();
-  const [overview, backupRunner] = await Promise.all([getMonitorOverview(), findBackupRunner()]);
+  const [overview, backupRunner, proxyHost] = await Promise.all([
+    getMonitorOverview(),
+    findBackupRunner(),
+    findHostByRole('proxy'),
+  ]);
 
   return (
     <main className="min-h-screen bg-zinc-100 dark:bg-zinc-950">
@@ -71,6 +75,23 @@ export default async function MonitorPage() {
             >
               <CircleStackIcon className="h-4 w-4" />
               Backup (sem runner)
+            </span>
+          )}
+          {proxyHost ? (
+            <Link
+              href={`/monitor/${proxyHost}`}
+              className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            >
+              <ShieldCheckIcon className="h-4 w-4" />
+              Proxy ({proxyHost})
+            </Link>
+          ) : (
+            <span
+              title="Nenhum host marcado como role Proxy ainda"
+              className="inline-flex cursor-not-allowed items-center gap-2 rounded-full bg-zinc-100 px-4 py-2 text-sm text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600"
+            >
+              <ShieldCheckIcon className="h-4 w-4" />
+              Proxy (nenhum)
             </span>
           )}
           <span
