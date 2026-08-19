@@ -1,3 +1,5 @@
+import { AGENT_VERSION } from '@/lib/monitor';
+
 const APP_URL = process.env.AUTH_TRUST_HOST || 'http://localhost:8001';
 
 function script() {
@@ -107,7 +109,7 @@ TUNNEL_RELAY="${'$'}{TUNNEL_RELAY:-us.rcaldas.com}"
 TUNNEL_RELAY_PORT="${'$'}{TUNNEL_RELAY_PORT:-8422}"
 # Porta local que o -L do tunel expoe apontando pro rsyslog do relay.
 LOG_FORWARD_PORT="${'$'}{LOG_FORWARD_PORT:-5514}"
-VERSION="2.2.0"
+VERSION="${AGENT_VERSION}"
 LOG="/var/log/rcaldas-agent.log"
 PENDING_RESULTS_FILE="/etc/rcaldas-agent/pending-results.json"
 

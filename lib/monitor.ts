@@ -5,6 +5,14 @@ import { Db, ObjectId } from 'mongodb';
 import clientPromise from './mongodb';
 import { sendTunnelKeyApprovalEmail, sendIncidentEmail } from './email';
 
+// Fonte unica pra versao do agente: app/install/route.ts interpola isso no
+// script gerado, e registerHeartbeat compara contra o que cada host reporta
+// pra enfileirar 'update-agent' sozinho. Bump SEMPRE que o conteudo de
+// AGENT_BIN mudar -- nao mudar isso foi o motivo do host-info ter ficado
+// invisivel: o codigo novo foi adicionado sem bump, entao nenhum host
+// existente jamais teria motivo pra se atualizar sozinho.
+export const AGENT_VERSION = '2.3.0';
+
 export type HeartbeatPayload = {
   host?: string;
   token?: string;
@@ -640,6 +648,15 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
   const infoStaleCutoff = new Date(now.getTime() - 14 * 60 * 60 * 1000);
   if (!infoCollectedAt || infoCollectedAt < infoStaleCutoff) {
     await enqueueJob(host, 'host-info');
+  }
+
+  // Auto-update: o agente ja sabe rodar 'update-agent' sozinho (recebeu
+  // essa capacidade antes do host-info), so faltava o servidor pedir. Sem
+  // isso, todo host congela na versao que tinha no dia do /install e so
+  // atualiza se alguem lembrar de rodar o curl na mao de novo -- foi
+  // exatamente isso que deixou host-info invisivel em tp/bag/us por dias.
+  if (payload.version && payload.version !== AGENT_VERSION) {
+    await enqueueJob(host, 'update-agent');
   }
 
   // Devolve pra fila o que ficou preso em 'sent' (host reiniciou no meio)

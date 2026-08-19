@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import clientPromise from '../mongodb';
 import { ObjectId } from 'mongodb';
 import { addMonthsToYearMonth, getFinanceToday, yearMonthIndex } from './date';
@@ -582,13 +583,20 @@ export async function rollOverMonth(userId: string) {
 
 // ==================== Month Data ====================
 
-export async function getMonthData(userId: string, yearMonth: string): Promise<MonthData | null> {
+// cache(): dedupe por (userId, yearMonth) dentro da mesma requisição/action.
+// app/finance/page.tsx chama isto pro mês em exibição e, separadamente, pro
+// mês atual (pra calcular o saldo disponível projetado) -- quando os dois
+// coincidem (caso mais comum: usuário olhando o mês corrente), viravam duas
+// idas ao Mongo pra buscar exatamente o mesmo documento. Seguro em toda
+// lib/finance/actions.ts também: cada action lê o mês uma vez, muta, e
+// nunca relê depois de escrever dentro da mesma chamada.
+export const getMonthData = cache(async (userId: string, yearMonth: string): Promise<MonthData | null> => {
   const client = await clientPromise;
   const db = client.db();
   const doc = await db.collection('financeMonth').findOne({ userId, yearMonth });
   if (!doc) return null;
   return { ...doc, _id: doc._id.toString() } as MonthData;
-}
+});
 
 export async function upsertMonthData(userId: string, yearMonth: string, data: Partial<MonthData>) {
   const client = await clientPromise;
