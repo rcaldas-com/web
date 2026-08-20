@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { saveExpensesAndContinue, saveExpensesAndFinish } from '@/lib/finance/actions';
 import { saveLocalExpenses, saveDraft, loadDraft, clearDraft, getLocalExpenses } from '@/lib/finance/local-storage';
 import type { RecurringExpense } from '@/lib/finance/types';
@@ -169,10 +170,10 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
       </div>
 
       <div className="flex justify-between">
-        <a href="/finance/setup/cards"
+        <Link href="/finance/setup/cards"
           className="text-zinc-600 hover:text-zinc-800 px-4 py-2">
           ← Voltar
-        </a>
+        </Link>
         <div className="flex gap-3">
           {isGuest ? (
             <>

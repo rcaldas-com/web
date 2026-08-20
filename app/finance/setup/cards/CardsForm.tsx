@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { saveCardsAndContinue, saveCardsAndFinish } from '@/lib/finance/actions';
 import { saveLocalCards, saveDraft, loadDraft, clearDraft } from '@/lib/finance/local-storage';
 import { evalExpression } from '@/lib/finance/eval-expression';
@@ -128,10 +129,10 @@ export default function CardsForm({ cards, isGuest }: { cards: CreditCard[]; isG
       </div>
 
       <div className="flex justify-between">
-        <a href="/finance/setup/profile"
+        <Link href="/finance/setup/profile"
           className="text-zinc-600 hover:text-zinc-800 px-4 py-2">
           ← Voltar
-        </a>
+        </Link>
         <div className="flex gap-3">
           {isGuest ? (
             <>

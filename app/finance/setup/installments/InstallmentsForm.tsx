@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { saveInstallmentsAndFinish } from '@/lib/finance/actions';
 import {
   getLocalCards,
@@ -183,10 +184,10 @@ export default function InstallmentsForm({
       </div>
 
       <div className="flex justify-between">
-        <a href="/finance/setup/expenses"
+        <Link href="/finance/setup/expenses"
           className="text-zinc-600 hover:text-zinc-800 px-4 py-2">
           ← Voltar
-        </a>
+        </Link>
         <button type="submit"
           className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
           Concluir ✓
