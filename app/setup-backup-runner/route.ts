@@ -113,6 +113,19 @@ CONF_DIR="/etc/rcaldas-backup"
 PENDING="/etc/rcaldas-agent/pending-results.json"
 LOG="/var/log/rcaldas-backup.log"
 
+# "hora" roda a cada 4h, "dia" 1x/dia -- MESMO script, dois cron jobs
+# separados, sem exclusao mutua nenhuma antes disso. "dia" termina o loop
+# do rsnapshot rapido (so promove por mv, nao re-sincroniza) mas ai chama
+# o restic, que le /tank/bkp/*/hora.0 e pode levar dezenas de minutos com
+# volume grande. Se o proximo "hora" cair nesse meio tempo, ele faz rsync
+# de verdade (com --delete) NO MESMO hora.0 que o restic esta lendo --
+# corrida real, nao falha aleatoria: foi exatamente isso que derrubou o
+# restic (arquivo listado pelo restic, apagado pelo rsync antes dele ler
+# de fato). flock serializa as duas execucoes do mesmo script -- "hora"
+# so espera terminar o "dia" em vez de rodar por cima.
+exec 200>/var/run/rcaldas-backup.lock
+flock -w 3600 200 || { echo "[$(date '+%Y-%m-%d %H:%M:%S')] outra execucao de rcaldas-backup ja em andamento ha mais de 1h -- desistindo" | tee -a "$LOG" >/dev/null; exit 1; }
+
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG" >/dev/null; }
 
 resultados=""

@@ -16,7 +16,7 @@ export type Domain = {
   updatedAt: Date;
 };
 
-function normalizeDomainName(raw: string) {
+export function normalizeDomainName(raw: string) {
   return raw
     .trim()
     .toLowerCase()

@@ -18,6 +18,7 @@ import {
   setHostRole,
   setFirewallConfig,
   type MonitorHost,
+  type PortRule,
 } from '@/lib/monitor';
 
 export async function toggleDdnsAction(formData: FormData) {
@@ -186,18 +187,28 @@ export async function resolveIncidentAction(formData: FormData) {
   revalidatePath('/monitor');
 }
 
-function parsePorts(raw: string): number[] {
-  return raw
-    .split(/[\s,]+/)
-    .map((p) => Number(p.trim()))
-    .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
+// Aceita porta unica ("80"), faixa ("21115-21119") e protocolo opcional
+// ("21116/udp", default tcp) -- o suficiente pra representar o que ja
+// existe de verdade num host como o `us` (RustDesk usa faixa + UDP; um
+// numero isolado nao dava conta disso).
+function parsePortRules(raw: string): PortRule[] {
+  const rules: PortRule[] = [];
+  for (const token of raw.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean)) {
+    const match = token.match(/^(\d{1,5})(?:-(\d{1,5}))?(?:\/(tcp|udp))?$/i);
+    if (!match) continue;
+    const start = Number(match[1]);
+    const end = match[2] ? Number(match[2]) : undefined;
+    const proto = (match[3]?.toLowerCase() as 'tcp' | 'udp') || 'tcp';
+    if (start < 1 || start > 65535) continue;
+    if (end != null && (end < start || end > 65535)) continue;
+    rules.push(end != null ? { start, end, proto } : { start, proto });
+  }
+  return rules;
 }
 
-// Papel e firewall salvam juntos, num clique so -- eram dois forms/dois
-// botoes separados antes, e isso escondia uma armadilha real: salvar so
-// o papel revelava o campo de portas vazio (nada pra pre-preencher, e'
-// host novo), e um segundo clique no botao errado gravava enabled+ports
-// vazio -- que bloqueia TUDO num proxy/home, sem nenhum aviso.
+// Papel e firewall salvam juntos, num clique so. Isto so guarda dado pra
+// alimentar a sugestao de nftables (ver renderNftablesSuggestion em
+// lib/monitor.ts) -- nao aplica nada em host nenhum.
 export async function setFirewallSectionAction(formData: FormData) {
   await requireAdmin();
   const host = String(formData.get('host') || '');
@@ -206,8 +217,8 @@ export async function setFirewallSectionAction(formData: FormData) {
   const role: MonitorHost['role'] = raw === 'proxy' || raw === 'home' ? raw : 'standard';
   await setHostRole(host, role);
   await setFirewallConfig(host, {
-    enabled: formData.get('enabled') === 'on',
-    ports: parsePorts(String(formData.get('ports') || '')),
+    ports: parsePortRules(String(formData.get('ports') || '')),
+    lanPorts: parsePortRules(String(formData.get('lanPorts') || '')),
   });
   revalidatePath(`/monitor/${host}`);
 }

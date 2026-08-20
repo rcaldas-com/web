@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import { verifySessionToken } from '@/lib/session';
 import { resolveCallbackUrl } from '@/lib/callback-url';
 
-const protectedRoutes = ['/dashboard', '/wallet', '/configuracoes', '/monitor'];
+const protectedRoutes = ['/dashboard', '/wallet', '/configuracoes', '/monitor', '/upload'];
 const authRoutes = ['/login', '/register', '/forgot-password', '/reset-password'];
 
 // Convencao de arquivo do Next gera rotas de verdade pra esses dois,
@@ -63,6 +63,7 @@ export const config = {
     '/configuracoes/:path*',
     '/monitor/:path*',
     '/finance/:path*',
+    '/upload/:path*',
     '/login',
     '/register',
     '/forgot-password',

@@ -13,6 +13,12 @@ import { sendTunnelKeyApprovalEmail, sendIncidentEmail } from './email';
 // existente jamais teria motivo pra se atualizar sozinho.
 export const AGENT_VERSION = '2.3.0';
 
+// Uma porta ou faixa de portas, com protocolo -- o suficiente pra
+// representar o que o `us` ja tem aberto de verdade hoje na mao (ex:
+// RustDesk usa faixa 21115-21119 TCP + porta unica 21116 UDP; um numero
+// isolado nao dava conta disso). 'end' ausente = porta unica.
+export type PortRule = { start: number; end?: number; proto: 'tcp' | 'udp' };
+
 export type HeartbeatPayload = {
   host?: string;
   token?: string;
@@ -94,6 +100,15 @@ export type MonitorHost = {
     memory?: number;
     cpu?: number;
   };
+  // Espelho do breachStreaks, mas pra fechar: so conta enquanto o
+  // incidente ja esta aberto (streak de abertura >= CONSECUTIVE_BREACHES_
+  // REQUIRED). Sem isso, memoria/cpu oscilando bem em cima do limite abre
+  // e fecha incidente a cada heartbeat -- visto ao vivo no bag (90%
+  // exatamente no limite, flapping a cada ~1min).
+  clearStreaks?: {
+    memory?: number;
+    cpu?: number;
+  };
   // O que copiar deste host. A execucao continua local no runner
   // (rsnapshot), isso aqui e a fonte da verdade que gera a config dele --
   // mesmo formato que os .bkp escritos a mao usam hoje.
@@ -124,17 +139,24 @@ export type MonitorHost = {
   };
   // 'standard' (padrao, ate undefined): host comum, sem exposicao publica
   // esperada. 'proxy'/'home': precisa aceitar trafego de fora por design
-  // (web/mail/roteador) -- muda qual regra de firewall faz sentido, ver
-  // getFirewallPlan().
+  // (web/mail/roteador) -- muda qual sugestao de firewall faz sentido, ver
+  // getFirewallPlan()/renderNftablesSuggestion().
+  //
+  // Nao aplica nada sozinho -- so guarda o que a sugestao de nftables.conf
+  // deve conter. A implementacao no host e sempre manual (ver historico:
+  // teve versao anterior que aplicava remoto com reversao automatica, deu
+  // dois bugs de producao reais e confusao sobre se tinha aplicado ou nao
+  // -- desfeito de proposito).
   role?: 'standard' | 'proxy' | 'home';
-  // Toggle unico pras duas roles, mas gera coisas diferentes:
-  // standard  -> so hosts conhecidos da frota (ip/ip6 saddr accept)
-  // proxy/home -> as portas de 'ports', abertas pro mundo
-  // O include so tem accept -- nunca policy, nunca drop. Ver o .md do
-  // desenho ou CLAUDE.md quando existir.
   firewall?: {
-    enabled?: boolean;
-    ports?: number[];
+    // Portas publicas -- so tem efeito na sugestao quando role e' proxy/home.
+    ports?: PortRule[];
+    // Portas liberadas so pra faixas RFC1918 (10/8, 172.16/12, 192.168/16)
+    // -- vale pra QUALQUER role, inclusive standard. Resolve o caso de
+    // acessar um servico (ex: VNC) de outro dispositivo na mesma rede
+    // local sem expor pro mundo nem precisar saber qual rede especifica
+    // (a faixa privada e' a mesma em qualquer rede domestica/local).
+    lanPorts?: PortRule[];
   };
   // Fastfetch filtrado do host (mesmo comando que roda no fim do /init).
   // NAO vem no heartbeat -- e bem maior que o resto do payload, entao e
@@ -423,8 +445,12 @@ const CONSECUTIVE_BREACHES_REQUIRED = 3;
 
 // So faz alguma coisa se o admin configurou um limite pra esse host na
 // pagina de detalhe (MonitorHost.monitoring) -- sem config, e um no-op.
-// Abre/atualiza um incidente quando cruza o limite, resolve sozinho no
-// primeiro heartbeat de volta abaixo dele.
+// Disco: abre/resolve no primeiro heartbeat que cruza o limite em
+// qualquer direcao -- nao tem "pico passageiro" de disco de verdade.
+// Memoria/CPU: abre so depois de CONSECUTIVE_BREACHES_REQUIRED heartbeats
+// seguidos acima do limite, e fecha so depois da MESMA quantidade seguidos
+// de volta abaixo -- histerese simetrica, ver comentario no bloco de
+// memoria pra o bug real que isso corrige.
 async function checkMonitoringThresholds(db: Db, host: string, existing: MonitorHost | null, system?: HeartbeatPayload['system']) {
   const cfg = existing?.monitoring;
   if (!cfg || !system) return;
@@ -446,11 +472,16 @@ async function checkMonitoringThresholds(db: Db, host: string, existing: Monitor
   }
 
   const streaks = { ...existing?.breachStreaks };
+  const clearStreaks = { ...existing?.clearStreaks };
   let streaksChanged = false;
 
   if (cfg.memoryThresholdPct != null && system.memoryPct != null) {
     const key = `mem:${host}`;
     if (system.memoryPct >= cfg.memoryThresholdPct) {
+      if (clearStreaks.memory) {
+        clearStreaks.memory = 0;
+        streaksChanged = true;
+      }
       streaks.memory = (streaks.memory ?? 0) + 1;
       streaksChanged = true;
       if (streaks.memory >= CONSECUTIVE_BREACHES_REQUIRED) {
@@ -462,18 +493,34 @@ async function checkMonitoringThresholds(db: Db, host: string, existing: Monitor
           emailSubject: `memoria acima do limite (${cfg.memoryThresholdPct}%)`,
         });
       }
-    } else {
-      if (streaks.memory) {
+    } else if ((streaks.memory ?? 0) >= CONSECUTIVE_BREACHES_REQUIRED) {
+      // Incidente ja aberto: exige a MESMA quantidade de heartbeats bons
+      // seguidos antes de fechar -- simetrico com a abertura. Sem isso,
+      // um valor oscilando bem em cima do limite abre e fecha a cada
+      // heartbeat que volta a ficar abaixo (visto ao vivo no bag: 90%
+      // exato, flapping a cada ~1min).
+      clearStreaks.memory = (clearStreaks.memory ?? 0) + 1;
+      streaksChanged = true;
+      if (clearStreaks.memory >= CONSECUTIVE_BREACHES_REQUIRED) {
         streaks.memory = 0;
-        streaksChanged = true;
+        clearStreaks.memory = 0;
+        await resolveIncident(db, key);
       }
-      await resolveIncident(db, key);
+    } else if (streaks.memory) {
+      // Nunca chegou a abrir (streak de abertura nao completou) -- so
+      // ruido abaixo do limiar de alerta, limpa na hora.
+      streaks.memory = 0;
+      streaksChanged = true;
     }
   }
 
   if (cfg.cpuThresholdPct != null && system.cpuPct != null) {
     const key = `cpu:${host}`;
     if (system.cpuPct >= cfg.cpuThresholdPct) {
+      if (clearStreaks.cpu) {
+        clearStreaks.cpu = 0;
+        streaksChanged = true;
+      }
       streaks.cpu = (streaks.cpu ?? 0) + 1;
       streaksChanged = true;
       if (streaks.cpu >= CONSECUTIVE_BREACHES_REQUIRED) {
@@ -488,17 +535,24 @@ async function checkMonitoringThresholds(db: Db, host: string, existing: Monitor
           detail: system.topCpu ? `Processos no topo: ${system.topCpu}` : undefined,
         });
       }
-    } else {
-      if (streaks.cpu) {
+    } else if ((streaks.cpu ?? 0) >= CONSECUTIVE_BREACHES_REQUIRED) {
+      clearStreaks.cpu = (clearStreaks.cpu ?? 0) + 1;
+      streaksChanged = true;
+      if (clearStreaks.cpu >= CONSECUTIVE_BREACHES_REQUIRED) {
         streaks.cpu = 0;
-        streaksChanged = true;
+        clearStreaks.cpu = 0;
+        await resolveIncident(db, key);
       }
-      await resolveIncident(db, key);
+    } else if (streaks.cpu) {
+      streaks.cpu = 0;
+      streaksChanged = true;
     }
   }
 
   if (streaksChanged) {
-    await db.collection<MonitorHost>('monitor_hosts').updateOne({ name: host }, { $set: { breachStreaks: streaks } });
+    await db
+      .collection<MonitorHost>('monitor_hosts')
+      .updateOne({ name: host }, { $set: { breachStreaks: streaks, clearStreaks } });
   }
 }
 
@@ -700,7 +754,13 @@ export async function setTunnelEnabled(hostName: string, enabled: boolean) {
     .updateOne({ name: host }, { $set: { tunnelEnabled: enabled, updatedAt: new Date() } });
 }
 
+// Faixa fechada de proposito: o `us` ja tem exatamente 7700-7799 aberto na
+// mao no nftables real dele. Sem um teto, esse alocador podia devolver uma
+// porta fora do que qualquer sugestao/regra existente abre -- teto aqui
+// garante que a sugestao gerada (getFirewallPlan) e o alocador nunca
+// divergem, mesmo que um dia o `us` passe a aplicar a sugestao de verdade.
 const TUNNEL_PORT_RANGE_START = 7701;
+const TUNNEL_PORT_RANGE_END = 7799;
 
 async function nextTunnelPort(db: Db, excludeHost: string) {
   const used = await db
@@ -709,7 +769,12 @@ async function nextTunnelPort(db: Db, excludeHost: string) {
     .toArray();
   const usedPorts = new Set(used.map((h) => h.tunnelPort));
   let port = TUNNEL_PORT_RANGE_START;
-  while (usedPorts.has(port)) port++;
+  while (usedPorts.has(port)) {
+    port++;
+    if (port > TUNNEL_PORT_RANGE_END) {
+      throw new Error(`faixa de portas de tunel esgotada (${TUNNEL_PORT_RANGE_START}-${TUNNEL_PORT_RANGE_END})`);
+    }
+  }
   return port;
 }
 
@@ -1019,17 +1084,23 @@ export async function getBackupPlan(runnerHost: string): Promise<BackupPlanEntry
 export type FirewallPlan = {
   host: string;
   role: 'standard' | 'proxy' | 'home';
-  enabled: boolean;
   // standard: quem mais a frota conhece hoje (accept, nunca policy/drop).
   knownHostsV4?: string[];
   knownHostsV6?: string[];
-  // proxy/home: portas TCP publicas escolhidas pelo admin.
-  ports?: number[];
+  // proxy/home: portas publicas escolhidas pelo admin.
+  ports?: PortRule[];
+  // qualquer role: portas so pra faixa RFC1918 (ver renderNftablesSuggestion).
+  lanPorts?: PortRule[];
 };
 
-// So gera o CONTEUDO do include -- policy/invariantes/onde o include entra
-// no arquivo ficam no esqueleto fixo (/firewall-config escreve os dois,
-// mas so o include e regerado depois; o esqueleto e escrito uma vez).
+function dedupePortRules(rules: PortRule[]): PortRule[] {
+  const seen = new Map<string, PortRule>();
+  for (const r of rules) seen.set(`${r.proto}:${r.start}-${r.end ?? r.start}`, r);
+  return [...seen.values()].sort((a, b) => a.proto.localeCompare(b.proto) || a.start - b.start);
+}
+
+// Monta os dados que a sugestao de nftables precisa -- nunca aplica nada,
+// so calcula. Ver renderNftablesSuggestion() pra virar texto.
 export async function getFirewallPlan(hostName: string): Promise<FirewallPlan | null> {
   const host = normalizeHostName(hostName);
   const client = await clientPromise;
@@ -1038,10 +1109,18 @@ export async function getFirewallPlan(hostName: string): Promise<FirewallPlan | 
   if (!doc) return null;
 
   const role = doc.role ?? 'standard';
-  const enabled = Boolean(doc.firewall?.enabled);
+  const lanPorts = dedupePortRules(doc.firewall?.lanPorts ?? []);
+
+  // Relay de tunel: a sugestao pra ele precisa abrir a faixa inteira de
+  // portas de tunel da frota, ou um proxy/router novo montado a partir
+  // dessa sugestao quebraria o tunel de todo host atras de NAT -- nao e'
+  // algo que o admin deveria precisar lembrar de digitar na mao.
+  const isTunnelRelay = host === normalizeHostName(TUNNEL_RELAY_HOST.split('.')[0]);
 
   if (role !== 'standard') {
-    return { host, role, enabled, ports: [...new Set(doc.firewall?.ports ?? [])].sort((a, b) => a - b) };
+    const ports = dedupePortRules(doc.firewall?.ports ?? []);
+    if (isTunnelRelay) ports.push({ start: TUNNEL_PORT_RANGE_START, end: TUNNEL_PORT_RANGE_END, proto: 'tcp' });
+    return { host, role, ports: dedupePortRules(ports), lanPorts };
   }
 
   const others = await db
@@ -1067,7 +1146,94 @@ export async function getFirewallPlan(hostName: string): Promise<FirewallPlan | 
   const knownHostsV4 = [...v4].sort();
   const knownHostsV6 = [...v6].sort();
 
-  return { host, role, enabled, knownHostsV4, knownHostsV6 };
+  return { host, role, knownHostsV4, knownHostsV6, lanPorts };
+}
+
+function formatPortRules(rules: PortRule[]): { tcp: string[]; udp: string[] } {
+  const tcp: string[] = [];
+  const udp: string[] = [];
+  for (const r of rules) {
+    const token = r.end != null && r.end !== r.start ? `${r.start}-${r.end}` : `${r.start}`;
+    (r.proto === 'udp' ? udp : tcp).push(token);
+  }
+  return { tcp, udp };
+}
+
+const LAN_RANGES_V4 = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
+
+// Texto puro -- nunca escrito em disco nem aplicado em host nenhum por
+// este app. So pra copiar/colar/adaptar na mao. Duas partes claramente
+// demarcadas: um esqueleto completo (serve de ponto de partida pra host
+// sem nftables ainda) e o trecho especifico do papel (serve pra colar
+// dentro de um nftables ja existente, sem tocar no resto dele).
+export function renderNftablesSuggestion(plan: FirewallPlan): string {
+  const roleLines: string[] = [];
+
+  if (plan.role === 'standard') {
+    const v4 = plan.knownHostsV4 ?? [];
+    const v6 = plan.knownHostsV6 ?? [];
+    if (v4.length) roleLines.push(`ip saddr { ${v4.join(', ')} } accept`);
+    if (v6.length) roleLines.push(`ip6 saddr { ${v6.join(', ')} } accept`);
+    if (!v4.length && !v6.length) roleLines.push('# nenhum outro host conhecido ainda -- so SSH e loopback liberados');
+  } else {
+    const { tcp, udp } = formatPortRules(plan.ports ?? []);
+    if (tcp.length) roleLines.push(`tcp dport { ${tcp.join(', ')} } accept`);
+    if (udp.length) roleLines.push(`udp dport { ${udp.join(', ')} } accept`);
+    if (!tcp.length && !udp.length) roleLines.push('# nenhuma porta publica configurada ainda');
+  }
+
+  const lanRules = plan.lanPorts ?? [];
+  if (lanRules.length) {
+    const { tcp, udp } = formatPortRules(lanRules);
+    const lanNets = LAN_RANGES_V4.join(', ');
+    if (tcp.length) roleLines.push(`ip saddr { ${lanNets} } tcp dport { ${tcp.join(', ')} } accept`);
+    if (udp.length) roleLines.push(`ip saddr { ${lanNets} } udp dport { ${udp.join(', ')} } accept`);
+  }
+
+  return `#!/usr/sbin/nft -f
+# Sugestao gerada pelo Monitor pro host "${plan.host}" (papel: ${plan.role}).
+# So sugestao -- nada aqui e aplicado automaticamente em lugar nenhum.
+# Cole/adapte na mao no /etc/nftables.conf do host.
+
+# --- esqueleto: ponto de partida pra um host SEM nftables ainda ---
+flush ruleset
+
+table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+
+		iifname "lo" accept
+		ct state established,related accept
+		ct state invalid drop
+
+		# ICMP/ICMPv6 essenciais (RFC 4890) -- sem isso o NDP quebra e o
+		# IPv6 fica morto.
+		icmp type { destination-unreachable, time-exceeded, parameter-problem, echo-request, echo-reply } accept
+		icmpv6 type {
+			destination-unreachable, packet-too-big,
+			time-exceeded, parameter-problem,
+			echo-request, echo-reply,
+			nd-router-solicit, nd-router-advert,
+			nd-neighbor-solicit, nd-neighbor-advert
+		} accept
+
+		tcp dport 8422 accept
+
+		# --- regras do papel: cole so este trecho se ja tiver nftables ---
+${roleLines.map((l) => `\t\t${l}`).join('\n')}
+		# --- fim das regras do papel ---
+	}
+	chain forward {
+		# accept, nao drop: host rodando Docker roteia trafego dos
+		# proprios containers por aqui -- um forward:drop aqui quebra a
+		# rede de todo container, mesmo com as regras do Docker corretas.
+		type filter hook forward priority filter; policy accept;
+	}
+	chain output {
+		type filter hook output priority filter; policy accept;
+	}
+}
+`;
 }
 
 export async function createHost(hostName: string, options: { ddnsEnabled: boolean; tunnelEnabled: boolean }) {

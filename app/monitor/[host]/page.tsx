@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAdmin } from '@/lib/auth';
-import { getMonitorHost } from '@/lib/monitor';
+import { getMonitorHost, getFirewallPlan, renderNftablesSuggestion } from '@/lib/monitor';
 import {
   toggleDdnsAction,
   disableTunnelAction,
@@ -18,8 +18,6 @@ import AutoRefresh from '@/app/finance/AutoRefresh';
 import ConfirmSubmit from '@/components/ConfirmSubmit';
 import SubmitButton from '@/components/SubmitButton';
 import FirewallSection from '@/app/monitor/FirewallSection';
-
-const APP_URL = process.env.AUTH_TRUST_HOST || 'https://web.rcaldas.com';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -54,6 +52,8 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
   const { host: hostParam } = await params;
   const host = await getMonitorHost(hostParam);
   if (!host) notFound();
+  const firewallPlan = await getFirewallPlan(hostParam);
+  const firewallSuggestion = firewallPlan ? renderNftablesSuggestion(firewallPlan) : '';
 
   return (
     <main className="min-h-screen bg-zinc-100 dark:bg-zinc-950">
@@ -223,9 +223,9 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
         <FirewallSection
           hostName={host.name}
           initialRole={host.role ?? 'standard'}
-          firewallEnabled={host.firewall?.enabled}
           ports={host.firewall?.ports ?? []}
-          appUrl={APP_URL}
+          lanPorts={host.firewall?.lanPorts ?? []}
+          suggestion={firewallSuggestion}
           action={setFirewallSectionAction}
         />
 
