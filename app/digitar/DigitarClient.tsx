@@ -4,7 +4,9 @@ import { DragEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
 
-const ACCEPTED = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ACCEPTED = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_PDF_BYTES = 20 * 1024 * 1024;
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -35,15 +37,18 @@ export default function DigitarClient({ canUseExternalAi }: { canUseExternalAi: 
 
   const loadFile = useCallback((f: File) => {
     if (!ACCEPTED.has(f.type)) {
-      setError('Formato invalido. Use JPG, PNG ou WEBP.');
+      setError('Formato invalido. Use JPG, PNG, WEBP ou PDF.');
       return;
     }
-    if (f.size > 10 * 1024 * 1024) {
-      setError('Arquivo muito grande. Maximo 10MB.');
+    const isPdf = f.type === 'application/pdf';
+    const maxBytes = isPdf ? MAX_PDF_BYTES : MAX_IMAGE_BYTES;
+    if (f.size > maxBytes) {
+      setError(`Arquivo muito grande. Maximo ${maxBytes / 1024 / 1024}MB.`);
       return;
     }
     setFile(f);
-    setPreviewUrl(URL.createObjectURL(f));
+    // PDF nao renderiza como <img> -- sem preview, so o card com nome/tamanho.
+    setPreviewUrl(isPdf ? '' : URL.createObjectURL(f));
     setError('');
     setText('');
     setStatus('idle');
@@ -135,7 +140,7 @@ export default function DigitarClient({ canUseExternalAi }: { canUseExternalAi: 
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept="image/png,image/jpeg,image/webp,application/pdf"
           className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) loadFile(f); }}
         />
@@ -147,13 +152,21 @@ export default function DigitarClient({ canUseExternalAi }: { canUseExternalAi: 
             onClick={e => e.stopPropagation()}
             className="max-h-[60vh] max-w-full rounded-lg border border-zinc-200 object-contain shadow-sm dark:border-zinc-700"
           />
+        ) : file ? (
+          <>
+            <span className="text-4xl">📄</span>
+            <p className="text-zinc-600 text-sm text-center px-4 dark:text-zinc-200">
+              <strong>{file.name}</strong>
+            </p>
+            <p className="text-xs text-zinc-400 dark:text-zinc-500">PDF — páginas viram imagem e passam por OCR uma a uma</p>
+          </>
         ) : (
           <>
             <span className="text-4xl">🧾</span>
             <p className="text-zinc-500 text-sm text-center px-4 dark:text-zinc-300">
-              Clique para selecionar, arraste uma imagem ou pressione <strong>Ctrl+V</strong>
+              Clique para selecionar, arraste um arquivo ou pressione <strong>Ctrl+V</strong>
             </p>
-            <p className="text-xs text-zinc-400 dark:text-zinc-500">JPG · PNG · WEBP · max 10MB</p>
+            <p className="text-xs text-zinc-400 dark:text-zinc-500">JPG · PNG · WEBP (max 10MB) · PDF (max 20MB)</p>
           </>
         )}
       </div>

@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server';
 import { createWorker } from 'tesseract.js';
 import type { Word } from 'tesseract.js';
+import { pdf } from 'pdf-to-img';
 import { getCurrentUser, hasRole } from '@/lib/auth';
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_PDF_SIZE_BYTES = 20 * 1024 * 1024;
+// Cada pagina roda OCR por completo -- sem teto, um PDF de centenas de
+// paginas travaria a requisicao por minutos (e o HAProxy corta por
+// inatividade bem antes disso, ver CLAUDE.md deste diretorio).
+const MAX_PDF_PAGES = 30;
 const ACCEPTED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const PDF_TYPE = 'application/pdf';
 
 const OCR_PROMPT = [
   'You are an expert OCR engine for Portuguese documents.',
@@ -21,6 +28,27 @@ const OCR_PROMPT = [
 function toDataUrl(buffer: ArrayBuffer, mimeType: string): string {
   const base64 = Buffer.from(buffer).toString('base64');
   return `data:${mimeType};base64,${base64}`;
+}
+
+// Buffer do Node e' uma VIEW sobre um ArrayBuffer que pode ser maior que o
+// proprio buffer (pool compartilhado) -- pegar so `.buffer` sem recortar
+// por byteOffset/byteLength vazaria bytes vizinhos de outro buffer junto.
+function toArrayBuffer(buf: Buffer): ArrayBuffer {
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+}
+
+// pdf-to-img aceita data URL direto -- evita escrever arquivo temporario
+// (sem isso teria que gerenciar nome unico + limpeza entre requests
+// concorrentes). Cada pagina vira um Buffer PNG.
+async function pdfToPageBuffers(buffer: ArrayBuffer): Promise<ArrayBuffer[]> {
+  const dataUrl = toDataUrl(buffer, PDF_TYPE);
+  const document = await pdf(dataUrl, { scale: 2 });
+  if (document.length > MAX_PDF_PAGES) {
+    throw new Error(`PDF com ${document.length} paginas -- maximo ${MAX_PDF_PAGES}.`);
+  }
+  const pages: ArrayBuffer[] = [];
+  for await (const image of document) pages.push(toArrayBuffer(image));
+  return pages;
 }
 
 // Reconstruct reading order from bounding-box data.
@@ -67,22 +95,44 @@ function reconstructFromWords(words: Word[], imageWidth: number): string {
   }).join('\n');
 }
 
+async function recognizeOne(worker: Awaited<ReturnType<typeof createWorker>>, buffer: ArrayBuffer): Promise<string> {
+  const buf = Buffer.from(buffer);
+  const { data } = await worker.recognize(buf);
+  const imageWidth = data.blocks?.[0]?.bbox?.x1 ?? 0;
+
+  // Extract words from nested blocks→paragraphs→lines→words
+  const words: Word[] = (data.blocks ?? []).flatMap(b =>
+    (b.paragraphs ?? []).flatMap(p =>
+      (p.lines ?? []).flatMap(l => l.words ?? [])
+    )
+  );
+
+  const reconstructed = reconstructFromWords(words, imageWidth);
+  return reconstructed || data.text.trim();
+}
+
 async function runTesseract(buffer: ArrayBuffer): Promise<string> {
   const worker = await createWorker(['por', 'eng']);
   try {
-    const buf = Buffer.from(buffer);
-    const { data } = await worker.recognize(buf);
-    const imageWidth = data.blocks?.[0]?.bbox?.x1 ?? 0;
+    return await recognizeOne(worker, buffer);
+  } finally {
+    await worker.terminate();
+  }
+}
 
-    // Extract words from nested blocks→paragraphs→lines→words
-    const words: Word[] = (data.blocks ?? []).flatMap(b =>
-      (b.paragraphs ?? []).flatMap(p =>
-        (p.lines ?? []).flatMap(l => l.words ?? [])
-      )
-    );
-
-    const reconstructed = reconstructFromWords(words, imageWidth);
-    return reconstructed || data.text.trim();
+// Um worker so, reaproveitado entre todas as paginas de um PDF -- criar/
+// destruir o worker WASM por pagina (chamando runTesseract em loop) seria
+// bem mais lento, e o tempo total de processamento importa aqui: o
+// HAProxy corta a conexao por inatividade se a resposta demorar demais
+// (ver CLAUDE.md deste diretorio).
+async function runTesseractBatch(buffers: ArrayBuffer[]): Promise<string[]> {
+  const worker = await createWorker(['por', 'eng']);
+  try {
+    const results: string[] = [];
+    for (const buffer of buffers) {
+      results.push(await recognizeOne(worker, buffer));
+    }
+    return results;
   } finally {
     await worker.terminate();
   }
@@ -129,16 +179,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Arquivo nao enviado.' }, { status: 400 });
     }
 
-    if (!ACCEPTED_TYPES.has(file.type)) {
+    const isPdf = file.type === PDF_TYPE;
+    if (!ACCEPTED_TYPES.has(file.type) && !isPdf) {
       return NextResponse.json(
-        { error: 'Formato invalido. Use JPG, PNG ou WEBP.' },
+        { error: 'Formato invalido. Use JPG, PNG, WEBP ou PDF.' },
         { status: 400 }
       );
     }
 
-    if (file.size <= 0 || file.size > MAX_FILE_SIZE_BYTES) {
+    const maxSize = isPdf ? MAX_PDF_SIZE_BYTES : MAX_FILE_SIZE_BYTES;
+    if (file.size <= 0 || file.size > maxSize) {
       return NextResponse.json(
-        { error: 'Arquivo fora do limite. Maximo: 10MB.' },
+        { error: `Arquivo fora do limite. Maximo: ${Math.round(maxSize / 1024 / 1024)}MB.` },
         { status: 400 }
       );
     }
@@ -148,16 +200,42 @@ export async function POST(request: Request) {
     const user = await getCurrentUser();
     const requestedEngine = String(form.get('engine') || 'auto');
     const canUseExternal = hasRole(user, 'digitar');
+    const useOpenAI = Boolean(apiKey && canUseExternal && requestedEngine === 'openai');
 
     let markdown: string;
-    let engine: string;
+    const engine = useOpenAI ? 'openai' : 'tesseract';
 
-    if (apiKey && canUseExternal && requestedEngine === 'openai') {
-      markdown = await runOpenAI(apiKey, arrayBuffer, file.type);
-      engine = 'openai';
+    if (isPdf) {
+      let pages: ArrayBuffer[];
+      try {
+        pages = await pdfToPageBuffers(arrayBuffer);
+      } catch (err) {
+        return NextResponse.json(
+          { error: err instanceof Error ? err.message : 'Falha ao processar o PDF.' },
+          { status: 400 }
+        );
+      }
+      if (!pages.length) {
+        return NextResponse.json({ error: 'PDF sem paginas.' }, { status: 422 });
+      }
+
+      // OpenAI: cada pagina e' uma requisicao HTTP independente, sem
+      // recurso local compartilhado -- roda em paralelo, corta o tempo
+      // total (importa pro timeout do HAProxy, ver CLAUDE.md). Tesseract:
+      // um worker WASM so processa um job por vez mesmo se chamado em
+      // paralelo, entao sequencial aqui e' igual de rapido e usa menos
+      // memoria (nao levanta N workers ao mesmo tempo).
+      const pageTexts = useOpenAI
+        ? await Promise.all(pages.map((p) => runOpenAI(apiKey as string, p, 'image/png')))
+        : await runTesseractBatch(pages);
+
+      markdown = pageTexts
+        .map((text, i) => (pages.length > 1 ? `## Página ${i + 1}\n\n${text}` : text))
+        .join('\n\n---\n\n');
+    } else if (useOpenAI) {
+      markdown = await runOpenAI(apiKey as string, arrayBuffer, file.type);
     } else {
       markdown = await runTesseract(arrayBuffer);
-      engine = 'tesseract';
     }
 
     if (!markdown) {
