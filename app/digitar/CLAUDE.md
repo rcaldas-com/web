@@ -87,15 +87,34 @@ ferramenta de edição que faz write-temp+rename (em vez de escrever in-
 place) deixa o container preso no inode antigo até um
 `docker compose up -d --force-recreate`.
 
-## HAProxy: timeout maior pra PDF grande
+## O DigitaR roda em `up.rcaldas.com`, não em `web.rcaldas.com`
 
-`/api/digitar` está na mesma ACL `upload_paths` de `/upload`/`/api/upload`
-em `us.haproxy`, roteada pro backend `rcaldas-web-upload` (mesmo destino
-`127.0.0.1:8611`, só com `timeout server 10m` em vez do default de 30s).
-Motivo: um PDF de várias páginas rodando Tesseract sequencial pode
-facilmente passar de 30s de processamento sem nenhum byte trafegando --
-e o timeout do HAProxy é por **inatividade**, então uma resposta que
-demora silenciosamente é cortada mesmo sem ninguém ter travado de verdade.
+Duas camadas de timeout, e a de fora é a que manda.
+
+**HAProxy** (`us.haproxy`): `/digitar` e `/api/digitar` estão na ACL
+`no_cdn_paths`, roteadas pro backend `rcaldas-web-upload` -- mesmo destino
+`127.0.0.1:8611`, só com `timeout server 10m` em vez do default de 30s.
+Motivo: um PDF de várias páginas rodando Tesseract sequencial passa de 30s
+de processamento sem nenhum byte trafegando, e o timeout do HAProxy é por
+**inatividade** -- uma resposta que demora silenciosamente é cortada mesmo
+sem ninguém ter travado de verdade.
+
+**Cloudflare**: o plano Free corta a espera pela origem em ~100s (erro
+**524**), e isso é imposto na borda, antes do HAProxy ver a requisição --
+nenhum `timeout server` da origem contorna. Como o OCR de PDF passa de
+100s com folga, o `timeout 10m` acima só vale de verdade por um hostname
+que **não** está atrás da Cloudflare.
+
+Por isso `us.haproxy` redireciona a **página** `/digitar` de
+`rcaldas.com`/`web.rcaldas.com` pra `https://up.rcaldas.com/digitar`
+(registro DNS-only, criado em 22/08/2026). A partir daí o POST pro
+`/api/digitar/extract` é same-origin e nunca passa pela borda. Só as
+páginas são redirecionadas, nunca os `/api/*`: um 302 num POST vira GET no
+navegador e quebraria o envio.
+
+⚠️ Ao mexer nessa rota: se alguém "simplificar" tirando o `/digitar` do
+`no_cdn_paths`, o sintoma não é erro de código -- é **524 intermitente**,
+só nos PDFs grandes, e some no teste com uma página só.
 
 ## Sobre usar uma API externa de OCR (IBM watsonx e alternativas)
 

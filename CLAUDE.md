@@ -91,6 +91,36 @@ That repo/service is retired (not deleted — candidate for archival).
 `MAILU_FORWARD_TO`, `PROVISION_TOKEN` (shared secret gating
 `/api/mailu-account`).
 
+**Hostnames — qual serve o quê (revisado em 22/08/2026):**
+
+Este app é servido por vários hostnames, e a diferença entre eles **não é
+cosmética**: define se a requisição passa pela Cloudflare.
+
+| hostname | Cloudflare | papel |
+|---|---|---|
+| `web.rcaldas.com` | proxied | canônico do app; é pra onde `AUTH_TRUST_HOST` aponta e pra onde os agentes da frota mandam heartbeat |
+| `rcaldas.com` | proxied | mesmo app + `/static/` + links curtos (`app/[slug]`) |
+| `up.rcaldas.com` | **DNS-only** | só `/upload`, `/digitar` e suas APIs |
+
+O `up` existe porque o plano Free da Cloudflare impõe dois limites **na
+borda**, antes do HAProxy ver qualquer coisa — nenhuma config da origem
+contorna:
+
+- **corpo > 100MB → 413.** Medido: 120MB em `rcaldas.com` dá 413; os
+  mesmos 120MB em `up.rcaldas.com` chegam na origem.
+- **resposta > 100s → 524.** Atinge o OCR de PDF do DigitaR.
+
+O HAProxy redireciona a **página** (`/upload`, `/digitar`) pro `up` e
+manda de volta pro `web` qualquer outro path pedido no `up` — senão o app
+inteiro ficaria alcançável por um hostname sem WAF. `/login` fica de fora
+dessa liberação de propósito: quem não tem sessão faz login atrás do WAF e
+só volta pro `up` já autenticado. O cookie de sessão é setado em
+`.rcaldas.com` (`lib/auth.ts`), então a sessão atravessa os três.
+
+⚠️ Não "simplifique" tirando o `up` e desligando o proxy do
+`web.rcaldas.com` inteiro — foi o que se fez em 17/08 e custou cache de
+borda e WAF do app todo por causa de dois endpoints.
+
 **Infra outside this repo (server `us`):**
 - HAProxy: `init.rcaldas.com` maps to the `rcaldas-web` backend via
   `~/live/haproxy/hosts.map` (live path
