@@ -87,6 +87,16 @@ export default async function UploadPage() {
                 ))}
               </select>
             </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Link (opcional)</span>
+              <input
+                type="text"
+                name="slug"
+                placeholder="aleatório"
+                title="Letras, números, - e _. Texto inválido é sanitizado; se já estiver em uso, ganha um sufixo."
+                className="w-32 rounded border border-zinc-200 bg-white px-2 py-1 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-950"
+              />
+            </label>
             <SubmitButton className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
               gerar link
             </SubmitButton>

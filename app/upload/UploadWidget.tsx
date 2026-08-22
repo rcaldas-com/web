@@ -18,6 +18,7 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [domain, setDomain] = useState(defaultDomain);
+  const [slug, setSlug] = useState('');
   const [dragging, setDragging] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
@@ -64,6 +65,7 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
       const formData = new FormData();
       formData.append('file', file);
       formData.append('domain', domain);
+      if (slug.trim()) formData.append('slug', slug.trim());
       const response = await fetch('/api/upload', { method: 'POST', body: formData });
       const json = (await response.json()) as { url?: string; error?: string };
       if (!response.ok || !json.url) {
@@ -82,6 +84,7 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
 
   const onClear = () => {
     setFile(null);
+    setSlug('');
     setResultUrl('');
     setError('');
     setStatus('idle');
@@ -137,6 +140,19 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
           <span className="text-zinc-600 dark:text-zinc-300">
             <strong>{file.name}</strong> — {formatBytes(file.size)}
           </span>
+
+          <label className="flex items-center gap-1.5">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">link:</span>
+            <span className="text-xs text-zinc-400 dark:text-zinc-500">{domain}/</span>
+            <input
+              type="text"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              placeholder="aleatório"
+              title="Opcional. Letras, números, - e _. Texto inválido é sanitizado; se já estiver em uso, ganha um sufixo."
+              className="w-32 rounded border border-zinc-200 bg-white px-2 py-1 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-950"
+            />
+          </label>
 
           {domains.length > 1 && (
             <select

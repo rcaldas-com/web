@@ -16,6 +16,7 @@ import {
   checkFreeSpace,
   generateStorageFilename,
   createUploadLink,
+  sanitizeSlug,
 } from '@/lib/shortlinks';
 
 // Precisa do runtime Node -- fs/stream/busboy nao existem no Edge.
@@ -60,6 +61,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Arquivo acima do limite de ${MAX_MB}MB.` }, { status: 413 });
   }
 
+  // ensureUploadDirs ANTES do statfs de proposito: em ambiente novo (dev
+  // local, ou um UPLOAD_ROOT que ainda nao existe) o statfs falha com
+  // ENOENT se o diretorio nao existir ainda -- criar primeiro e' barato e
+  // idempotente (mkdir recursive), e evita esse crash. Em prod nao muda
+  // nada na pratica (live/upload ja existe), mas deixa de depender disso.
+  await ensureUploadDirs();
+
   // Guarda de disco: nunca deixar o upload derrubar o host inteiro. Usa o
   // Content-Length se confiavel, senao assume o pior caso (o proprio
   // limite maximo) pra checagem.
@@ -69,9 +77,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Sem espaco em disco suficiente no momento.' }, { status: 507 });
   }
 
-  await ensureUploadDirs();
-
   let domain = '';
+  let rawSlug = '';
   let destPath = '';
   let originalFilename = '';
   let mimeType = 'application/octet-stream';
@@ -86,6 +93,7 @@ export async function POST(request: Request) {
 
   bb.on('field', (name, value) => {
     if (name === 'domain') domain = value;
+    if (name === 'slug') rawSlug = value;
   });
 
   // busboy trunca o stream do arquivo (nao aborta o parse inteiro) quando
@@ -164,6 +172,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Upload vazio ou falhou.' }, { status: 400 });
   }
 
+  const preferredSlug = sanitizeSlug(rawSlug) || undefined;
+
   const link = await createUploadLink({
     domain,
     storagePath: path.join(UPLOADS_SUBDIR, path.basename(destPath)),
@@ -171,6 +181,7 @@ export async function POST(request: Request) {
     mimeType,
     size: stat.size, // tamanho autoritativo, nunca o declarado pelo cliente
     createdBy: user._id,
+    preferredSlug,
   });
 
   return NextResponse.json({ url: `https://${domain}/${link.slug}`, slug: link.slug, domain });

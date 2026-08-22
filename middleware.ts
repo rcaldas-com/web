@@ -6,12 +6,13 @@ import { resolveCallbackUrl } from '@/lib/callback-url';
 const protectedRoutes = ['/dashboard', '/wallet', '/configuracoes', '/monitor', '/upload'];
 const authRoutes = ['/login', '/register', '/forgot-password', '/reset-password'];
 
-// Convencao de arquivo do Next gera rotas de verdade pra esses dois,
+// Convencao de arquivo do Next gera rotas de verdade pra esses tres,
 // dentro do prefixo /monitor -- sem essa excecao, um instalador de PWA ou
-// navegador nao autenticado levava redirect pro login em vez do PNG, e o
-// resultado era cair no fallback (icone da app raiz), sem erro nenhum
-// visivel que apontasse pra causa.
-const publicAssetPaths = ['/monitor/icon.png', '/monitor/apple-icon.png'];
+// navegador nao autenticado levava redirect pro login em vez do
+// PNG/manifest, e o resultado era cair no fallback (icone/manifest da
+// app raiz), sem erro nenhum visivel que apontasse pra causa. manifest.ts
+// entrou aqui pelo mesmo motivo dos icones -- ver app/monitor/manifest.ts.
+const publicAssetPaths = ['/monitor/icon.png', '/monitor/apple-icon.png', '/monitor/manifest.webmanifest'];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

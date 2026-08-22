@@ -119,6 +119,36 @@ export function generateSlug(): string {
   return crypto.randomBytes(6).toString('base64url');
 }
 
+const CUSTOM_SLUG_MAX_LEN = 60;
+
+// Minusculas, digitos, hifen e underscore -- o resto (acento, espaco,
+// simbolo, emoji) vira hifen; hifens repetidos ou nas pontas somem. Texto
+// que sobra vazio depois disso (ex: so emoji) faz insertWithRetry cair
+// pro slug aleatorio de sempre -- nunca rejeita o upload por causa disso.
+export function sanitizeSlug(raw: string): string {
+  return raw
+    .normalize('NFD')
+    .replace(new RegExp('[\\u0300-\\u036f]', 'g'), '') // marcas de acento (combining diacritics) que sobram depois do NFD
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, CUSTOM_SLUG_MAX_LEN);
+}
+
+// attempt 0: o slug preferido exato (se veio um e nao e' reservado).
+// attempts 1-3: o preferido + sufixo curto aleatorio -- fica perto do que
+// a pessoa pediu em vez de descartar a escolha inteira por causa de uma
+// colisao. Do attempt 4 em diante (ou sempre, se nao tem preferido):
+// aleatorio puro, igual sempre foi.
+function candidateSlug(attempt: number, preferred?: string): string {
+  if (preferred) {
+    if (attempt === 0 && !RESERVED_SLUGS.has(preferred)) return preferred;
+    if (attempt <= 3) return `${preferred}-${crypto.randomBytes(2).toString('base64url')}`;
+  }
+  return generateSlug();
+}
+
 // Gera o nome real em disco -- nunca o nome que o cliente mandou. A
 // extensao e' so cosmetica (ajuda quem olha o diretorio a mao) e passa
 // por uma whitelist estrita antes de entrar no caminho.
@@ -144,15 +174,21 @@ export async function checkFreeSpace(declaredBytes: number): Promise<boolean> {
 // insertOne direto contra o indice unico {domain,slug} + retry no erro de
 // chave duplicada (code 11000), em vez de pre-checar com findOne primeiro
 // -- pre-checar seria uma race (TOCTOU) sob concorrencia; isso e' correto
-// de graca.
-async function insertWithRetry(doc: Omit<ShortLink, '_id' | 'slug'>, maxRetries = 5): Promise<ShortLink> {
+// de graca. preferredSlug (ja sanitizado pelo caller) tenta primeiro o
+// valor exato, depois com sufixo curto, antes de desistir e cair pro
+// aleatorio -- ver candidateSlug().
+async function insertWithRetry(
+  doc: Omit<ShortLink, '_id' | 'slug'>,
+  preferredSlug?: string,
+  maxRetries = 6
+): Promise<ShortLink> {
   await ensureIndexes();
   const client = await clientPromise;
   const db = client.db();
   const col = db.collection<ShortLink>('short_links');
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    let slug = generateSlug();
+    let slug = candidateSlug(attempt, preferredSlug);
     while (RESERVED_SLUGS.has(slug)) slug = generateSlug();
     const full = { ...doc, slug, _id: new ObjectId() } as ShortLink;
     try {
@@ -174,20 +210,24 @@ export async function createUploadLink(params: {
   mimeType: string;
   size: number;
   createdBy: string;
+  preferredSlug?: string;
 }): Promise<ShortLink> {
   const now = new Date();
-  return insertWithRetry({
-    domain: params.domain,
-    type: 'upload',
-    storagePath: params.storagePath,
-    originalFilename: params.originalFilename,
-    mimeType: params.mimeType,
-    size: params.size,
-    createdBy: new ObjectId(params.createdBy),
-    hits: 0,
-    createdAt: now,
-    updatedAt: now,
-  });
+  return insertWithRetry(
+    {
+      domain: params.domain,
+      type: 'upload',
+      storagePath: params.storagePath,
+      originalFilename: params.originalFilename,
+      mimeType: params.mimeType,
+      size: params.size,
+      createdBy: new ObjectId(params.createdBy),
+      hits: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+    params.preferredSlug
+  );
 }
 
 async function isFileLinked(storagePath: string): Promise<boolean> {
@@ -207,6 +247,7 @@ export async function createExistingFileLink(params: {
   domain: string;
   filename: string;
   createdBy: string;
+  preferredSlug?: string;
 }): Promise<ShortLink> {
   const safeName = path.basename(params.filename);
   const fullPath = path.join(UPLOAD_ROOT, safeName);
@@ -222,18 +263,21 @@ export async function createExistingFileLink(params: {
   }
 
   const now = new Date();
-  return insertWithRetry({
-    domain: params.domain,
-    type: 'existing',
-    storagePath: safeName,
-    originalFilename: safeName,
-    mimeType: mimeTypeFromExt(safeName),
-    size: stat.size,
-    createdBy: new ObjectId(params.createdBy),
-    hits: 0,
-    createdAt: now,
-    updatedAt: now,
-  });
+  return insertWithRetry(
+    {
+      domain: params.domain,
+      type: 'existing',
+      storagePath: safeName,
+      originalFilename: safeName,
+      mimeType: mimeTypeFromExt(safeName),
+      size: stat.size,
+      createdBy: new ObjectId(params.createdBy),
+      hits: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+    params.preferredSlug
+  );
 }
 
 export async function listLinksForUser(userId: string): Promise<ShortLinkView[]> {

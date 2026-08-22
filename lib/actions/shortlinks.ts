@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireAuth } from '@/lib/auth';
 import { listDomains } from '@/lib/domains';
-import { createExistingFileLink, deleteLink } from '@/lib/shortlinks';
+import { createExistingFileLink, deleteLink, sanitizeSlug } from '@/lib/shortlinks';
 
 // So os dominios que o admin marcou shortLinksEnabled sao aceitos --
 // checado aqui de novo (nao so na UI) porque o form podia, em tese, ser
@@ -20,8 +20,10 @@ export async function createExistingLinkAction(formData: FormData) {
   const domain = String(formData.get('domain') || '');
   if (!filename || !domain) return;
 
+  const preferredSlug = sanitizeSlug(String(formData.get('slug') || '')) || undefined;
+
   await assertDomainAllowed(domain);
-  await createExistingFileLink({ domain, filename, createdBy: user._id });
+  await createExistingFileLink({ domain, filename, createdBy: user._id, preferredSlug });
   revalidatePath('/upload');
 }
 
