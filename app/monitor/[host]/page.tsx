@@ -172,51 +172,66 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
         <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <h2 className="mb-1 font-semibold text-zinc-950 dark:text-zinc-50">O que monitorar</h2>
           <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-            Passou do limite num heartbeat, abre incidente sozinho; volta abaixo, resolve sozinho. Vazio = desativado.
+            Passou do limite num heartbeat, abre incidente sozinho; volta abaixo, resolve sozinho. Vazio = esse limite
+            desativado. Desmarcar a caixa abaixo silencia <strong>todos</strong> os alertas deste host, inclusive o de
+            host sem heartbeat.
           </p>
-          <form action={setMonitoringConfigAction} className="flex flex-wrap items-end gap-4 text-sm">
+          <form action={setMonitoringConfigAction} className="space-y-4 text-sm">
             <input type="hidden" name="host" value={host.name} />
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">Alerta de disco acima de (%)</span>
+
+            <label className="flex w-fit items-center gap-2">
               <input
-                type="number"
-                name="diskThresholdPct"
-                min={1}
-                max={100}
-                placeholder="desativado"
-                defaultValue={host.monitoring?.diskThresholdPct ?? ''}
-                className="w-32 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                type="checkbox"
+                name="enabled"
+                defaultChecked={host.monitoring?.enabled ?? false}
+                className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
               />
+              <span className="text-zinc-700 dark:text-zinc-300">Alertas ativos para este host</span>
             </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">Alerta de memoria acima de (%)</span>
-              <input
-                type="number"
-                name="memoryThresholdPct"
-                min={1}
-                max={100}
-                placeholder="desativado"
-                defaultValue={host.monitoring?.memoryThresholdPct ?? ''}
-                className="w-32 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                Alerta de CPU acima de (%){host.system?.cpuCount ? ` — max ${host.system.cpuCount * 100}%` : ''}
-              </span>
-              <input
-                type="number"
-                name="cpuThresholdPct"
-                min={1}
-                max={6400}
-                placeholder="desativado"
-                defaultValue={host.monitoring?.cpuThresholdPct ?? ''}
-                className="w-32 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-              />
-            </label>
-            <SubmitButton className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
-              salvar
-            </SubmitButton>
+
+            <div className="flex flex-wrap items-end gap-4">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">Alerta de disco acima de (%)</span>
+                <input
+                  type="number"
+                  name="diskThresholdPct"
+                  min={1}
+                  max={100}
+                  placeholder="desativado"
+                  defaultValue={host.monitoring?.diskThresholdPct ?? ''}
+                  className="w-32 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">Alerta de memoria acima de (%)</span>
+                <input
+                  type="number"
+                  name="memoryThresholdPct"
+                  min={1}
+                  max={100}
+                  placeholder="desativado"
+                  defaultValue={host.monitoring?.memoryThresholdPct ?? ''}
+                  className="w-32 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Alerta de CPU acima de (%){host.system?.cpuCount ? ` — max ${host.system.cpuCount * 100}%` : ''}
+                </span>
+                <input
+                  type="number"
+                  name="cpuThresholdPct"
+                  min={1}
+                  max={6400}
+                  placeholder="desativado"
+                  defaultValue={host.monitoring?.cpuThresholdPct ?? ''}
+                  className="w-32 rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                />
+              </label>
+              <SubmitButton className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
+                salvar
+              </SubmitButton>
+            </div>
           </form>
         </section>
 

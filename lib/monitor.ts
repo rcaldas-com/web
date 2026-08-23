@@ -4,6 +4,7 @@ import path from 'node:path';
 import { Db, ObjectId } from 'mongodb';
 import clientPromise from './mongodb';
 import { sendTunnelKeyApprovalEmail, sendIncidentEmail } from './email';
+import redis from './redis';
 
 // Fonte unica pra versao do agente: app/install/route.ts interpola isso no
 // script gerado, e registerHeartbeat compara contra o que cada host reporta
@@ -86,6 +87,15 @@ export type MonitorHost = {
   // monitor_incidents (ver checkMonitoringThresholds) -- e resolvido
   // sozinho no primeiro heartbeat de volta abaixo do limite.
   monitoring?: {
+    // Chave geral dos alertas deste host. Ausente = desligado, e e' assim
+    // de proposito: host novo nasce sem alertar. Ter limite configurado
+    // nao basta -- alguem tem que ligar explicitamente.
+    //
+    // O motivo apareceu na pratica: `rec02` estava fora ha 40h e `m2`
+    // nunca tinha dado sinal. Ligar deteccao de host caido sem esta chave
+    // abriria incidente pros dois no primeiro ciclo, e alerta que nasce
+    // gritando e' alerta que se aprende a ignorar.
+    enabled?: boolean;
     diskThresholdPct?: number;
     memoryThresholdPct?: number;
     // Em unidade de nucleo (100% = 1 nucleo), pra bater com o que o
@@ -395,13 +405,21 @@ async function upsertIncident(
   }
 }
 
-async function resolveIncident(db: Db, key: string) {
+// notify=false: fecha sem avisar. Usado quando o admin DESLIGA os alertas
+// do host -- ali o incidente nao foi resolvido, foi silenciado, e mandar
+// "resolvido" seria mentira sobre o estado do host (o disco continua
+// cheio). Fechar mesmo assim e' necessario: com os alertas desligados o
+// caminho que resolveria (o proximo heartbeat dentro do limite) nao roda
+// mais, e o incidente ficaria aberto pra sempre na tela.
+async function resolveIncident(db: Db, key: string, notify = true) {
   const open = await db.collection<MonitorIncident>('monitor_incidents').find({ key, status: 'open' }).toArray();
   if (!open.length) return;
 
   await db
     .collection<MonitorIncident>('monitor_incidents')
     .updateMany({ key, status: 'open' }, { $set: { status: 'resolved', resolvedAt: new Date(), updatedAt: new Date() } });
+
+  if (!notify) return;
 
   for (const incident of open) {
     try {
@@ -451,20 +469,107 @@ const CONSECUTIVE_BREACHES_REQUIRED = 3;
 // seguidos acima do limite, e fecha so depois da MESMA quantidade seguidos
 // de volta abaixo -- histerese simetrica, ver comentario no bloco de
 // memoria pra o bug real que isso corrige.
+// Tempo sem heartbeat antes de abrir incidente. Cinco minutos = cinco
+// ciclos perdidos, nao dois: a pagina marca "down" com 2min porque ali o
+// custo de errar e' um rotulo cinza, enquanto aqui e' um email. Reboot e
+// oscilacao de rede levam mais de 2min e menos de 5 com frequencia.
+const HOST_OFFLINE_AFTER_MS = 5 * 60 * 1000;
+
+// Chave da trava da varredura. TTL um pouco abaixo do intervalo do agente
+// (60s) pra nao pular um ciclo por diferenca de relogio.
+const OFFLINE_SWEEP_LOCK = 'monitor:offline-sweep';
+const OFFLINE_SWEEP_LOCK_TTL = 55;
+
+// Host caido nao manda heartbeat -- entao, ao contrario de disco/memoria/
+// cpu, nao existe evento dele mesmo pra disparar a checagem. A varredura
+// pega carona no heartbeat de QUALQUER host: alguem sempre esta vivo (o
+// `us` e' o relay e roda agente), e a trava no Redis garante uma passada
+// por minuto por mais hosts que batam nesse intervalo.
+//
+// Alternativa considerada e descartada: um container so' pra isso
+// (monitor-worker). Ele existia no repo, nunca foi pra producao, e
+// reimplementava pior o upsertIncident/resolveIncident daqui -- que ja
+// deduplicam e mandam email so' na transicao.
+export async function sweepOfflineHosts(db: Db) {
+  const cutoff = new Date(Date.now() - HOST_OFFLINE_AFTER_MS);
+  const hosts = await db
+    .collection<MonitorHost>('monitor_hosts')
+    .find({ 'monitoring.enabled': true }, { projection: { name: 1, lastSeen: 1 } })
+    .toArray();
+
+  for (const doc of hosts) {
+    const key = `down:${doc.name}`;
+    // Nunca visto nao gera alerta: nao houve queda pra reportar, o host
+    // simplesmente nunca subiu. E' o caso do `m2` -- avisar "esta fora"
+    // sobre algo que nunca esteve dentro so' gera ruido.
+    if (!doc.lastSeen) continue;
+
+    if (doc.lastSeen < cutoff) {
+      const minutos = Math.round((Date.now() - doc.lastSeen.getTime()) / 60000);
+      await upsertIncident(db, {
+        key,
+        target: doc.name,
+        severity: 'critical',
+        summary: `Sem heartbeat ha ${minutos} min`,
+        // Estavel: o summary cresce a cada ciclo e mudaria o assunto do
+        // email a cada minuto, quebrando o agrupamento no Gmail.
+        emailSubject: 'sem heartbeat',
+      });
+    } else {
+      await resolveIncident(db, key);
+    }
+  }
+}
+
+async function sweepOfflineHostsThrottled(db: Db) {
+  try {
+    const gotLock = await redis.set(OFFLINE_SWEEP_LOCK, '1', 'EX', OFFLINE_SWEEP_LOCK_TTL, 'NX');
+    if (!gotLock) return;
+    await sweepOfflineHosts(db);
+  } catch (error) {
+    // Nunca pode derrubar o heartbeat: o host que esta reportando esta bem,
+    // e falhar aqui apagaria o registro dele por causa de outro host.
+    console.error('varredura de hosts offline falhou:', error);
+  }
+}
+
 async function checkMonitoringThresholds(db: Db, host: string, existing: MonitorHost | null, system?: HeartbeatPayload['system']) {
   const cfg = existing?.monitoring;
-  if (!cfg || !system) return;
+  if (!cfg?.enabled || !system) return;
 
   if (cfg.diskThresholdPct != null) {
-    const pct = Math.max(system.diskRootPct ?? 0, system.diskVarPct ?? 0, system.diskVarLogPct ?? 0);
+    // Nomear o sistema de arquivos, nao so' a porcentagem. O alerta antigo
+    // dizia "Disco em 94%" e pronto -- quem recebia tinha que entrar no
+    // host pra descobrir se era /, /var ou /var/log, que e' justamente a
+    // informacao que decide o que fazer (limpar log e' diferente de
+    // aumentar disco).
+    const filesystems = [
+      { mount: '/', pct: system.diskRootPct },
+      { mount: '/var', pct: system.diskVarPct },
+      { mount: '/var/log', pct: system.diskVarLogPct },
+    ].filter((fs): fs is { mount: string; pct: number } => fs.pct != null);
+
+    // backupDiskPct fica FORA do maximo de proposito: so' o runner reporta,
+    // e o disco de backup encher nao e' o mesmo problema operacional que o
+    // disco do sistema encher. Entra so' como informacao no corpo do email.
+    const extras = system.backupDiskPct != null ? [{ mount: 'backup', pct: system.backupDiskPct }] : [];
+
+    const worst = filesystems.reduce<{ mount: string; pct: number }>(
+      (acc, fs) => (fs.pct > acc.pct ? fs : acc),
+      { mount: '/', pct: 0 }
+    );
     const key = `disk:${host}`;
-    if (pct >= cfg.diskThresholdPct) {
+    if (worst.pct >= cfg.diskThresholdPct) {
       await upsertIncident(db, {
         key,
         target: host,
-        severity: pct >= cfg.diskThresholdPct + 10 ? 'critical' : 'warning',
-        summary: `Disco em ${pct}% (limite ${cfg.diskThresholdPct}%)`,
-        emailSubject: `disco acima do limite (${cfg.diskThresholdPct}%)`,
+        severity: worst.pct >= cfg.diskThresholdPct + 10 ? 'critical' : 'warning',
+        summary: `Disco ${worst.mount} em ${worst.pct}% (limite ${cfg.diskThresholdPct}%)`,
+        emailSubject: `disco ${worst.mount} acima do limite (${cfg.diskThresholdPct}%)`,
+        // O assunto congela no sistema de arquivos que abriu o incidente
+        // (e' o que mantem a thread do Gmail junta), entao a lista completa
+        // vai no corpo -- se outro sistema piorar depois, aparece aqui.
+        detail: [...filesystems, ...extras].map((fs) => `${fs.mount} ${fs.pct}%`).join(' · '),
       });
     } else {
       await resolveIncident(db, key);
@@ -616,6 +721,7 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
   );
 
   await checkMonitoringThresholds(db, host, existing, payload.system);
+  await sweepOfflineHostsThrottled(db);
 
   let infoCollectedAt = existing?.info?.collectedAt;
 
@@ -981,7 +1087,12 @@ export async function getMonitorHost(hostName: string) {
 
 export async function setMonitoringConfig(
   hostName: string,
-  config: { diskThresholdPct?: number; memoryThresholdPct?: number; cpuThresholdPct?: number }
+  config: {
+    enabled?: boolean;
+    diskThresholdPct?: number;
+    memoryThresholdPct?: number;
+    cpuThresholdPct?: number;
+  }
 ) {
   const host = normalizeHostName(hostName);
   const client = await clientPromise;
@@ -989,6 +1100,16 @@ export async function setMonitoringConfig(
   await db
     .collection<MonitorHost>('monitor_hosts')
     .updateOne({ name: host }, { $set: { monitoring: config, updatedAt: new Date() } });
+
+  // Desligar tem que fechar o que ja esta aberto. Sem isto, um incidente
+  // aberto ficaria "open" pra sempre: quem resolve e' o proximo heartbeat
+  // dentro do limite, e com os alertas desligados esse caminho nao roda
+  // mais -- o host apareceria eternamente com alerta na tela.
+  if (!config.enabled) {
+    for (const key of [`disk:${host}`, `mem:${host}`, `cpu:${host}`, `down:${host}`]) {
+      await resolveIncident(db, key, false);
+    }
+  }
 }
 
 export async function setBackupConfig(hostName: string, config: MonitorHost['backup']) {

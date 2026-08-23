@@ -69,6 +69,11 @@ export async function setMonitoringConfigAction(formData: FormData) {
   await requireAdmin();
   const host = String(formData.get('host') || '');
   if (!host) return;
+  // Checkbox nao enviado = desmarcado. E' o comportamento do HTML e serve
+  // bem aqui: o default do sistema e' alerta desligado, entao qualquer
+  // caminho que perca o campo erra pro lado silencioso, nunca pro lado de
+  // mandar email sem alguem ter pedido.
+  const enabled = formData.get('enabled') === 'on';
   const diskRaw = String(formData.get('diskThresholdPct') || '').trim();
   const memRaw = String(formData.get('memoryThresholdPct') || '').trim();
   const cpuRaw = String(formData.get('cpuThresholdPct') || '').trim();
@@ -79,7 +84,8 @@ export async function setMonitoringConfigAction(formData: FormData) {
   if (memoryThresholdPct != null && (!Number.isInteger(memoryThresholdPct) || memoryThresholdPct < 1 || memoryThresholdPct > 100)) return;
   // CPU vai ate cpuCount*100 (100% = 1 nucleo), entao o teto nao e 100.
   if (cpuThresholdPct != null && (!Number.isInteger(cpuThresholdPct) || cpuThresholdPct < 1 || cpuThresholdPct > 6400)) return;
-  await setMonitoringConfig(host, { diskThresholdPct, memoryThresholdPct, cpuThresholdPct });
+  await setMonitoringConfig(host, { enabled, diskThresholdPct, memoryThresholdPct, cpuThresholdPct });
+  revalidatePath('/monitor');
   revalidatePath(`/monitor/${host}`);
 }
 

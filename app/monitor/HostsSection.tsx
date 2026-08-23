@@ -19,6 +19,7 @@ type Host = {
     diskVarLogPct?: number | null;
   };
   capabilities?: string[];
+  monitoring?: { enabled?: boolean };
   ddnsEnabled?: boolean;
   tunnelEnabled?: boolean;
   tunnelPort?: number;
@@ -136,6 +137,18 @@ export default function HostsSection({
                   {host.capabilities?.includes('tunnel-legacy') && (
                     <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
                       legado
+                    </span>
+                  )}
+                  {/* Alerta desligado e o DEFAULT, entao precisa ser visivel
+                      na lista: sem isto so da pra saber quem esta armado
+                      abrindo host por host, e um host silencioso por
+                      esquecimento fica indistinguivel de um monitorado. */}
+                  {!host.monitoring?.enabled && (
+                    <span
+                      title="Alertas desativados: este host não gera incidente nem email"
+                      className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                    >
+                      sem alerta
                     </span>
                   )}
                 </td>
