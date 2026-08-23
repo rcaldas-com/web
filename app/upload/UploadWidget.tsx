@@ -14,6 +14,14 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function formatDuration(seconds: number): string {
+  if (!isFinite(seconds) || seconds < 0) return '';
+  if (seconds < 60) return `${Math.ceil(seconds)}s`;
+  const min = Math.floor(seconds / 60);
+  const sec = Math.round(seconds % 60);
+  return `${min}min ${String(sec).padStart(2, '0')}s`;
+}
+
 export default function UploadWidget({ domains, defaultDomain }: { domains: string[]; defaultDomain: string }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
@@ -23,7 +31,12 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
   const [resultUrl, setResultUrl] = useState('');
+  // loaded/total/speed num objeto só: os três mudam juntos, a cada evento de
+  // progresso, e separá-los renderizaria três vezes por evento.
+  const [progress, setProgress] = useState({ loaded: 0, total: 0, bytesPerSec: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const startedAtRef = useRef(0);
 
   const loadFile = (f: File) => {
     if (f.size > MAX_BYTES) {
@@ -57,39 +70,89 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
     if (f) loadFile(f);
   };
 
-  const onUpload = async () => {
+  // XMLHttpRequest e nao fetch: fetch simplesmente nao expoe progresso de
+  // UPLOAD -- nao existe evento pra bytes enviados, so' pra recebidos. Num
+  // arquivo de 500MB isso e' a diferenca entre uma barra e vários minutos de
+  // "enviando..." sem sinal nenhum de vida.
+  const onUpload = () => {
     if (!file || !domain) return;
     setStatus('uploading');
     setError('');
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('domain', domain);
-      if (slug.trim()) formData.append('slug', slug.trim());
-      const response = await fetch('/api/upload', { method: 'POST', body: formData });
-      const json = (await response.json()) as { url?: string; error?: string };
-      if (!response.ok || !json.url) {
-        setError(json.error || 'Falha ao enviar o arquivo.');
+    setProgress({ loaded: 0, total: file.size, bytesPerSec: 0 });
+    startedAtRef.current = Date.now();
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('domain', domain);
+    if (slug.trim()) formData.append('slug', slug.trim());
+
+    const xhr = new XMLHttpRequest();
+    xhrRef.current = xhr;
+    xhr.open('POST', '/api/upload');
+
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      const elapsed = (Date.now() - startedAtRef.current) / 1000;
+      setProgress({
+        loaded: e.loaded,
+        total: e.total,
+        // Media desde o inicio, nao taxa instantanea: a instantanea oscila
+        // tanto que o tempo restante fica pulando e deixa de informar.
+        bytesPerSec: elapsed > 0 ? e.loaded / elapsed : 0,
+      });
+    };
+
+    xhr.onload = () => {
+      xhrRef.current = null;
+      let json: { url?: string; error?: string } = {};
+      try {
+        json = JSON.parse(xhr.responseText);
+      } catch {
+        // resposta nao-JSON (ex: pagina de erro de proxy) cai no if abaixo
+      }
+      if (xhr.status < 200 || xhr.status >= 300 || !json.url) {
+        setError(json.error || `Falha ao enviar o arquivo (HTTP ${xhr.status}).`);
         setStatus('error');
         return;
       }
       setResultUrl(json.url);
       setStatus('success');
       router.refresh(); // pra "meus links" (renderizado no server) pegar o novo link
-    } catch {
+    };
+
+    xhr.onerror = () => {
+      xhrRef.current = null;
       setError('Erro de rede ao enviar.');
       setStatus('error');
-    }
+    };
+
+    xhr.onabort = () => {
+      xhrRef.current = null;
+      setStatus('idle');
+      setProgress({ loaded: 0, total: 0, bytesPerSec: 0 });
+    };
+
+    xhr.send(formData);
   };
 
+  const onCancel = () => xhrRef.current?.abort();
+
+  // Sair da pagina no meio do envio deixaria a requisicao pendurada; abortar
+  // no unmount tambem evita setState em componente desmontado.
+  useEffect(() => () => xhrRef.current?.abort(), []);
+
   const onClear = () => {
+    xhrRef.current?.abort();
     setFile(null);
     setSlug('');
     setResultUrl('');
     setError('');
     setStatus('idle');
+    setProgress({ loaded: 0, total: 0, bytesPerSec: 0 });
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  const pct = progress.total > 0 ? Math.min(100, Math.round((progress.loaded / progress.total) * 100)) : 0;
 
   if (!domains.length) {
     return (
@@ -178,11 +241,45 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
           </button>
           <button
             type="button"
-            onClick={onClear}
+            onClick={status === 'uploading' ? onCancel : onClear}
             className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
           >
-            limpar
+            {status === 'uploading' ? 'cancelar' : 'limpar'}
           </button>
+        </div>
+      )}
+
+      {status === 'uploading' && progress.total > 0 && (
+        <div className="space-y-1.5">
+          <div
+            className="h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={pct}
+          >
+            <div
+              className="h-full rounded-full bg-zinc-900 transition-[width] duration-150 ease-linear dark:bg-zinc-100"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+            <span>
+              {pct}% — {formatBytes(progress.loaded)} de {formatBytes(progress.total)}
+            </span>
+            <span>
+              {/* Os bytes terem saido daqui nao quer dizer que o servidor
+                  terminou: o evento de progresso conta o que foi entregue ao
+                  socket, e ainda falta o proxy repassar e o servidor gravar.
+                  Sem esta troca de rotulo, a barra "trava" em 100% e parece
+                  defeito justamente no fim do envio de um arquivo grande. */}
+              {progress.loaded >= progress.total
+                ? 'processando no servidor...'
+                : `${formatBytes(progress.bytesPerSec)}/s · falta ${formatDuration(
+                    (progress.total - progress.loaded) / progress.bytesPerSec
+                  )}`}
+            </span>
+          </div>
         </div>
       )}
 

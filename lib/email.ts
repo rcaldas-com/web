@@ -7,8 +7,20 @@ const APP_URL = process.env.AUTH_TRUST_HOST || 'http://localhost:8001';
 const APP_NAME = process.env.TITLE || 'RCaldas';
 const QUEUE_NAME = 'email:send';
 
+// A identidade do app viaja COM a mensagem. Antes ela morava no ambiente do
+// worker (TITLE, AUTH_TRUST_HOST, TEMPLATE_PREFIX), o que obrigava um
+// container de emailer por app -- cada um com sua fila, só pra trocar três
+// strings. Quem publica sabe quem é; mandar junto é mais barato e mais
+// confiável do que manter um processo por marca.
+// Ver `resolve_brand` em emailer/app.py.
+const BRAND = {
+  name: APP_NAME,
+  appUrl: APP_URL, // vira {appUrl}/logo.png no template
+  templatePrefix: '', // sem sobrescrita: usa os templates base
+};
+
 async function enqueueEmail(to: string, subject: string, template: string, variables: Record<string, string>) {
-  const payload = JSON.stringify({ to, subject, template, variables });
+  const payload = JSON.stringify({ to, subject, template, variables, brand: BRAND });
   await redis.lpush(QUEUE_NAME, payload);
 }
 
