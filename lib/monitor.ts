@@ -469,6 +469,57 @@ const CONSECUTIVE_BREACHES_REQUIRED = 3;
 // seguidos acima do limite, e fecha so depois da MESMA quantidade seguidos
 // de volta abaixo -- histerese simetrica, ver comentario no bloco de
 // memoria pra o bug real que isso corrige.
+// Indices do Monitor, criados sob demanda no mesmo padrao de
+// ensureIndexes() em lib/shortlinks.ts. Ate 23/08/2026 NENHUMA colecao
+// deste projeto tinha indice alem do _id_.
+//
+// REGRA DOS TTL: expirar pelo campo de CONCLUSAO, nunca por createdAt.
+// O TTL do Mongo so apaga documento onde o campo indexado e uma Date --
+// quem nao tem o campo e ignorado pra sempre. Indexando doneAt/resolvedAt,
+// job pendente e incidente ABERTO nunca somem sozinhos, por construcao.
+// Por createdAt, sumiriam justamente os que nao podem sumir.
+//
+// A excecao e o backstop de monitor_agent_jobs: job que nunca conclui
+// tambem nunca ganha doneAt, e ficaria eterno. Isso nao e hipotetico --
+// ha 4 jobs do tipo 'tunnel' de 15/08/2026 presos em pending/sent, de um
+// tipo que nem esta mais na whitelist de AgentJob e portanto nunca vai ser
+// executado. Dai o segundo TTL, por createdAt, com prazo bem mais longo:
+// 90 dias da folga pra um host offline voltar e pegar o job que esperava
+// por ele, e ainda assim nada fica eterno.
+const DIA = 24 * 60 * 60;
+let monitorIndexesEnsured = false;
+
+async function ensureMonitorIndexes(db: Db) {
+  if (monitorIndexesEnsured) return;
+  try {
+    await Promise.all([
+      // receivedAt, nao createdAt: e o nome do campo de verdade nesta
+      // colecao (conferido no banco). TTL apontando pra campo inexistente
+      // nao da erro nenhum -- simplesmente nunca apaga nada, em silencio.
+      db.collection('monitor_results').createIndexes([
+        { key: { receivedAt: 1 }, expireAfterSeconds: 90 * DIA, name: 'ttl_receivedAt' },
+        { key: { host: 1, receivedAt: -1 }, name: 'host_receivedAt' },
+      ]),
+      db.collection('monitor_agent_jobs').createIndexes([
+        { key: { doneAt: 1 }, expireAfterSeconds: 30 * DIA, name: 'ttl_doneAt' },
+        { key: { createdAt: 1 }, expireAfterSeconds: 90 * DIA, name: 'ttl_createdAt_backstop' },
+        { key: { host: 1, status: 1 }, name: 'host_status' },
+      ]),
+      db.collection('monitor_incidents').createIndexes([
+        { key: { resolvedAt: 1 }, expireAfterSeconds: 180 * DIA, name: 'ttl_resolvedAt' },
+        { key: { key: 1, status: 1 }, name: 'key_status' },
+        { key: { target: 1, openedAt: -1 }, name: 'target_openedAt' },
+      ]),
+    ]);
+    monitorIndexesEnsured = true;
+  } catch (error) {
+    // Nunca derrubar o heartbeat por causa de indice: sem ele o sistema
+    // funciona igual, so mais lento e sem expirar. A proxima chamada tenta
+    // de novo, porque a flag nao chega a ser marcada.
+    console.error('falha ao criar indices do monitor:', error);
+  }
+}
+
 // Tempo sem heartbeat antes de abrir incidente. Cinco minutos = cinco
 // ciclos perdidos, nao dois: a pagina marca "down" com 2min porque ali o
 // custo de errar e' um rotulo cinza, enquanto aqui e' um email. Reboot e
@@ -720,6 +771,7 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     { upsert: true }
   );
 
+  await ensureMonitorIndexes(db);
   await checkMonitoringThresholds(db, host, existing, payload.system);
   await sweepOfflineHostsThrottled(db);
 
