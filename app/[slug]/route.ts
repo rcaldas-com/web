@@ -30,6 +30,30 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return new NextResponse('Não encontrado.', { status: 404 });
   }
 
+  // Encurtador puro. 302 e nao 301: 301 fica gravado no navegador pra
+  // sempre e tornaria impossivel reapontar o slug depois.
+  if (link.type === 'url' && link.targetUrl) {
+    incrementHits(link._id);
+    return NextResponse.redirect(link.targetUrl, 302);
+  }
+
+  // Anotacao: manda pra pagina de verdade em vez de cuspir HTML daqui.
+  // O link curto continua sendo o que se compartilha; a URL so' expande ao
+  // abrir, e em troca a pagina ganha layout, tema e edicao pelo app.
+  //
+  // Location RELATIVO, e nao NextResponse.redirect(new URL(..., request.url)):
+  // atras de proxy o request.url carrega a porta interna do container, e o
+  // redirect saia apontando pra localhost:3000. Location relativo o
+  // navegador resolve contra a URL que ELE pediu, que e' sempre a certa.
+  if (link.type === 'text') {
+    incrementHits(link._id);
+    return new NextResponse(null, { status: 302, headers: { Location: `/n/${link.slug}` } });
+  }
+
+  if (!link.storagePath) {
+    return new NextResponse('Link sem conteúdo.', { status: 404 });
+  }
+
   const filePath = path.join(UPLOAD_ROOT, link.storagePath);
   const stat = await fs.promises.stat(filePath).catch(() => null);
   if (!stat || !stat.isFile()) {

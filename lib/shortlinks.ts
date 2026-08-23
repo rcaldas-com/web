@@ -12,17 +12,36 @@ export const UPLOADS_SUBDIR = '_uploads';
 export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024; // 500MB
 export const MIN_FREE_AFTER_BYTES = 2 * 1024 * 1024 * 1024; // piso de seguranca: nunca deixar menos que isso livre
 
-export type ShortLinkType = 'upload' | 'existing';
+// Quatro coisas que um link curto pode apontar. As duas primeiras sao
+// arquivo em disco; as duas ultimas nao tocam disco nenhum.
+//   upload   -- arquivo enviado pelo widget, 1:1 com o link
+//   existing -- arquivo que ja estava em live/upload, gerenciado fora do app
+//   url      -- encurtador puro: redireciona pra outra URL
+//   text     -- bloco de texto editavel (anotacao simples), guardado no Mongo
+export type ShortLinkType = 'upload' | 'existing' | 'url' | 'text';
+
+// Limite de tamanho da anotacao. Proposital ser modesto: isto e' "bloco de
+// texto pra anotacao simples", nao editor de documento -- e o documento
+// inteiro viaja em toda leitura do link, sem paginacao nenhuma.
+export const MAX_TEXT_BYTES = 64 * 1024;
 
 export type ShortLink = {
   _id: ObjectId;
   slug: string;
   domain: string; // hostname puro, comparado direto contra o Host header -- ver nota em resolveLink
   type: ShortLinkType;
-  storagePath: string; // relativo a UPLOAD_ROOT
-  originalFilename: string; // so exibicao/Content-Disposition, nunca usado pra montar caminho de disco
-  mimeType: string;
-  size: number; // de fs.stat na criacao -- nunca o valor declarado pelo cliente
+  // --- so' em upload/existing ---
+  storagePath?: string; // relativo a UPLOAD_ROOT
+  mimeType?: string;
+  size?: number; // de fs.stat na criacao -- nunca o valor declarado pelo cliente
+  // --- so' em url ---
+  targetUrl?: string;
+  // --- so' em text ---
+  content?: string;
+  // Rotulo exibido na lista. Nome do arquivo em upload/existing (so'
+  // exibicao/Content-Disposition, nunca usado pra montar caminho de disco);
+  // titulo digitado pelo usuario em url/text.
+  originalFilename: string;
   createdBy: ObjectId;
   hits: number;
   createdAt: Date;
@@ -35,8 +54,9 @@ export type ShortLinkView = {
   domain: string;
   type: ShortLinkType;
   originalFilename: string;
-  mimeType: string;
-  size: number;
+  mimeType?: string;
+  size?: number;
+  targetUrl?: string;
   hits: number;
   createdAt: string;
 };
@@ -65,6 +85,7 @@ const RESERVED_SLUGS = new Set([
   'init-auto',
   'install',
   'monitor',
+  'n', // /n/<slug> -- pagina do bloco de texto
   'ping',
   'remove-zxnet',
   'setup-backup-runner',
@@ -280,6 +301,96 @@ export async function createExistingFileLink(params: {
   );
 }
 
+// So http/https. Sem essa trava um link curto viraria vetor de
+// `javascript:`/`data:` -- e ele e' servido pelo MESMO origin do app
+// autenticado, entao o estrago nao ficaria contido no link.
+export function normalizeTargetUrl(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  // Sem esquema, assume https -- digitar "rcaldas.com" e' o caso comum.
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  if (!parsed.hostname) return null;
+  return parsed.toString();
+}
+
+export async function createUrlLink(params: {
+  domain: string;
+  targetUrl: string;
+  title?: string;
+  createdBy: string;
+  preferredSlug?: string;
+}): Promise<ShortLink> {
+  const target = normalizeTargetUrl(params.targetUrl);
+  if (!target) throw new Error('URL invalida -- so http e https.');
+  const now = new Date();
+  return insertWithRetry(
+    {
+      domain: params.domain,
+      type: 'url',
+      targetUrl: target,
+      originalFilename: params.title?.trim() || target,
+      createdBy: new ObjectId(params.createdBy),
+      hits: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+    params.preferredSlug
+  );
+}
+
+export async function createTextLink(params: {
+  domain: string;
+  content: string;
+  title?: string;
+  createdBy: string;
+  preferredSlug?: string;
+}): Promise<ShortLink> {
+  const content = params.content ?? '';
+  if (Buffer.byteLength(content, 'utf8') > MAX_TEXT_BYTES) {
+    throw new Error(`Texto acima do limite de ${Math.round(MAX_TEXT_BYTES / 1024)}KB.`);
+  }
+  const now = new Date();
+  return insertWithRetry(
+    {
+      domain: params.domain,
+      type: 'text',
+      content,
+      originalFilename: params.title?.trim() || 'anotação',
+      createdBy: new ObjectId(params.createdBy),
+      hits: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+    params.preferredSlug
+  );
+}
+
+// Dono checado aqui, no ponto de mutacao -- mesmo padrao de deleteLink.
+// Leitura de anotacao e' publica (o link e' pra ser compartilhado); escrita
+// e' so' de quem criou.
+export async function updateTextLink(id: string, userId: string, content: string): Promise<boolean> {
+  if (!ObjectId.isValid(id)) return false;
+  if (Buffer.byteLength(content, 'utf8') > MAX_TEXT_BYTES) {
+    throw new Error(`Texto acima do limite de ${Math.round(MAX_TEXT_BYTES / 1024)}KB.`);
+  }
+  const client = await clientPromise;
+  const db = client.db();
+  const result = await db
+    .collection<ShortLink>('short_links')
+    .updateOne(
+      { _id: new ObjectId(id), createdBy: new ObjectId(userId), type: 'text' },
+      { $set: { content, updatedAt: new Date() } }
+    );
+  return result.matchedCount === 1;
+}
+
 export async function listLinksForUser(userId: string): Promise<ShortLinkView[]> {
   const client = await clientPromise;
   const db = client.db();
@@ -296,6 +407,7 @@ export async function listLinksForUser(userId: string): Promise<ShortLinkView[]>
     originalFilename: d.originalFilename,
     mimeType: d.mimeType,
     size: d.size,
+    targetUrl: d.targetUrl,
     hits: d.hits,
     createdAt: d.createdAt.toISOString(),
   }));
@@ -339,7 +451,7 @@ export async function deleteLink(id: string, userId: string): Promise<boolean> {
   // 'existing' aponta pra um arquivo gerenciado fora do app (scp manual,
   // Syncthing) -- apagar o link deve deixar o arquivo disponivel de novo
   // pro picker, nunca destrui-lo.
-  if (doc.type === 'upload') {
+  if (doc.type === 'upload' && doc.storagePath) {
     const fullPath = path.join(UPLOAD_ROOT, doc.storagePath);
     await fs.promises.unlink(fullPath).catch((err: NodeJS.ErrnoException) => {
       if (err?.code !== 'ENOENT') throw err;
