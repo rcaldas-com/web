@@ -1438,72 +1438,146 @@ const LAN_RANGES_V4 = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
 // demarcadas: um esqueleto completo (serve de ponto de partida pra host
 // sem nftables ainda) e o trecho especifico do papel (serve pra colar
 // dentro de um nftables ja existente, sem tocar no resto dele).
+// Um `set` so' aparece se tiver conteudo: `elements = { }` vazio e erro de
+// sintaxe no nft, e um set declarado sem elementos e' ruido no arquivo.
+function renderSet(nome: string, tipo: string, elementos: string[], comentario?: string): string {
+  if (!elementos.length) return '';
+  const cab = comentario ? `\t\t# ${comentario}\n` : '';
+  return `${cab}\t\tset ${nome} {
+\t\t\ttype ${tipo}
+\t\t\tflags interval
+\t\t\telements = { ${elementos.join(', ')} }
+\t\t}
+`;
+}
+
 export function renderNftablesSuggestion(plan: FirewallPlan): string {
-  const roleLines: string[] = [];
+  const sets: string[] = [];
+  const regras: string[] = [];
 
   if (plan.role === 'standard') {
     const v4 = plan.knownHostsV4 ?? [];
     const v6 = plan.knownHostsV6 ?? [];
-    if (v4.length) roleLines.push(`ip saddr { ${v4.join(', ')} } accept`);
-    if (v6.length) roleLines.push(`ip6 saddr { ${v6.join(', ')} } accept`);
-    if (!v4.length && !v6.length) roleLines.push('# nenhum outro host conhecido ainda -- so SSH e loopback liberados');
+    sets.push(renderSet('hosts_conhecidos', 'ipv4_addr', v4, 'outros hosts da frota'));
+    sets.push(renderSet('hosts_conhecidos_v6', 'ipv6_addr', v6));
+    if (v4.length) regras.push('ip saddr @hosts_conhecidos accept');
+    if (v6.length) regras.push('ip6 saddr @hosts_conhecidos_v6 accept');
+    if (!v4.length && !v6.length) regras.push('# nenhum outro host conhecido ainda -- so SSH e loopback liberados');
   } else {
     const { tcp, udp } = formatPortRules(plan.ports ?? []);
-    if (tcp.length) roleLines.push(`tcp dport { ${tcp.join(', ')} } accept`);
-    if (udp.length) roleLines.push(`udp dport { ${udp.join(', ')} } accept`);
-    if (!tcp.length && !udp.length) roleLines.push('# nenhuma porta publica configurada ainda');
+    sets.push(renderSet('portas_tcp', 'inet_service', tcp, 'portas publicas deste papel'));
+    sets.push(renderSet('portas_udp', 'inet_service', udp));
+    if (tcp.length) regras.push('tcp dport @portas_tcp accept');
+    if (udp.length) regras.push('udp dport @portas_udp accept');
+    if (!tcp.length && !udp.length) regras.push('# nenhuma porta publica configurada ainda');
   }
 
   const lanRules = plan.lanPorts ?? [];
   if (lanRules.length) {
     const { tcp, udp } = formatPortRules(lanRules);
+    sets.push(renderSet('portas_lan_tcp', 'inet_service', tcp, 'so alcancaveis de dentro da LAN'));
+    sets.push(renderSet('portas_lan_udp', 'inet_service', udp));
+    // Ficam como regra e nao entram nos sets acima porque carregam o
+    // qualificador de origem -- set guarda valor, nao condicao.
     const lanNets = LAN_RANGES_V4.join(', ');
-    if (tcp.length) roleLines.push(`ip saddr { ${lanNets} } tcp dport { ${tcp.join(', ')} } accept`);
-    if (udp.length) roleLines.push(`ip saddr { ${lanNets} } udp dport { ${udp.join(', ')} } accept`);
+    if (tcp.length) regras.push(`ip saddr { ${lanNets} } tcp dport @portas_lan_tcp accept`);
+    if (udp.length) regras.push(`ip saddr { ${lanNets} } udp dport @portas_lan_udp accept`);
   }
+
+  const blocoSets = sets.filter(Boolean).join('\n');
 
   return `#!/usr/sbin/nft -f
 # Sugestao gerada pelo Monitor pro host "${plan.host}" (papel: ${plan.role}).
 # So sugestao -- nada aqui e aplicado automaticamente em lugar nenhum.
 # Cole/adapte na mao no /etc/nftables.conf do host.
+#
+# ============================================================
+# ANTES DE RECARREGAR ISTO NUM HOST QUE RODA DOCKER, LEIA:
+# ============================================================
+# O 'flush ruleset' abaixo apaga o ruleset INTEIRO. Se o host usa
+# iptables-nft (o padrao no Debian atual), as regras do Docker e do
+# fail2ban moram no mesmo lugar e vao junto. Depois de um reload:
+#
+#   - os containers ficam inalcancaveis de fora (o NAT das portas
+#     publicadas some);
+#   - os bans do fail2ban param de valer EM SILENCIO -- o ipset continua
+#     existindo, so' que sem nenhuma regra consultando.
+#
+# O segundo e' o perigoso, porque nada quebra de forma visivel: a
+# protecao simplesmente deixa de existir. Aconteceu no 'us' e passou
+# despercebido por dias (24.563 falhas registradas contra 8 bans).
+#
+# Depois de qualquer reload, NESTA ORDEM:
+#   systemctl restart docker     # recria a chain DOCKER-USER
+#   systemctl restart fail2ban   # reinsere as regras DENTRO dela
+# Confira com: ipset list | grep -A2 '^Name: f2b-'
+# Se algum aparecer com 'References: 0', o ban daquela jail nao vale nada.
+#
+# MELHOR: no dia a dia NAO recarregue este arquivo. Os conjuntos abaixo
+# tem nome, e set nomeado se altera a quente, sem flush e sem risco:
+#
+#   nft add element inet filter portas_tcp { 8080 }
+#   nft delete element inet filter portas_tcp { 8080 }
+#
+# Depois so' espelhe a mudanca aqui, pra sobreviver ao boot.
 
-# --- esqueleto: ponto de partida pra um host SEM nftables ainda ---
 flush ruleset
 
 table inet filter {
-	chain input {
-		type filter hook input priority filter; policy drop;
+${blocoSets}
+\tchain input {
+\t\ttype filter hook input priority filter; policy drop;
 
-		iifname "lo" accept
-		ct state established,related accept
-		ct state invalid drop
+\t\tiifname "lo" accept
 
-		# ICMP/ICMPv6 essenciais (RFC 4890) -- sem isso o NDP quebra e o
-		# IPv6 fica morto.
-		icmp type { destination-unreachable, time-exceeded, parameter-problem, echo-request, echo-reply } accept
-		icmpv6 type {
-			destination-unreachable, packet-too-big,
-			time-exceeded, parameter-problem,
-			echo-request, echo-reply,
-			nd-router-solicit, nd-router-advert,
-			nd-neighbor-solicit, nd-neighbor-advert
-		} accept
+\t\t# Cedo de proposito: a maioria esmagadora dos pacotes de uma conexao
+\t\t# ja estabelecida casa aqui e nao percorre o resto da chain.
+\t\tct state established,related accept
+\t\tct state invalid drop
 
-		tcp dport 8422 accept
+\t\t# ICMP/ICMPv6 essenciais (RFC 4890) -- sem isso o NDP quebra e o
+\t\t# IPv6 fica morto.
+\t\ticmp type { destination-unreachable, time-exceeded, parameter-problem, echo-request, echo-reply } accept
+\t\ticmpv6 type {
+\t\t\tdestination-unreachable, packet-too-big,
+\t\t\ttime-exceeded, parameter-problem,
+\t\t\techo-request, echo-reply,
+\t\t\tnd-router-solicit, nd-router-advert,
+\t\t\tnd-neighbor-solicit, nd-neighbor-advert
+\t\t} accept
 
-		# --- regras do papel: cole so este trecho se ja tiver nftables ---
-${roleLines.map((l) => `\t\t${l}`).join('\n')}
-		# --- fim das regras do papel ---
-	}
-	chain forward {
-		# accept, nao drop: host rodando Docker roteia trafego dos
-		# proprios containers por aqui -- um forward:drop aqui quebra a
-		# rede de todo container, mesmo com as regras do Docker corretas.
-		type filter hook forward priority filter; policy accept;
-	}
-	chain output {
-		type filter hook output priority filter; policy accept;
-	}
+\t\t# SSH da frota. Fora de qualquer set pra nunca depender de um
+\t\t# elemento que alguem possa remover a quente sem perceber.
+\t\ttcp dport 8422 accept
+
+\t\t# --- regras do papel: cole so este trecho se ja tiver nftables ---
+${regras.map((l) => `\t\t${l}`).join('\n')}
+\t\t# --- fim das regras do papel ---
+
+\t\t# Contador = CENSO do que e' dropado; o log abaixo e' AMOSTRA (tem
+\t\t# limite). Pra "quantos pacotes?" olhe o contador; pra "o que
+\t\t# exatamente esta chegando?" olhe o log.
+\t\tcounter comment "total unfiltered input packets"
+
+\t\t# Limite obrigatorio: sem ele um scan enche o disco. Com ele, o log
+\t\t# vira uma amostra util -- foi assim que se descobriu no 'us' que
+\t\t# 51% do trafego dropado era um cliente legitimo batendo numa porta
+\t\t# fechada por engano, nao ataque.
+\t\t# As linhas aparecem no journal (tag kernel) e sobem pro Loki
+\t\t# sozinhas, ja que o agente encaminha o syslog do host.
+\t\tlimit rate 60/minute burst 20 packets log prefix "LIMBO: "
+\t}
+
+\tchain forward {
+\t\t# accept, nao drop: host rodando Docker roteia trafego dos proprios
+\t\t# containers por aqui -- um forward:drop quebra a rede de todo
+\t\t# container, mesmo com as regras do Docker corretas.
+\t\ttype filter hook forward priority filter; policy accept;
+\t}
+
+\tchain output {
+\t\ttype filter hook output priority filter; policy accept;
+\t}
 }
 `;
 }

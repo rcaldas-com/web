@@ -93,12 +93,21 @@ export default function FirewallSection({
         </SubmitButton>
       </form>
 
-      <div className="mt-4">
-        <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">Sugestão de nftables.conf pra este host:</p>
-        <pre className="max-h-96 overflow-auto rounded bg-zinc-100 p-3 text-xs text-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+      {/* Fechado por padrão: são ~110 linhas que empurrariam o resto da
+          página pra fora da tela, e é conteúdo pra copiar uma vez, não pra
+          consultar toda hora. <details> nativo em vez de estado no React --
+          não precisa de client component só pra abrir e fechar. */}
+      <details className="group mt-4">
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200">
+          <span className="transition-transform group-open:rotate-90" aria-hidden="true">
+            ▸
+          </span>
+          Sugestão de nftables.conf pra este host
+        </summary>
+        <pre className="mt-2 max-h-96 overflow-auto rounded bg-zinc-100 p-3 text-xs text-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
           {suggestion}
         </pre>
-      </div>
+      </details>
     </section>
   );
 }
