@@ -94,6 +94,46 @@ EOF
   systemctl restart rsyslog &> /dev/null || true
 fi
 
+# Mail local -> journal -> coletor central.
+#
+# Um monte de coisa do sistema so' avisa por mail local pro root e nunca
+# passa pelo syslog: saida de cron que falhou, apt/unattended-upgrades,
+# mdadm, smartd, zed. Sem isto e' descartado em silencio -- foi exatamente
+# assim que um disco com erro de I/O no host 'bag' passou 3 dias despercebido,
+# com o zed configurado e apontando pro email certo.
+#
+# Isto NAO e' um MTA: nao entrega nada, nao tem fila, nao pode ficar preso.
+# Joga no journal, que ja vai pro Loki (90 dias, pesquisavel, com grafico).
+# Email como canal de alerta ja provou que falha calado nesta infra: o 'us'
+# ficou com 17 mensagens presas na fila por dias sem ninguem perceber.
+MAIL_SHIM="/usr/local/sbin/mail-to-journal"
+mkdir -p /usr/local/sbin
+cat > "$MAIL_SHIM" <<'SHIMEOF'
+#!/bin/bash
+# Recebe destinatarios em argv e a mensagem inteira em stdin, como o
+# sendmail. argv nao e' interpretado de proposito: o que importa e' o
+# conteudo, e tudo que chega aqui merece ficar registrado.
+destinatarios="$*"
+{
+  echo "--- inicio de mail local (para: ${'$'}{destinatarios:-root}) ---"
+  cat
+  echo "--- fim de mail local ---"
+} | /usr/bin/logger -t local-mail -p mail.err
+exit 0
+SHIMEOF
+chmod 755 "$MAIL_SHIM"
+
+# Guarda o sendmail real UMA vez. O teste "nao e' link" e' o que impede a
+# segunda execucao do instalador de salvar o proprio shim como "original" e
+# perder o binario de verdade pra sempre.
+for sm in /usr/sbin/sendmail /usr/lib/sendmail; do
+  if [[ -e "$sm" && ! -L "$sm" ]]; then
+    cp -a "$sm" "$sm.real-mta" 2>/dev/null || true
+  fi
+  ln -sf "$MAIL_SHIM" "$sm" 2>/dev/null || true
+done
+echo "mail local -> journal (tag local-mail); sendmail real, se havia, em *.real-mta"
+
 cat > "$AGENT_BIN" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail

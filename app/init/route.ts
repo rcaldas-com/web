@@ -101,7 +101,24 @@ SMTP_PORT=587
 
 WALLPAPER="https://rcaldas.com/wallpapers/00.jpg"
 
-FASTFETCH_URL="https://github.com/fastfetch-cli/fastfetch/releases/latest/download/fastfetch-linux-amd64.deb"
+# Arquitetura do SISTEMA, nao do chip -- e' a distincao que importa: um
+# Rock64 e' ARMv8 (64-bit) mas rodando Armbian armhf o userland e' 32-bit e
+# o dpkg reporta "armhf". Quem decide qual binario instalar e' o dpkg, nao
+# o "uname -m". Detectado uma vez e reusado no resto do script.
+DPKG_ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
+
+# O fastfetch publica um .deb por arquitetura, e os nomes NAO batem com os
+# do dpkg: aarch64 (nao arm64) e armv7l (nao armhf).
+case "$DPKG_ARCH" in
+  amd64) FASTFETCH_ARCH="amd64" ;;
+  arm64) FASTFETCH_ARCH="aarch64" ;;
+  armhf) FASTFETCH_ARCH="armv7l" ;;
+  *)     FASTFETCH_ARCH="" ;;
+esac
+FASTFETCH_URL="https://github.com/fastfetch-cli/fastfetch/releases/latest/download/fastfetch-linux-$FASTFETCH_ARCH.deb"
+
+# A Mozilla so' publica tarball oficial pra x86_64 -- nao existe build ARM.
+# Em ARM o caminho e' o firefox-esr da distro; ver o bloco de desktop.
 FIREFOX_URL="https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=pt-BR"
 
 default_apps="sudo rsync curl tmux python3-pip openssh-server dnsutils wget \\
@@ -160,10 +177,23 @@ function package_installer(){
     apt-get -qq clean
   }
   if ! dpkg -s fastfetch &> /dev/null; then
-    curl -Ls $FASTFETCH_URL -o /tmp/fastfetch-linux-amd64.deb
-    dpkg -i /tmp/fastfetch-linux-amd64.deb > /dev/null
-    apt install -yf > /dev/null
-    rm /tmp/fastfetch-linux-amd64.deb
+    # O fastfetch serve so' pra ficha do host (job host-info). Nao pode
+    # derrubar o provisionamento inteiro se faltar build pra arquitetura --
+    # por isso cada passo aqui tolera falha explicitamente.
+    if [ -n "$FASTFETCH_ARCH" ]; then
+      if curl -fsSL "$FASTFETCH_URL" -o /tmp/fastfetch.deb 2>/dev/null \\
+         && dpkg -i /tmp/fastfetch.deb > /dev/null 2>&1; then
+        apt install -yf > /dev/null 2>&1 || true
+      else
+        # Tenta o da distro antes de desistir: em ARM costuma existir.
+        DEBIAN_FRONTEND=noninteractive apt-get -qq install fastfetch > /dev/null 2>&1 \\
+          || echo "  AVISO: fastfetch indisponivel para $DPKG_ARCH -- seguindo sem ele"
+      fi
+      rm -f /tmp/fastfetch.deb
+    else
+      DEBIAN_FRONTEND=noninteractive apt-get -qq install fastfetch > /dev/null 2>&1 \\
+        || echo "  AVISO: arquitetura $DPKG_ARCH sem build de fastfetch -- pulando"
+    fi
   fi
 }
 
@@ -578,6 +608,23 @@ function firefox(){
   echo Firefox
   su - $USER -c "mkdir -p $HOME_USER/.local/share/{applications,icons} \\
                           $HOME_USER/.local/bin"
+
+  # A Mozilla NAO publica tarball oficial pra ARM -- so' x86_64. Em
+  # armhf/arm64 o unico caminho e' o firefox-esr da distro, que ja traz o
+  # proprio .desktop e o proprio binario em /usr/bin.
+  #
+  # Repare que isso inverte o resto da funcao: em amd64 o firefox-esr e'
+  # REMOVIDO de proposito, justamente pra dar lugar ao tarball oficial (mais
+  # novo que o ESR). Em ARM ele e' o que queremos manter -- por isso o
+  # retorno antecipado, antes do remove.
+  if [ "$DPKG_ARCH" != "amd64" ]; then
+    DEBIAN_FRONTEND=noninteractive apt-get -qq install firefox-esr > /dev/null 2>&1 \\
+      || { echo "  AVISO: firefox-esr indisponivel para $DPKG_ARCH -- seguindo sem navegador"; return 0; }
+    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/firefox-esr 10 > /dev/null 2>&1 || true
+    update-alternatives --set x-www-browser /usr/bin/firefox-esr > /dev/null 2>&1 || true
+    echo "  firefox-esr da distro (sem build ARM oficial da Mozilla)"
+    return 0
+  fi
 
   dpkg -s firefox-esr &> /dev/null && \\
     apt-get remove -y --no-install-recommends firefox-esr > /dev/null
