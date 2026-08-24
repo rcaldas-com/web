@@ -1,5 +1,23 @@
 import type { Metadata } from 'next';
 
+// ATUALIZACAO 24/08/2026 -- por que existe o hostname monitor.rcaldas.com
+//
+// O PWA continuava sendo instalado como "/finance" mesmo com tudo abaixo
+// correto, e a causa nao estava no metadata: `/monitor` sem sessao devolve
+// 307 pro `/login`, que renderiza o layout RAIZ e portanto linka o manifest
+// da raiz (start_url /finance, logo.png). Quem instala pela tela de login
+// captura aquela identidade, nao esta.
+//
+// Nao adianta so' linkar este manifest no /login: o navegador ignora
+// manifest cujo `scope` nao cobre a pagina atual, e o escopo era /monitor.
+//
+// A saida foi dar um hostname proprio ao Monitor. Com isso o `scope` deste
+// manifest passa a ser "/" -- o host inteiro, login incluido -- e o
+// `start_url` continua /monitor. Instalar de qualquer pagina de
+// monitor.rcaldas.com produz a identidade certa. O `id` explicito garante
+// que os dois caminhos (/manifest.webmanifest servido pelo HAProxy naquele
+// host e este arquivo) sejam o MESMO app pro navegador, nao dois.
+
 // Escopado a este segmento -- so /monitor* vira instalavel, o resto do app
 // (finance, wallet...) continua sem manifest nenhum.
 //
