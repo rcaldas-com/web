@@ -4,7 +4,7 @@ const PROVISION_TOKEN = process.env.PROVISION_TOKEN || '';
 // Provisionamento minimo e SEM perguntas: deixa o host alcancavel pelo
 // tunel e para por ai. Existe pra quando nao da pra ficar respondendo
 // prompt -- host sem tela, instalacao remota, alguem executando por voce.
-// O resto (docker, desktop, smtp...) se faz depois, entrando pelo tunel.
+// O resto (docker, desktop...) se faz depois, entrando pelo tunel.
 //
 // Usa o hostname do proprio sistema. Se precisar de outro, rode o /init
 // completo, que pergunta.

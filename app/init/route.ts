@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const APP_URL = process.env.AUTH_TRUST_HOST || 'http://localhost:8001';
-// Segredo compartilhado que autoriza o /init a chamar /api/mailu-account --
-// mesmo nivel de confianca que authorized_keys ja tem hoje (quem consegue
+// Segredo compartilhado que autoriza o /init a chamar /api/register-tunnel-key
+// -- mesmo nivel de confianca que authorized_keys ja tem hoje (quem consegue
 // buscar /init ja recebe suas chaves SSH).
 const PROVISION_TOKEN = process.env.PROVISION_TOKEN || '';
 // Mesmo diretorio que o zxnet/init.sh chamavam de $SYNC_HOME — mirror do
@@ -96,8 +96,6 @@ SYNC_BIN="$HOME_USER/live/bin"
 SYNC_HOME="$HOME_USER/live/home"
 
 MAIL_ADMIN="rclgsm@gmail.com"
-SMTP_SERVER='us.rcaldas.com'
-SMTP_PORT=587
 
 WALLPAPER="https://rcaldas.com/wallpapers/00.jpg"
 
@@ -222,11 +220,9 @@ function asks(){
 
   read < /dev/tty -rep $'\\n[SSH] Change SSH Config (port and match user)?\\n(Y/n)> ' CHANGESSH
 
-  read < /dev/tty -rep $'\\n[SMTP] Set SMTP Password?\\n(Y/n)> ' SET_SMTP_PWD
-
   read < /dev/tty -rep $'\\n[SYNCTHING] Install syncthing?\\n(y/N)> ' INSTSYNC
 
-  read < /dev/tty -rep $'\\n[DOCKER] Install Docker for Debian x64?\\n(y/N)> ' INSTDOCKER
+  read < /dev/tty -rep $'\\n[DOCKER] Install Docker?\\n(y/N)> ' INSTDOCKER
 
   read < /dev/tty -rep $'\\n[DESKTOP] It\\'s a Desktop?\\n(y/N)> ' ISDESKTOP
 }
@@ -355,71 +351,30 @@ function ensure_root_key(){
   fi
 }
 
-function set_smtp(){
-  echo smtp
-  package_installer "libsasl2-modules postfix mailutils"
-  echo "$DOMAIN" > /etc/mailname
+function set_local_mail(){
+  echo mail-local
 
-  [ ! -e /etc/postfix/main.cf.bkp ] && \\
-    cp /etc/postfix/main.cf /etc/postfix/main.cf.bkp
-  cat <<EOF > /etc/postfix/main.cf
-myhostname = $DOMAIN
-inet_interfaces = loopback-only
-relayhost = [$SMTP_SERVER]:$SMTP_PORT
-smtp_sasl_auth_enable = yes
-smtp_sasl_security_options = noanonymous
-smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd
-smtp_generic_maps = hash:/etc/postfix/generic
-smtp_use_tls = yes
-mynetworks_style = host
-smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt
-smtp_tls_CApath = /etc/ssl/certs
-inet_protocols = ipv4
-compatibility_level = 2
-EOF
+  # SEM postfix e SEM relay pro Mailu -- de proposito. O Mailu e' um servico
+  # em Docker, independente; nao faz sentido ser dependencia de
+  # provisionamento de host. O sendmail deste host e' o shim que o /install
+  # instala, que joga o mail local no journal -> coletor central -> Loki.
+  #
+  # Por que abandonar email: ele falha calado. O zed do ZFS estava
+  # configurado com o endereco certo e mesmo assim um disco com erro de I/O
+  # passou 3 dias despercebido, porque a entrega nao acontecia. E o proprio
+  # us acumulou 17 mensagens presas na fila por dias sem ninguem saber.
+  #
+  # O pacote mailutils fica: o binario 'mail' e' o que varias coisas chamam (o zed
+  # e' uma delas), e ele entrega via sendmail -- que agora e' o shim.
+  package_installer "mailutils"
 
-  [ -f /root/.forward ] && {
-    [ ! -e /root/.forward.bkp ] && cp /root/.forward /root/.forward.bkp
-  }
-  echo "$MAIL_ADMIN" > /root/.forward
-
-  grep -q '^root:' /etc/aliases && \\
-    sudo sed -i "/^root:/c\\root: $MAIL_ADMIN" /etc/aliases || \\
-      echo "root: $MAIL_ADMIN" >> /etc/aliases
-  newaliases
-
-  echo -e "@$DOMAIN\\t$HOSTNAME@$DOMAIN" > /etc/postfix/generic
-  postmap /etc/postfix/generic
-
-  if [ "$SET_SMTP_PWD" == "n" ] || [ "$SET_SMTP_PWD" == "N" ]; then
-    :
-  else
-    SMTP_PWD=$(< /dev/urandom tr -dc _A-Z-a-z-0-9 | head -c16)
-    echo "[$SMTP_SERVER]:$SMTP_PORT $HOSTNAME@$DOMAIN:$SMTP_PWD" >\\
-                                                      /etc/postfix/sasl_passwd
-    chmod 600 /etc/postfix/sasl_passwd
-    postmap /etc/postfix/sasl_passwd
-
-    if curl -fsS -m 15 -H 'Content-Type: application/json' -X POST "${APP_URL}/api/mailu-account" \\
-        -d "{\\"host\\":\\"$HOSTNAME\\",\\"domain\\":\\"$DOMAIN\\",\\"password\\":\\"$SMTP_PWD\\",\\"provisionToken\\":\\"${PROVISION_TOKEN}\\"}" > /dev/null 2>&1; then
-      echo "Conta SMTP criada/atualizada no Mailu: $HOSTNAME@$DOMAIN"
-    else
-      echo "Nao foi possivel criar a conta no Mailu automaticamente -- cadastre manualmente: $HOSTNAME@$DOMAIN / $SMTP_PWD"
-    fi
-
-    unset SMTP_PWD
-  fi
-
-  postfix set-permissions
-  systemctl restart postfix &> /dev/null || /etc/init.d/postfix restart &> /dev/null
-
+  # MAILTO precisa estar DEFINIDO, mesmo agora. Com MAILTO vazio o cron
+  # descarta a saida do job em silencio, sem sequer invocar o sendmail --
+  # e' exatamente o que a gente NAO quer perder. O endereco em si nao
+  # importa: o shim ignora destinatario.
   grep -q 'MAILTO=' /etc/crontab && \\
-    sed -i "/MAILTO=/c\\MAILTO=$MAIL_ADMIN" /etc/crontab || \\
-    sed -i "1iMAILTO=$MAIL_ADMIN" /etc/crontab
-
-  grep -q 'MAILFROM=' /etc/crontab && \\
-    sed -i "/MAILFROM=/c\\MAILFROM=$HOSTNAME@$DOMAIN" /etc/crontab || \\
-    sed -i "1iMAILFROM=$HOSTNAME@$DOMAIN" /etc/crontab
+    sed -i "/MAILTO=/c\\MAILTO=root" /etc/crontab || \\
+    sed -i "1iMAILTO=root" /etc/crontab
 }
 
 function set_backup_access(){
@@ -707,7 +662,7 @@ fi
 
 set_fail2ban
 ensure_root_key
-set_smtp
+set_local_mail
 set_user
 # Depois do set_user: precisa do $HOME_USER/.ssh ja criado.
 set_backup_access
