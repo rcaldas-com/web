@@ -419,21 +419,41 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
         elif ! command -v jq >/dev/null 2>&1; then
           jmsg="jq nao instalado neste host"
         else
+          # Guarda de saida em cada pipeline, pelo mesmo motivo do git
+          # abaixo: com pipefail, um docker compose que falhe derrubaria o
+          # agente inteiro em vez de so' falhar o job.
+          #
+          # (Nunca use crase em comentario deste arquivo -- ela fecha o
+          # template literal do JS e o build quebra com erro de parse de
+          # ecmascript, nao de bash.)
           inv_dec=$(cd "$inv_dir" && docker compose -f "$inv_file" config --format json 2>/dev/null \\
-            | jq -c '[.services | to_entries[] | {name: .key, image: (.value.image // "")}]' 2>/dev/null)
+            | jq -c '[.services | to_entries[] | {name: .key, image: (.value.image // "")}]' 2>/dev/null || echo "")
           inv_run=$(cd "$inv_dir" && docker compose -f "$inv_file" ps --all --format json 2>/dev/null \\
-            | jq -sc '[.[] | {name: .Service, image: .Image, state: .State}]' 2>/dev/null)
+            | jq -sc '[.[] | {name: .Service, image: .Image, state: .State}]' 2>/dev/null || echo "")
           # Montado por jq com --argjson, nunca concatenando string: aspas
           # dentro de aspas dentro de template literal e' onde este arquivo
           # ja quebrou a frota inteira uma vez.
+          # safe.directory nas TRES chamadas de git, e nao e' zelo: sob
+          # systemd o HOME vem VAZIO, entao o git nao le /root/.gitconfig e
+          # recusa um repo cujo dono e' outro usuario (aqui uid 8484 vs root)
+          # com "dubious ownership" e exit 128. Pelo sudo funciona -- o sudo
+          # seta HOME=/root -- o que faz o teste manual passar e o agente de
+          # verdade falhar. Custou uma sessao inteira de diagnostico.
+          #
+          # E cada pipeline tem "|| echo", tambem obrigatorio: com
+          # "set -o pipefail" o 128 do git vira o status do PIPELINE, que
+          # vira o status da substituicao de comando, que com "set -e" mata
+          # o agente inteiro -- heartbeat junto. Nenhum job pode ter esse
+          # poder; na duvida ele reporta vazio e o ciclo continua.
+          inv_git="git -c safe.directory=*"
           # --untracked-files=no de proposito: arquivo solto no diretorio nao
           # e' deriva de deploy. Sem isso, qualquer script temporario no host
           # apareceria como alarme -- e alarme que acende por qualquer coisa
           # e' alarme que se aprende a ignorar.
-          inv_dirty=$(cd "$inv_dir" && git status --porcelain --untracked-files=no 2>/dev/null | awk '{print $NF}' | jq -Rsc 'split("\\n") | map(select(. != ""))' 2>/dev/null)
-          [[ -z "$inv_dirty" ]] && inv_dirty="[]"
-          inv_ahead=$(cd "$inv_dir" && git rev-list --count '@{u}'..HEAD 2>/dev/null || echo 0)
-          inv_behind=$(cd "$inv_dir" && git rev-list --count HEAD..'@{u}' 2>/dev/null || echo 0)
+          inv_dirty=$(cd "$inv_dir" && ${'$'}inv_git status --porcelain --untracked-files=no 2>/dev/null | awk '{print $NF}' | jq -Rsc 'split("\\n") | map(select(. != ""))' 2>/dev/null || echo "[]")
+          inv_dirty="${'$'}{inv_dirty:-[]}"
+          inv_ahead=$(cd "$inv_dir" && ${'$'}inv_git rev-list --count '@{u}'..HEAD 2>/dev/null || echo 0)
+          inv_behind=$(cd "$inv_dir" && ${'$'}inv_git rev-list --count HEAD..'@{u}' 2>/dev/null || echo 0)
           inv_repo=$(jq -nc --argjson dirty "$inv_dirty" --arg a "$inv_ahead" --arg b "$inv_behind" \\
             '{dirty: $dirty, ahead: ($a | tonumber), behind: ($b | tonumber)}' 2>/dev/null)
           if [[ -n "$inv_dec" && -n "$inv_run" && -n "$inv_repo" ]]; then
