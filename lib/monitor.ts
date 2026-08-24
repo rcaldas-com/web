@@ -459,6 +459,55 @@ async function resolveIncident(db: Db, key: string, notify = true) {
   }
 }
 
+// Alerta por CONTEUDO de log, vindo do alerting do Grafana por webhook.
+//
+// Fecha o ciclo que faltava: ate aqui o Monitor so' sabia de host (disco,
+// cpu, memoria, heartbeat) e de alarme reportado pelo agente. Agora uma
+// regra sobre o texto do log tambem abre incidente -- e reaproveita tudo
+// que ja existe: dedupe, email so' na transicao, teto por host/hora e a
+// mesma listagem em /monitor.
+//
+// O Grafana e' quem avalia a regra (ele ja fala com o Loki e ja tem
+// alerting); aqui so' se traduz o webhook em incidente. Nao ha logica de
+// threshold deste lado de proposito -- dois lugares decidindo quando algo
+// esta ruim e' garantia de divergencia.
+export async function handleLogAlert(alerta: {
+  status: 'firing' | 'resolved';
+  host: string;
+  service?: string;
+  summary: string;
+  detail?: string;
+  severity?: MonitorIncident['severity'];
+}) {
+  const client = await clientPromise;
+  const db = client.db();
+
+  // Uma chave por host+servico. Sem o servico no meio, dois servicos
+  // barulhentos no mesmo host se sobrescreveriam no mesmo incidente.
+  const key = `log:${alerta.host}:${alerta.service || 'all'}`;
+
+  if (alerta.status === 'resolved') {
+    await resolveIncident(db, key);
+    return { key, acao: 'resolvido' as const };
+  }
+
+  await upsertIncident(db, {
+    key,
+    target: alerta.host,
+    severity: alerta.severity || 'warning',
+    summary: alerta.summary,
+    detail: alerta.detail,
+    // Estavel: o summary do Grafana carrega a contagem, que muda a cada
+    // avaliacao. Sem isto o assunto do email mudaria a cada re-ocorrencia
+    // e o Gmail nunca agruparia abertura e resolucao na mesma conversa.
+    emailSubject: `erro no log de ${alerta.service || alerta.host}`,
+    logSelector: alerta.service
+      ? `{host="${alerta.host}", service="${alerta.service}"}`
+      : `{host="${alerta.host}"}`,
+  });
+  return { key, acao: 'aberto' as const };
+}
+
 // Encerramento manual pelo admin -- pro caso do "copia offsite falhou" que
 // so seria checado de novo pelo cron do dia seguinte, mas a causa raiz ja
 // foi corrigida por fora (ex: bucket criado na mao). Reusa resolveIncident
