@@ -62,12 +62,27 @@ export async function sendIncidentEmail(params: {
   emailSubject?: string;
   detail?: string;
   resolved: boolean;
+  // Seletor LogQL do que explica ESTE alarme. Quando vem, o email leva o
+  // trecho de log junto -- e' a diferenca entre "backup falhou" e saber
+  // por que falhou sem abrir SSH. Ver upsertIncident em lib/monitor.ts.
+  logSelector?: string;
 }) {
   // Sem prefixo tipo "[CRITICO]"/"[Resolvido]" no assunto -- ele ja aparece
   // como badge colorido no corpo do email. Se o assunto variasse entre
   // abertura e resolucao, o Gmail (que agrupa por assunto identico quando
   // nao ha cabecalho de thread) nunca juntaria os dois na mesma conversa,
   // e cada incidente virava dois emails soltos na caixa de entrada.
+  // Busca o trecho de log so' na ABERTURA: no email de resolucao ele
+  // mostraria as linhas de quando ja voltou ao normal, que nao ajudam e
+  // ainda dao a impressao errada de que o problema continua.
+  let logTail = '';
+  if (params.logSelector && !params.resolved) {
+    const { tailLoki, formatarTail } = await import('@/lib/loki');
+    logTail = formatarTail(await tailLoki(params.logSelector, { limite: 20 }));
+  }
+
+  const { urlLogDoHost } = await import('@/lib/loki');
+
   await enqueueEmail(MASTER_ADMIN_EMAIL, `${params.host}: ${params.emailSubject || params.summary}`, 'incident', {
     host: params.host,
     severity: params.severity,
@@ -75,6 +90,11 @@ export async function sendIncidentEmail(params: {
     detail: params.detail || '',
     resolved: params.resolved ? 'sim' : '',
     hostUrl: `${APP_URL}/monitor/${params.host}`,
+    // Botao separado do "Ver no Monitor": o Monitor mostra o ESTADO do
+    // host (incidentes abertos, disco, tunel); o log mostra o que
+    // aconteceu. Pra diagnosticar, quase sempre e' o log que se quer.
+    logUrl: urlLogDoHost(params.host),
+    logTail,
     app: APP_NAME,
   });
 }

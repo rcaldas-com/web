@@ -366,6 +366,9 @@ async function upsertIncident(
     // mesma frase pra um mesmo id). So precisa ser passado por quem tem
     // valor ao vivo no summary (disco/memoria/cpu).
     emailSubject?: string;
+    // Seletor LogQL do log que explica este incidente. Quando vem, o email
+    // de abertura leva as ultimas linhas junto.
+    logSelector?: string;
   }
 ) {
   const now = new Date();
@@ -414,6 +417,7 @@ async function upsertIncident(
       emailSubject,
       detail: params.detail,
       resolved: false,
+      logSelector: params.logSelector,
     });
   } catch (error) {
     console.error('incident email failed:', error);
@@ -895,6 +899,11 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
           severity: result.status === 'fail' ? 'critical' : 'warning',
           summary: result.message || `Alarme ${result.id}`,
           detail: result.details ? JSON.stringify(result.details) : undefined,
+          // Log do host que reportou. Pro alarme de backup isso traz as
+          // linhas do rcaldas-backup (que agora passa pelo logger), que
+          // sao exatamente as que dizem POR QUE falhou -- a mensagem do
+          // alarme sozinha so' diz QUE falhou.
+          logSelector: `{host="${host}"}`,
         });
       }
     }

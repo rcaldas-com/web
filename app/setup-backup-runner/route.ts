@@ -126,7 +126,12 @@ LOG="/var/log/rcaldas-backup.log"
 exec 200>/var/run/rcaldas-backup.lock
 flock -w 3600 200 || { echo "[$(date '+%Y-%m-%d %H:%M:%S')] outra execucao de rcaldas-backup ja em andamento ha mais de 1h -- desistindo" | tee -a "$LOG" >/dev/null; exit 1; }
 
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG" >/dev/null; }
+# Duas saidas de proposito. O arquivo continua sendo o registro completo
+# (restic e' verboso e nao ha por que empurrar tudo pro coletor); o logger
+# manda a MESMA linha pro journal, que ja vai pro Loki -- e' o que permite
+# o email de incidente trazer o trecho de log junto, em vez de mandar
+# alguem abrir SSH pra descobrir por que o backup falhou.
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG" | logger -t rcaldas-backup; }
 
 resultados=""
 add_resultado() {
