@@ -32,7 +32,8 @@ Cliente aceita `application/pdf` (até 20MB) além de JPG/PNG/WEBP (até 10MB).
 O fluxo: servidor recebe o PDF inteiro, converte cada página numa imagem
 PNG via **`pdf-to-img`** (wrapper em cima do `pdfjs-dist`, roda 100% em
 Node/WASM -- sem GraphicsMagick, sem Ghostscript, sem `canvas` nativo,
-testado e confirmado rodando limpo no `node:24-alpine` do `Dockerfile.prd`),
+testado e confirmado rodando limpo no `node:24-alpine` do `Dockerfile`
+de produção — que até 23/08/2026 se chamava `Dockerfile.prd`),
 depois roda OCR em cada página com o motor escolhido e junta tudo num
 markdown só, separado por `## Página N` + `---`.
 

@@ -109,6 +109,10 @@ TUNNEL_RELAY="${'$'}{TUNNEL_RELAY:-us.rcaldas.com}"
 TUNNEL_RELAY_PORT="${'$'}{TUNNEL_RELAY_PORT:-8422}"
 # Porta local que o -L do tunel expoe apontando pro rsyslog do relay.
 LOG_FORWARD_PORT="${'$'}{LOG_FORWARD_PORT:-5514}"
+# So setado em hosts com papel de router (hoje, a mao no config.env; no
+# futuro, pelo instalador /router). Vazio aqui = bloco de descoberta abaixo
+# nunca roda, custo zero pro resto da frota.
+DHCP_LEASES_FILE="${'$'}{DHCP_LEASES_FILE:-}"
 VERSION="${AGENT_VERSION}"
 LOG="/var/log/rcaldas-agent.log"
 PENDING_RESULTS_FILE="/etc/rcaldas-agent/pending-results.json"
@@ -161,6 +165,36 @@ if [[ -d /var/log ]]; then
 fi
 memory_pct=$(awk '/MemTotal/ {total=$2} /MemAvailable/ {avail=$2} END {if(total>0) printf "%d", ((total-avail)*100/total); else print 0}' /proc/meminfo 2>/dev/null || echo 0)
 
+# Descoberta de dispositivo (so em host com papel de router). Compara o
+# lease file do dnsmasq contra os MACs ja vistos e reporta so os novos --
+# vira alarme type:"alarm" (pipeline agnostico de origem, sem mudar nada no
+# servidor), que upsertIncident transforma em incidente newdev:<mac>. Uma
+# linha por MAC em KNOWN_MACS_FILE evita re-reportar o mesmo host a cada
+# minuto -- so entra de novo a cada minuto ele, mas so soma ${'$'}{count},
+# nao reenvia email.
+KNOWN_MACS_FILE="/etc/rcaldas-agent/known-macs.state"
+newdev_results=""
+if [[ -n "$DHCP_LEASES_FILE" && -f "$DHCP_LEASES_FILE" ]]; then
+  touch "$KNOWN_MACS_FILE"
+  while read -r _expiry mac ip hostname _clientid; do
+    [[ -z "$mac" ]] && continue
+    grep -qxF "$mac" "$KNOWN_MACS_FILE" && continue
+    echo "$mac" >> "$KNOWN_MACS_FILE"
+    hn="${'$'}{hostname:-desconhecido}"
+    [[ "$hn" == "*" ]] && hn="desconhecido"
+    msg="Novo dispositivo na LAN: $mac, IP $ip, hostname $hn"
+    [[ -n "$newdev_results" ]] && newdev_results="$newdev_results,"
+    newdev_results="$newdev_results{\\"id\\":\\"newdev:$mac\\",\\"type\\":\\"alarm\\",\\"status\\":\\"new\\",\\"message\\":\\"$(json_escape "$msg")\\",\\"details\\":{\\"mac\\":\\"$mac\\",\\"ip\\":\\"$(json_escape "$ip")\\",\\"hostname\\":\\"$(json_escape "$hn")\\"}}"
+  done < "$DHCP_LEASES_FILE"
+fi
+if [[ -n "$newdev_results" ]]; then
+  if [[ -s "$PENDING_RESULTS_FILE" ]]; then
+    existente=$(sed 's/^\[//; s/\]$//' "$PENDING_RESULTS_FILE")
+    [[ -n "$existente" ]] && newdev_results="$existente,$newdev_results"
+  fi
+  printf '[%s]' "$newdev_results" > "$PENDING_RESULTS_FILE"
+fi
+
 # So o runner tem este arquivo (escrito pelo setup-backup-runner): uso do
 # disco onde os backups sao guardados. E o numero que decide se cabe mais
 # um host no plano -- sem ele, so se descobre quando enche.
@@ -200,7 +234,7 @@ payload=$(cat <<JSON
   "network":{"ipv4":"$(json_escape "$ipv4")","ipv6":"$(json_escape "$ipv6")"},
   "system":{"uptime":$uptime_seconds,"load1":$load1,"cpuPct":$cpu_pct,"cpuCount":$cpu_count,"topCpu":"$(json_escape "$top_cpu")","diskRootPct":$disk_root,"diskVarPct":$disk_var_pct,"diskVarLogPct":$disk_varlog_pct,"backupDiskPct":$backup_disk_pct,"memoryPct":$memory_pct},
   "tunnel":{"enabled":$ENABLE_TUNNEL,"activeRemotePort":${'$'}{active_port:-null}},
-  "capabilities":["heartbeat","tcp_banner","tunnel"],
+  "capabilities":["heartbeat","tcp_banner","tunnel","service-inventory"],
   "results":$results_payload
 }
 JSON
@@ -329,6 +363,46 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
             info_result=",{\\"id\\":\\"host-info\\",\\"type\\":\\"info\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$info_text")\\"}"
           else
             jmsg="fastfetch sem saida"
+          fi
+        fi
+        ;;
+      service-inventory)
+        log "job $jid: inventariando servicos do compose"
+        # Tres results pequenos em vez de um JSON montado aqui. Compor um
+        # objeto so exigiria jq com --slurpfile e bem mais shell dentro do
+        # template literal do JS -- que e onde este arquivo ja se queimou
+        # duas vezes. Cada linha abaixo e independente e trivial de checar.
+        inv_dir="/var/rcaldas/rcaldas"
+        inv_file="docker-compose.prod.yml"
+        if [[ ! -f "$inv_dir/$inv_file" ]]; then
+          jmsg="sem $inv_file em $inv_dir"
+        elif ! command -v jq >/dev/null 2>&1; then
+          jmsg="jq nao instalado neste host"
+        else
+          inv_dec=$(cd "$inv_dir" && docker compose -f "$inv_file" config --format json 2>/dev/null \\
+            | jq -c '[.services | to_entries[] | {name: .key, image: (.value.image // "")}]' 2>/dev/null)
+          inv_run=$(cd "$inv_dir" && docker compose -f "$inv_file" ps --all --format json 2>/dev/null \\
+            | jq -sc '[.[] | {name: .Service, image: .Image, state: .State}]' 2>/dev/null)
+          # Montado por jq com --argjson, nunca concatenando string: aspas
+          # dentro de aspas dentro de template literal e' onde este arquivo
+          # ja quebrou a frota inteira uma vez.
+          # --untracked-files=no de proposito: arquivo solto no diretorio nao
+          # e' deriva de deploy. Sem isso, qualquer script temporario no host
+          # apareceria como alarme -- e alarme que acende por qualquer coisa
+          # e' alarme que se aprende a ignorar.
+          inv_dirty=$(cd "$inv_dir" && git status --porcelain --untracked-files=no 2>/dev/null | awk '{print $NF}' | jq -Rsc 'split("\\n") | map(select(. != ""))' 2>/dev/null)
+          [[ -z "$inv_dirty" ]] && inv_dirty="[]"
+          inv_ahead=$(cd "$inv_dir" && git rev-list --count '@{u}'..HEAD 2>/dev/null || echo 0)
+          inv_behind=$(cd "$inv_dir" && git rev-list --count HEAD..'@{u}' 2>/dev/null || echo 0)
+          inv_repo=$(jq -nc --argjson dirty "$inv_dirty" --arg a "$inv_ahead" --arg b "$inv_behind" \\
+            '{dirty: $dirty, ahead: ($a | tonumber), behind: ($b | tonumber)}' 2>/dev/null)
+          if [[ -n "$inv_dec" && -n "$inv_run" && -n "$inv_repo" ]]; then
+            jstatus="ok"; jmsg="inventario coletado"
+            info_result=",{\\"id\\":\\"services-declared\\",\\"type\\":\\"inventory\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$inv_dec")\\"}"
+            info_result="$info_result,{\\"id\\":\\"services-running\\",\\"type\\":\\"inventory\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$inv_run")\\"}"
+            info_result="$info_result,{\\"id\\":\\"repo-state\\",\\"type\\":\\"inventory\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$inv_repo")\\"}"
+          else
+            jmsg="falha ao ler compose config/ps"
           fi
         fi
         ;;
