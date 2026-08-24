@@ -13,7 +13,7 @@ import redis from './redis';
 // AGENT_BIN mudar -- nao mudar isso foi o motivo do host-info ter ficado
 // invisivel: o codigo novo foi adicionado sem bump, entao nenhum host
 // existente jamais teria motivo pra se atualizar sozinho.
-export const AGENT_VERSION = '2.6.0';
+export const AGENT_VERSION = '2.7.0';
 
 // Uma porta ou faixa de portas, com protocolo -- o suficiente pra
 // representar o que o `us` ja tem aberto de verdade hoje na mao (ex:
@@ -158,6 +158,17 @@ export type MonitorHost = {
   deployTarget?: {
     enabled?: boolean;
   };
+  // Host que pode construir imagens. Varios ao mesmo tempo, ao contrario do
+  // backupRunner (que desmarca os outros ao marcar um): nao ha estado
+  // compartilhado entre workers, cada build e' independente.
+  //
+  // Marcar nao basta pra receber trabalho -- ver pickBuildWorker: o host
+  // precisa estar vivo E declarar a capacidade. E' isso que faz um notebook
+  // como o `tp` poder ficar marcado o tempo todo e simplesmente nao receber
+  // build quando esta fechado, sem ninguem lembrar de desmarcar.
+  buildWorker?: {
+    enabled?: boolean;
+  };
   // Quando o inventario foi PEDIDO, nao quando chegou. Reagendar pelo
   // pedido evita martelar um host onde o job falha sempre -- que foi como
   // 4101 jobs de host-info viraram lixo entre 15 e 19/08.
@@ -216,7 +227,7 @@ export type BackupPlanEntry = {
 export type AgentJob = {
   _id: ObjectId;
   host: string;
-  type: 'backup-config' | 'update-agent' | 'host-info' | 'service-inventory';
+  type: 'backup-config' | 'update-agent' | 'host-info' | 'service-inventory' | 'build';
   status: 'pending' | 'sent' | 'done' | 'failed';
   createdAt: Date;
   sentAt?: Date;
@@ -507,6 +518,125 @@ export async function handleLogAlert(alerta: {
   });
   return { key, acao: 'aberto' as const };
 }
+
+// Build tem enqueue proprio porque a deduplicacao do enqueueJob e' por
+// {host, type} -- o que e' certo pra host-info/update-agent (nao faz
+// sentido enfileirar dois) e ERRADO aqui: buildar `web` e `car` sao dois
+// jobs do mesmo tipo no mesmo host, e um sobrescreveria o outro. Aqui a
+// chave inclui o repo.
+export async function enqueueBuildJob(
+  hostName: string,
+  params: { repo: string; imageBase: string; ref?: string }
+): Promise<string | null> {
+  const host = normalizeHostName(hostName);
+  if (!host || !params.repo || !params.imageBase) return null;
+  const client = await clientPromise;
+  const db = client.db();
+  const now = new Date();
+  const res = await db.collection<AgentJob>('monitor_agent_jobs').findOneAndUpdate(
+    { host, type: 'build', repo: params.repo, status: 'pending' },
+    {
+      $set: { host, type: 'build', status: 'pending', repo: params.repo, imageBase: params.imageBase, ref: params.ref },
+      $setOnInsert: { createdAt: now },
+    },
+    { upsert: true, returnDocument: 'after' }
+  );
+  return res?._id?.toString() ?? null;
+}
+
+// Chamado pela rota autenticada quando o agente vem buscar. Marca como
+// 'sent' pra nao entregar de novo no ciclo seguinte enquanto executa.
+
+
+export async function setBuildWorker(hostName: string, enabled: boolean) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  await db
+    .collection<MonitorHost>('monitor_hosts')
+    .updateOne({ name: host }, { $set: { buildWorker: { enabled }, updatedAt: new Date() } });
+}
+
+// Quanto tempo sem heartbeat pra considerar um worker indisponivel. Mais
+// curto que o alerta de host caido (5min) de proposito: aqui errar so
+// significa mandar o build pro outro worker, nao acordar ninguem.
+
+
+// Quanto tempo sem heartbeat pra considerar um worker indisponivel. Mais
+// curto que o alerta de host caido (5min) de proposito: aqui errar so
+// significa mandar o build pro outro worker, nao acordar ninguem.
+const WORKER_ALIVE_WINDOW_MS = 3 * 60 * 1000;
+
+/**
+ * Escolhe onde rodar o proximo build.
+ *
+ * Tres filtros, nesta ordem:
+ *   1. marcado como buildWorker
+ *   2. VIVO -- heartbeat nos ultimos 3 minutos
+ *   3. DECLARA a capacidade 'build'
+ *
+ * O filtro 2 e' o fallback de verdade: e' o que deixa o `tp` (notebook)
+ * ficar marcado permanentemente e simplesmente nao receber trabalho quando
+ * esta fechado. Sem ele o job iria pra fila de um host desligado e ficaria
+ * la ate o requeue de 10min, atrasando o build sem motivo.
+ *
+ * O filtro 3 e' a licao do host-info: pedir a um agente que nao conhece o
+ * tipo produz `tipo desconhecido` e job morto. Capacidade e' auto-descritiva.
+ *
+ * Desempate por menos jobs pendentes -- distribui carga sem precisar de
+ * estado compartilhado nem lock entre workers.
+ */
+
+
+/**
+ * Escolhe onde rodar o proximo build.
+ *
+ * Tres filtros, nesta ordem:
+ *   1. marcado como buildWorker
+ *   2. VIVO -- heartbeat nos ultimos 3 minutos
+ *   3. DECLARA a capacidade 'build'
+ *
+ * O filtro 2 e' o fallback de verdade: e' o que deixa o `tp` (notebook)
+ * ficar marcado permanentemente e simplesmente nao receber trabalho quando
+ * esta fechado. Sem ele o job iria pra fila de um host desligado e ficaria
+ * la ate o requeue de 10min, atrasando o build sem motivo.
+ *
+ * O filtro 3 e' a licao do host-info: pedir a um agente que nao conhece o
+ * tipo produz `tipo desconhecido` e job morto. Capacidade e' auto-descritiva.
+ *
+ * Desempate por menos jobs pendentes -- distribui carga sem precisar de
+ * estado compartilhado nem lock entre workers.
+ */
+export async function pickBuildWorker(): Promise<string | null> {
+  const client = await clientPromise;
+  const db = client.db();
+  const vivos = await db
+    .collection<MonitorHost>('monitor_hosts')
+    .find(
+      {
+        'buildWorker.enabled': true,
+        lastSeen: { $gt: new Date(Date.now() - WORKER_ALIVE_WINDOW_MS) },
+        capabilities: 'build',
+      },
+      { projection: { name: 1 } }
+    )
+    .toArray();
+  if (!vivos.length) return null;
+  if (vivos.length === 1) return vivos[0].name;
+
+  const jobs = db.collection<AgentJob>('monitor_agent_jobs');
+  const cargas = await Promise.all(
+    vivos.map(async (h) => ({
+      name: h.name,
+      pendentes: await jobs.countDocuments({ host: h.name, status: { $in: ['pending', 'sent'] } }),
+    }))
+  );
+  cargas.sort((a, b) => a.pendentes - b.pendentes || a.name.localeCompare(b.name));
+  return cargas[0].name;
+}
+
+// Sem exclusividade, ao contrario do backupRunner: dois hosts de producao
+// nao brigam entre si -- cada um inventaria a propria stack.
 
 // Encerramento manual pelo admin -- pro caso do "copia offsite falhou" que
 // so seria checado de novo pelo cron do dia seguinte, mas a causa raiz ja
