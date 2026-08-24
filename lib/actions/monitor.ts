@@ -14,6 +14,7 @@ import {
   enqueueJob,
   findBackupRunner,
   setBackupRunner,
+  setDeployTarget,
   resolveIncidentManually,
   setHostRole,
   setFirewallConfig,
@@ -149,6 +150,20 @@ export async function setBackupConfigAction(formData: FormData) {
   const runner = await findBackupRunner();
   if (runner) await enqueueJob(runner, 'backup-config');
 
+  revalidatePath(`/monitor/${host}`);
+}
+
+export async function setDeployTargetAction(formData: FormData) {
+  await requireAdmin();
+  const host = String(formData.get('host') || '');
+  if (!host) return;
+  const enabled = formData.get('enabled') === 'on';
+  await setDeployTarget(host, enabled);
+  // Marcou agora: pede o inventario ja, em vez de esperar o proximo ciclo
+  // de 30min. Mesmo padrao do backupRunner logo abaixo.
+  if (enabled) await enqueueJob(host, 'service-inventory');
+  revalidatePath('/monitor');
+  revalidatePath('/monitor/servicos');
   revalidatePath(`/monitor/${host}`);
 }
 

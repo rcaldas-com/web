@@ -4,6 +4,7 @@ import path from 'node:path';
 import { Db, ObjectId } from 'mongodb';
 import clientPromise from './mongodb';
 import { sendTunnelKeyApprovalEmail, sendIncidentEmail } from './email';
+import { ingestInventory, saveRepoState } from './services';
 import redis from './redis';
 
 // Fonte unica pra versao do agente: app/install/route.ts interpola isso no
@@ -12,7 +13,7 @@ import redis from './redis';
 // AGENT_BIN mudar -- nao mudar isso foi o motivo do host-info ter ficado
 // invisivel: o codigo novo foi adicionado sem bump, entao nenhum host
 // existente jamais teria motivo pra se atualizar sozinho.
-export const AGENT_VERSION = '2.3.0';
+export const AGENT_VERSION = '2.4.0';
 
 // Uma porta ou faixa de portas, com protocolo -- o suficiente pra
 // representar o que o `us` ja tem aberto de verdade hoje na mao (ex:
@@ -147,6 +148,20 @@ export type MonitorHost = {
     enabled?: boolean;
     snapshotRoot?: string;
   };
+  // Host que hospeda a stack de producao. So estes sao inventariados: hosts
+  // de desenvolvimento tambem tem um compose com os mesmos nomes de servico
+  // (web, car, wallet...), e inventariar todos misturaria dev com producao
+  // no mesmo registro, sem jeito de distinguir depois.
+  //
+  // Diferente do backupRunner, mais de um pode existir -- o dia em que
+  // houver um segundo servidor de producao, ele entra aqui sem mudar nada.
+  deployTarget?: {
+    enabled?: boolean;
+  };
+  // Quando o inventario foi PEDIDO, nao quando chegou. Reagendar pelo
+  // pedido evita martelar um host onde o job falha sempre -- que foi como
+  // 4101 jobs de host-info viraram lixo entre 15 e 19/08.
+  inventoryRequestedAt?: Date;
   // 'standard' (padrao, ate undefined): host comum, sem exposicao publica
   // esperada. 'proxy'/'home': precisa aceitar trafego de fora por design
   // (web/mail/roteador) -- muda qual sugestao de firewall faz sentido, ver
@@ -201,7 +216,7 @@ export type BackupPlanEntry = {
 export type AgentJob = {
   _id: ObjectId;
   host: string;
-  type: 'backup-config' | 'update-agent' | 'host-info';
+  type: 'backup-config' | 'update-agent' | 'host-info' | 'service-inventory';
   status: 'pending' | 'sent' | 'done' | 'failed';
   createdAt: Date;
   sentAt?: Date;
@@ -828,6 +843,46 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
       infoCollectedAt = now;
     }
 
+    // Inventario de servicos. Canal proprio ('inventory'), pelo mesmo
+    // motivo do host-info: sao tres payloads JSON que nao cabem nos 500
+    // chars do result de job comum.
+    const inventario: Record<string, string> = {};
+    for (const result of lote) {
+      if (result.type !== 'inventory' || !result.id || !result.message) continue;
+      inventario[result.id] = result.message;
+    }
+    if (inventario['services-declared'] && inventario['services-running']) {
+      try {
+        await ingestInventory({
+          host,
+          project: 'rcaldas',
+          declared: JSON.parse(inventario['services-declared']),
+          running: JSON.parse(inventario['services-running']),
+        });
+      } catch (error) {
+        // JSON malformado nao pode derrubar o heartbeat do host -- ele
+        // esta bem, quem esta ruim e o inventario.
+        console.error('inventario de servicos invalido:', error);
+      }
+    }
+    if (inventario['repo-state']) {
+      try {
+        const estado = JSON.parse(inventario['repo-state']) as {
+          dirty?: string[];
+          ahead?: number;
+          behind?: number;
+        };
+        await saveRepoState({
+          host,
+          dirtyFiles: estado.dirty ?? [],
+          ahead: estado.ahead ?? 0,
+          behind: estado.behind ?? 0,
+        });
+      } catch (error) {
+        console.error('estado do repo invalido:', error);
+      }
+    }
+
     for (const result of lote) {
       if (result.type !== 'alarm' || !result.id) continue;
       const key = `alarm:${host}:${result.id}`;
@@ -869,6 +924,30 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
   // exatamente isso que deixou host-info invisivel em tp/bag/us por dias.
   if (payload.version && payload.version !== AGENT_VERSION) {
     await enqueueJob(host, 'update-agent');
+  }
+
+  // Inventario de servicos: so em host de producao, e so quando o agente
+  // DECLARA que sabe fazer.
+  //
+  // A guarda e' por capacidade, nao por versao. Enfileirar um tipo que o
+  // agente nao conhece produz `tipo desconhecido` e o job morre como
+  // failed -- foi assim que 4101 jobs de host-info viraram lixo no banco
+  // entre 15 e 19/08, o servidor pedindo algo que aquela versao do agente
+  // nao sabia fazer.
+  //
+  // Comparar com AGENT_VERSION resolveria o caso comum e falharia no pior:
+  // a constante e o codigo do agente vivem no mesmo arquivo mas podem ser
+  // publicados em momentos diferentes, e ai a versao bate sem o codigo
+  // existir. Capacidade e' auto-descritiva -- quem tem o codigo diz que
+  // tem, e quem nao tem nunca recebe o pedido.
+  const sabeInventariar = (payload.capabilities || []).includes('service-inventory');
+  if (existing?.deployTarget?.enabled && sabeInventariar) {
+    const inventoryStaleCutoff = new Date(now.getTime() - 30 * 60 * 1000);
+    const ultimoPedido = existing?.inventoryRequestedAt;
+    if (!ultimoPedido || ultimoPedido < inventoryStaleCutoff) {
+      await enqueueJob(host, 'service-inventory');
+      await hosts.updateOne({ name: host }, { $set: { inventoryRequestedAt: now } });
+    }
   }
 
   // Devolve pra fila o que ficou preso em 'sent' (host reiniciou no meio)
@@ -1091,6 +1170,17 @@ async function requeueStaleJobs(db: Db, host: string) {
   await db
     .collection<AgentJob>('monitor_agent_jobs')
     .updateMany({ host, status: 'sent', sentAt: { $lt: limite } }, { $set: { status: 'pending' } });
+}
+
+// Sem exclusividade, ao contrario do backupRunner: dois hosts de producao
+// nao brigam entre si -- cada um inventaria a propria stack.
+export async function setDeployTarget(hostName: string, enabled: boolean) {
+  const host = normalizeHostName(hostName);
+  const client = await clientPromise;
+  const db = client.db();
+  await db
+    .collection<MonitorHost>('monitor_hosts')
+    .updateOne({ name: host }, { $set: { deployTarget: { enabled }, updatedAt: new Date() } });
 }
 
 export async function setBackupRunner(hostName: string, enabled: boolean, snapshotRoot?: string) {

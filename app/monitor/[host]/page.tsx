@@ -10,6 +10,7 @@ import {
   setMonitoringConfigAction,
   setBackupConfigAction,
   setBackupRunnerAction,
+  setDeployTargetAction,
   deleteHostAction,
   setFirewallSectionAction,
   forceHostInfoAction,
@@ -232,6 +233,29 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
                 salvar
               </SubmitButton>
             </div>
+          </form>
+        </section>
+
+        <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="mb-1 font-semibold text-zinc-950 dark:text-zinc-50">Alvo de deploy</h2>
+          <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+            Host que hospeda a stack de produção. Só estes são inventariados — host de desenvolvimento tem um compose
+            com os mesmos nomes de serviço, e inventariar os dois misturaria dev com produção no mesmo registro.
+          </p>
+          <form action={setDeployTargetAction} className="flex flex-wrap items-center gap-4 text-sm">
+            <input type="hidden" name="host" value={host.name} />
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="enabled" defaultChecked={host.deployTarget?.enabled} />
+              <span className="text-zinc-700 dark:text-zinc-300">Inventariar os serviços deste host</span>
+            </label>
+            <SubmitButton className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
+              salvar
+            </SubmitButton>
+            {host.deployTarget?.enabled && (
+              <Link href="/monitor/servicos" className="text-xs text-zinc-500 underline dark:text-zinc-400">
+                ver serviços
+              </Link>
+            )}
           </form>
         </section>
 

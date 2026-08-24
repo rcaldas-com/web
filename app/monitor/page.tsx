@@ -194,6 +194,15 @@ export default async function MonitorPage() {
           ))}
         </div>
 
+        <div className="mb-4">
+          <Link
+            href="/monitor/servicos"
+            className="inline-block rounded-full bg-white px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            Serviços &rarr;
+          </Link>
+        </div>
+
         <details className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <summary className="cursor-pointer text-sm font-semibold text-zinc-950 dark:text-zinc-50">
             Comandos
