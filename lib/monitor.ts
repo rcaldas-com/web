@@ -16,7 +16,7 @@ import redis from './redis';
 // AGENT_BIN mudar -- nao mudar isso foi o motivo do host-info ter ficado
 // invisivel: o codigo novo foi adicionado sem bump, entao nenhum host
 // existente jamais teria motivo pra se atualizar sozinho.
-export const AGENT_VERSION = '2.8.0';
+export const AGENT_VERSION = '2.9.0';
 
 // Uma porta ou faixa de portas, com protocolo -- o suficiente pra
 // representar o que o `us` ja tem aberto de verdade hoje na mao (ex:
@@ -241,7 +241,7 @@ export type BackupPlanEntry = {
 export type AgentJob = {
   _id: ObjectId;
   host: string;
-  type: 'backup-config' | 'update-agent' | 'host-info' | 'service-inventory' | 'build' | 'repo-heads';
+  type: 'backup-config' | 'update-agent' | 'host-info' | 'service-inventory' | 'build' | 'repo-heads' | 'deploy';
   status: 'pending' | 'sent' | 'done' | 'failed';
   // Parametros do job, PLANOS de proposito: o agente fatia a resposta do
   // /agent-jobs com grep -o de {...} e qualquer objeto aninhado aqui
@@ -579,6 +579,30 @@ export async function enqueueRepoHeadsJob(hostName: string, repos: string): Prom
     { $set: { host, type: 'repo-heads', status: 'pending', repos }, $setOnInsert: { createdAt: now } },
     { upsert: true }
   );
+}
+
+// Pede reconciliacao aos hosts de producao: eles puxam o commit e
+// convergem. Dedup por {host,type} -- dois deploys pendentes pro mesmo
+// host nao fazem sentido, o segundo aplicaria o mesmo estado final.
+//
+// So' quem DECLARA a capacidade, mesma regra do resto: pedir a um agente
+// que nao sabe executar produz job morto.
+export async function enqueueDeployJobs(): Promise<string[]> {
+  const client = await clientPromise;
+  const db = client.db();
+  const alvos = await db
+    .collection<MonitorHost>('monitor_hosts')
+    .find({ 'deployTarget.enabled': true, capabilities: 'deploy' }, { projection: { name: 1 } })
+    .toArray();
+  const now = new Date();
+  for (const alvo of alvos) {
+    await db.collection<AgentJob>('monitor_agent_jobs').updateOne(
+      { host: alvo.name, type: 'deploy', status: 'pending' },
+      { $set: { host: alvo.name, type: 'deploy', status: 'pending' }, $setOnInsert: { createdAt: now } },
+      { upsert: true }
+    );
+  }
+  return alvos.map((a) => a.name);
 }
 
 // Chamado pela rota autenticada quando o agente vem buscar. Marca como

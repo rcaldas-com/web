@@ -7,6 +7,7 @@
 // mesmo repo. Troca-se o executor, nao a UI nem o modelo. Ver CICD.md.
 
 import { getService } from './services';
+import { enqueueDeployJobs } from './monitor';
 
 const GITHUB_API = 'https://api.github.com';
 const REPO = process.env.DEPLOY_REPO || 'rcaldas-com/dev';
@@ -121,6 +122,18 @@ export async function promoteImage(imageBase: string, novaTag: string): Promise<
   }
 
   const novoSha = ((commit.body.commit as { sha?: string }) || {}).sha || '';
+
+  // Commit feito: pede a reconciliacao. O deploy nao acontece aqui -- o
+  // agente do host de producao e' quem aplica, e o que ele aplica e' o
+  // commit, nao um parametro que passamos. Se esta chamada falhar, o
+  // proximo ciclo de inventario ainda detecta o host atrasado.
+  try {
+    const alvos = await enqueueDeployJobs();
+    if (alvos.length) console.log(`reconciliacao pedida a: ${alvos.join(', ')}`);
+  } catch (error) {
+    console.error('nao consegui pedir reconciliacao:', error);
+  }
+
   return { ok: true, commit: novoSha.slice(0, 7), de: tagAtual, para: novaTag };
 }
 

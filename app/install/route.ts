@@ -274,7 +274,7 @@ payload=$(cat <<JSON
   "network":{"ipv4":"$(json_escape "$ipv4")","ipv6":"$(json_escape "$ipv6")"},
   "system":{"uptime":$uptime_seconds,"load1":$load1,"cpuPct":$cpu_pct,"cpuCount":$cpu_count,"topCpu":"$(json_escape "$top_cpu")","diskRootPct":$disk_root,"diskVarPct":$disk_var_pct,"diskVarLogPct":$disk_varlog_pct,"backupDiskPct":$backup_disk_pct,"memoryPct":$memory_pct},
   "tunnel":{"enabled":$ENABLE_TUNNEL,"activeRemotePort":${'$'}{active_port:-null}},
-  "capabilities":["heartbeat","tcp_banner","tunnel","service-inventory","build","repo-heads"],
+  "capabilities":["heartbeat","tcp_banner","tunnel","service-inventory","build","repo-heads","deploy"],
   "results":$results_payload
 }
 JSON
@@ -463,6 +463,47 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
             info_result="$info_result,{\\"id\\":\\"repo-state\\",\\"type\\":\\"inventory\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$inv_repo")\\"}"
           else
             jmsg="falha ao ler compose config/ps"
+          fi
+        fi
+        ;;
+      deploy)
+        # Reconciliacao: traz o commit novo e converge o estado do host pro
+        # que o repo declara. NAO decide nada -- quem decidiu foi o commit.
+        #
+        # Roda tudo como o DONO do repo, nunca como root: um git pull de
+        # root deixaria objetos root-owned dentro do .git e quebraria o
+        # proximo comando do usuario. De quebra, a credencial do registry
+        # sai do lugar certo, sem gambiarra de DOCKER_CONFIG.
+        d_dir="/var/rcaldas/rcaldas"
+        d_file="docker-compose.prod.yml"
+        d_run="/usr/sbin/runuser -u rcaldas -- env HOME=/var/rcaldas"
+        log "job $jid: reconciliando $d_dir"
+        if [[ ! -d "$d_dir/.git" ]]; then
+          jmsg="$d_dir nao e' um repo git"
+        elif ! ${'$'}d_run git -C "$d_dir" fetch -q origin main 2>>"$LOG"; then
+          jmsg="fetch falhou"
+        else
+          d_local=$(${'$'}d_run git -C "$d_dir" rev-parse HEAD 2>/dev/null || echo "")
+          d_remoto=$(${'$'}d_run git -C "$d_dir" rev-parse origin/main 2>/dev/null || echo "")
+          if [[ -z "$d_local" || -z "$d_remoto" ]]; then
+            jmsg="nao consegui resolver os shas"
+          elif [[ "$d_local" == "$d_remoto" ]]; then
+            jstatus="ok"; jmsg="ja em dia (${'$'}{d_local:0:7})"
+          # --ff-only e' a trava principal: NUNCA reset --hard. O .env nao
+          # esta no git e ha ajuste manual legitimo no host -- um deploy que
+          # descarta isso e' pior que um deploy que nao acontece. Se nao for
+          # fast-forward, para e reporta pra alguem olhar.
+          elif ! ${'$'}d_run git -C "$d_dir" merge --ff-only -q origin/main 2>>"$LOG"; then
+            jmsg="nao e' fast-forward -- alguem mexeu no host, reconciliacao abortada"
+          elif ! ${'$'}d_run sh -c "cd $d_dir && docker compose -f $d_file pull -q" >> "$LOG" 2>&1; then
+            jmsg="pull das imagens falhou"
+          # up -d GLOBAL, nao por servico: o compose respeita depends_on
+          # assim (wallet depende de ccxt e redis). Subir servico isolado
+          # ignora essa ordem.
+          elif ! ${'$'}d_run sh -c "cd $d_dir && docker compose -f $d_file up -d" >> "$LOG" 2>&1; then
+            jmsg="up -d falhou: $(tail -3 "$LOG" | tr '\\n' ' ' | tail -c 300)"
+          else
+            jstatus="ok"; jmsg="${'$'}{d_local:0:7} -> ${'$'}{d_remoto:0:7} aplicado"
           fi
         fi
         ;;

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { HomeIcon, CircleStackIcon, ShieldCheckIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, CircleStackIcon, ShieldCheckIcon, RectangleStackIcon } from '@heroicons/react/24/outline';
 import { requireAdmin } from '@/lib/auth';
 import { getMonitorOverview, findBackupRunner, findHostByRole } from '@/lib/monitor';
 import {
@@ -60,6 +60,14 @@ export default async function MonitorPage() {
         </div>
 
         <section className="mb-6 flex flex-wrap gap-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <Link
+            href="/monitor/servicos"
+            title="Imagens, builds, promoção para produção e deriva"
+            className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            <RectangleStackIcon className="h-4 w-4" />
+            Serviços
+          </Link>
           {backupRunner ? (
             <Link
               href={`/monitor/${backupRunner}#backup-runner`}
@@ -192,15 +200,6 @@ export default async function MonitorPage() {
               <div className="mt-2 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">{value}</div>
             </div>
           ))}
-        </div>
-
-        <div className="mb-4">
-          <Link
-            href="/monitor/servicos"
-            className="inline-block rounded-full bg-white px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            Serviços &rarr;
-          </Link>
         </div>
 
         <details className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
