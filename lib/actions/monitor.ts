@@ -237,9 +237,19 @@ export async function setFirewallSectionAction(formData: FormData) {
   const raw = String(formData.get('role') || 'standard');
   const role: MonitorHost['role'] = raw === 'proxy' || raw === 'home' ? raw : 'standard';
   await setHostRole(host, role);
+  // So' guarda as INTERFACES do router, nunca escopo de DHCP/reservas:
+  // aquilo e' dado de alta rotatividade cujo dono e' o proprio router.
+  const iface = (campo: string) => {
+    const v = String(formData.get(campo) || '').trim();
+    // Nome de interface e' [a-z0-9._-]; recusar o resto evita que o valor
+    // volte como texto arbitrario dentro de uma regra de nftables.
+    return /^[A-Za-z0-9._-]{1,15}$/.test(v) ? v : undefined;
+  };
   await setFirewallConfig(host, {
     ports: parsePortRules(String(formData.get('ports') || '')),
     lanPorts: parsePortRules(String(formData.get('lanPorts') || '')),
+    lanIface: role === 'home' ? iface('lanIface') : undefined,
+    wanIface: role === 'home' ? iface('wanIface') : undefined,
   });
   revalidatePath(`/monitor/${host}`);
 }

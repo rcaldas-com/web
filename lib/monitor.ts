@@ -6,6 +6,7 @@ import clientPromise from './mongodb';
 import { sendTunnelKeyApprovalEmail, sendIncidentEmail } from './email';
 import { ingestInventory, saveRepoState } from './services';
 import { finishBuild } from './builds';
+import { ingestRepoHeads, requestRepoHeadsThrottled } from './polling';
 import redis from './redis';
 
 // Fonte unica pra versao do agente: app/install/route.ts interpola isso no
@@ -14,7 +15,7 @@ import redis from './redis';
 // AGENT_BIN mudar -- nao mudar isso foi o motivo do host-info ter ficado
 // invisivel: o codigo novo foi adicionado sem bump, entao nenhum host
 // existente jamais teria motivo pra se atualizar sozinho.
-export const AGENT_VERSION = '2.7.0';
+export const AGENT_VERSION = '2.8.0';
 
 // Uma porta ou faixa de portas, com protocolo -- o suficiente pra
 // representar o que o `us` ja tem aberto de verdade hoje na mao (ex:
@@ -194,6 +195,17 @@ export type MonitorHost = {
     // local sem expor pro mundo nem precisar saber qual rede especifica
     // (a faixa privada e' a mesma em qualquer rede domestica/local).
     lanPorts?: PortRule[];
+    // Interfaces do papel de router (role 'home' = router da LAN; 'proxy'
+    // e' o equivalente na WAN). So' tem efeito quando a LAN esta definida.
+    //
+    // Ficam aqui APENAS as interfaces, e nao um escopo de DHCP inteiro, de
+    // proposito: reserva por MAC e mapa de intranet sao dado de alta
+    // rotatividade cujo dono natural e' o proprio router, que tem gerencia
+    // local. O Monitor guarda so' o que precisa pra gerar firewall e
+    // observa o resto pelo heartbeat -- um dono so', sem round-trip
+    // central a cada reserva.
+    lanIface?: string;
+    wanIface?: string;
   };
   // Fastfetch filtrado do host (mesmo comando que roda no fim do /init).
   // NAO vem no heartbeat -- e bem maior que o resto do payload, entao e
@@ -228,8 +240,15 @@ export type BackupPlanEntry = {
 export type AgentJob = {
   _id: ObjectId;
   host: string;
-  type: 'backup-config' | 'update-agent' | 'host-info' | 'service-inventory' | 'build';
+  type: 'backup-config' | 'update-agent' | 'host-info' | 'service-inventory' | 'build' | 'repo-heads';
   status: 'pending' | 'sent' | 'done' | 'failed';
+  // Parametros do job, PLANOS de proposito: o agente fatia a resposta do
+  // /agent-jobs com grep -o de {...} e qualquer objeto aninhado aqui
+  // quebraria esse recorte, entregando o job truncado.
+  repo?: string; // diretorio do submodulo em /var/rcaldas/rcaldas
+  imageBase?: string; // registry.rcaldas.com/rcaldas/<nome>, sem tag
+  ref?: string; // branch remoto a buildar (vazio = main)
+  repos?: string; // lista separada por virgula -- so no job repo-heads
   createdAt: Date;
   sentAt?: Date;
   doneAt?: Date;
@@ -543,6 +562,22 @@ export async function enqueueBuildJob(
     { upsert: true, returnDocument: 'after' }
   );
   return res?._id?.toString() ?? null;
+}
+
+// Dedup por {host,type}: nao faz sentido ter duas leituras de HEAD
+// pendentes pro mesmo worker. A lista de repos e' sobrescrita, entao a
+// pendente sempre reflete o cadastro mais recente.
+export async function enqueueRepoHeadsJob(hostName: string, repos: string): Promise<void> {
+  const host = normalizeHostName(hostName);
+  if (!host || !repos) return;
+  const client = await clientPromise;
+  const db = client.db();
+  const now = new Date();
+  await db.collection<AgentJob>('monitor_agent_jobs').updateOne(
+    { host, type: 'repo-heads', status: 'pending' },
+    { $set: { host, type: 'repo-heads', status: 'pending', repos }, $setOnInsert: { createdAt: now } },
+    { upsert: true }
+  );
 }
 
 // Chamado pela rota autenticada quando o agente vem buscar. Marca como
@@ -973,6 +1008,7 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
   await ensureMonitorIndexes(db);
   await checkMonitoringThresholds(db, host, existing, payload.system);
   await sweepOfflineHostsThrottled(db);
+  await requestRepoHeadsThrottled();
 
   let infoCollectedAt = existing?.info?.collectedAt;
 
@@ -1002,6 +1038,16 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
       if (result.type !== 'build' || !result.message) continue;
       const [jobId, sha, tag, image] = result.message.split(' ');
       if (jobId && sha && tag && image) buildsPorJob.set(jobId, { sha, tag, image });
+    }
+
+    // HEAD remoto dos repos -> enfileira build do que mudou (Fase 3).
+    for (const result of lote) {
+      if (result.type !== 'repo-heads' || !result.message) continue;
+      try {
+        await ingestRepoHeads(db, JSON.parse(result.message) as Record<string, string>);
+      } catch (error) {
+        console.error('repo-heads invalido:', error);
+      }
     }
 
     // Confirmacao de execucao de job: fecha o ciclo enfileirar -> executar.
@@ -1374,7 +1420,20 @@ export async function takePendingJobs(hostName: string) {
       { $set: { status: 'sent', sentAt: new Date() } }
     );
   }
-  return jobs.map((j) => ({ id: j._id.toString(), type: j.type }));
+  // Os parametros PRECISAM sair daqui: sem isto o agente recebe um job de
+  // build sem repo/imageBase e desiste na primeira linha. Passou batido no
+  // teste manual porque la o job foi escrito a mao.
+  //
+  // Campo ausente nao vira chave vazia -- o recorte do lado do agente e'
+  // fragil e nao ha motivo pra engordar o payload.
+  return jobs.map((j) => ({
+    id: j._id.toString(),
+    type: j.type,
+    ...(j.repo ? { repo: j.repo } : {}),
+    ...(j.imageBase ? { imageBase: j.imageBase } : {}),
+    ...(j.ref ? { ref: j.ref } : {}),
+    ...(j.repos ? { repos: j.repos } : {}),
+  }));
 }
 
 // Jobs que ficaram 'sent' sem resposta viram 'pending' de novo: se o host
@@ -1568,6 +1627,10 @@ export type FirewallPlan = {
   ports?: PortRule[];
   // qualquer role: portas so pra faixa RFC1918 (ver renderNftablesSuggestion).
   lanPorts?: PortRule[];
+  // role 'home': quando a LAN esta definida, a sugestao ganha DHCP/DNS na
+  // LAN, forward e NAT.
+  lanIface?: string;
+  wanIface?: string;
 };
 
 function dedupePortRules(rules: PortRule[]): PortRule[] {
@@ -1597,7 +1660,14 @@ export async function getFirewallPlan(hostName: string): Promise<FirewallPlan | 
   if (role !== 'standard') {
     const ports = dedupePortRules(doc.firewall?.ports ?? []);
     if (isTunnelRelay) ports.push({ start: TUNNEL_PORT_RANGE_START, end: TUNNEL_PORT_RANGE_END, proto: 'tcp' });
-    return { host, role, ports: dedupePortRules(ports), lanPorts };
+    return {
+      host,
+      role,
+      ports: dedupePortRules(ports),
+      lanPorts,
+      lanIface: doc.firewall?.lanIface,
+      wanIface: doc.firewall?.wanIface,
+    };
   }
 
   const others = await db
@@ -1689,7 +1759,57 @@ export function renderNftablesSuggestion(plan: FirewallPlan): string {
     if (udp.length) regras.push(`ip saddr { ${lanNets} } udp dport @portas_lan_udp accept`);
   }
 
+  // Router (role 'home'): DHCP e DNS na interface LAN.
+  //
+  // ESTA E' A REGRA QUE, FALTANDO, CUSTOU UMA DEPURACAO INTEIRA: com a
+  // policy 'drop' da chain input, o DHCPDISCOVER do cliente novo morre
+  // ANTES do dnsmasq ver. Nao aparece erro no dnsmasq nem no tcpdump do
+  // container -- so' comparando o que chega na interface com o que o
+  // firewall deixa passar.
+  //
+  // Tem que estar DENTRO da chain input principal. Um `accept` numa tabela
+  // separada nao resolve: com duas base chains no mesmo hook, um `drop` em
+  // qualquer uma e' terminal e o `accept` da outra NAO resgata o pacote
+  // (verificado em netns).
+  if (plan.role === 'home' && plan.lanIface) {
+    const lan = plan.lanIface;
+    regras.push(`# --- router: DHCP e DNS so' na LAN (${lan}) ---`);
+    regras.push(`iifname "${lan}" udp dport { 67, 53 } accept`);
+    regras.push(`iifname "${lan}" tcp dport 53 accept`);
+  }
+
   const blocoSets = sets.filter(Boolean).join('\n');
+
+  // Forward do router. A chain continua com policy ACCEPT -- ver o
+  // comentario dela no template. Default-deny aqui exigiria aceitar
+  // explicitamente as pontes do Docker (docker0, br-*), e um esquecimento
+  // derruba a rede de todo container do host.
+  const linhasForward: string[] = [];
+  if (plan.role === 'home' && plan.lanIface && plan.wanIface) {
+    linhasForward.push(`\t\tct state established,related accept`);
+    linhasForward.push(`\t\tiifname "${plan.lanIface}" oifname "${plan.wanIface}" accept`);
+  }
+  const blocoForward = linhasForward.length ? `\n${linhasForward.join('\n')}\n` : '';
+
+  // NAT em tabela propria e' seguro: o hook nat postrouting nao tem
+  // 'drop' competindo, entao coexistir com a tabela do Docker nao derruba
+  // trafego (ao contrario do hook filter).
+  const blocoNat =
+    plan.role === 'home' && plan.wanIface
+      ? `
+# Mascaramento da LAN saindo pela WAN. Tabela separada de proposito: da'
+# pra recarregar so' ela sem tocar no resto.
+#
+# O Docker tambem registra um nat postrouting. Coexistem, mas se o
+# masquerade se comportar de forma estranha, conferir a ordem dos dois.
+table ip router_nat {
+\tchain postrouting {
+\t\ttype nat hook postrouting priority srcnat; policy accept;
+\t\toifname "${plan.wanIface}" masquerade
+\t}
+}
+`
+      : '';
 
   return `#!/usr/sbin/nft -f
 # Sugestao gerada pelo Monitor pro host "${plan.host}" (papel: ${plan.role}).
@@ -1777,14 +1897,17 @@ ${regras.map((l) => `\t\t${l}`).join('\n')}
 \t\t# accept, nao drop: host rodando Docker roteia trafego dos proprios
 \t\t# containers por aqui -- um forward:drop quebra a rede de todo
 \t\t# container, mesmo com as regras do Docker corretas.
-\t\ttype filter hook forward priority filter; policy accept;
-\t}
+\t\t#
+\t\t# Isso vale MESMO num router. Verificado em netns: com duas base
+\t\t# chains no mesmo hook, um 'drop' em qualquer uma e' terminal --
+\t\t# entao uma tabela extra com policy drop derrubaria o Docker daqui.
+\t\ttype filter hook forward priority filter; policy accept;${blocoForward}\t}
 
 \tchain output {
 \t\ttype filter hook output priority filter; policy accept;
 \t}
 }
-`;
+${blocoNat}`;
 }
 
 export async function createHost(hostName: string, options: { ddnsEnabled: boolean; tunnelEnabled: boolean }) {

@@ -20,6 +20,8 @@ export default function FirewallSection({
   initialRole,
   ports,
   lanPorts,
+  lanIface,
+  wanIface,
   suggestion,
   action,
 }: {
@@ -27,6 +29,8 @@ export default function FirewallSection({
   initialRole: Role;
   ports: PortRuleLike[];
   lanPorts: PortRuleLike[];
+  lanIface?: string;
+  wanIface?: string;
   suggestion: string;
   action: (formData: FormData) => void;
 }) {
@@ -72,6 +76,42 @@ export default function FirewallSection({
               className="w-full rounded border border-zinc-200 bg-white px-2 py-1 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-950"
             />
           </label>
+        )}
+
+        {role === 'home' && (
+          <div className="flex flex-col gap-2 rounded border border-zinc-200 p-2 dark:border-zinc-700">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              Interfaces do roteador. Com a <strong>LAN</strong> preenchida, a sugestão passa a liberar DHCP e DNS
+              nela — <strong>sem isso o <code>policy drop</code> descarta o DHCP do cliente novo em silêncio</strong>,
+              sem erro no dnsmasq nem no tcpdump. Com a WAN também, sai forward e NAT.
+            </span>
+            <div className="flex gap-2">
+              <label className="flex flex-1 flex-col gap-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">LAN</span>
+                <input
+                  type="text"
+                  name="lanIface"
+                  placeholder="enp3s0"
+                  defaultValue={lanIface || ''}
+                  className="w-full rounded border border-zinc-200 bg-white px-2 py-1 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                />
+              </label>
+              <label className="flex flex-1 flex-col gap-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">WAN (opcional)</span>
+                <input
+                  type="text"
+                  name="wanIface"
+                  placeholder="wlan0"
+                  defaultValue={wanIface || ''}
+                  className="w-full rounded border border-zinc-200 bg-white px-2 py-1 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                />
+              </label>
+            </div>
+            <span className="text-xs text-zinc-400 dark:text-zinc-500">
+              Escopo de DHCP, reservas por MAC e mapa de intranet não ficam aqui — são do gerenciador local do
+              roteador, que é quem tem o dado fresco.
+            </span>
+          </div>
         )}
 
         <label className="flex flex-col gap-1">

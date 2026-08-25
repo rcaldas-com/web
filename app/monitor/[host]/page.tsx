@@ -290,6 +290,8 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
           initialRole={host.role ?? 'standard'}
           ports={host.firewall?.ports ?? []}
           lanPorts={host.firewall?.lanPorts ?? []}
+          lanIface={host.firewall?.lanIface}
+          wanIface={host.firewall?.wanIface}
           suggestion={firewallSuggestion}
           action={setFirewallSectionAction}
         />
