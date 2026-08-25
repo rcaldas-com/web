@@ -1,11 +1,12 @@
 # rcaldas `web` app
 
 Next.js app deployed as `registry.rcaldas.com/rcaldas/web` from
-`/var/rc-web/docker-compose.prod.yml` on the production server `us`
-(SSH alias `us`, see `~/.ssh/config`). **Deploys are pre-built images —
-the user builds and pushes new versions themselves; code changes here
-don't go live until that happens.** `web`, `wallet`, and `emailer`
-services all share one `.env` file at `/var/rc-web/.env`.
+`/var/rcaldas/rcaldas/docker-compose.prod.yml` on the production server `us`
+(SSH alias `us`, see `~/.ssh/config`). **Deploy é por pipeline desde
+25/08/2026** — commit no repo dispara build num worker, a promoção escreve
+a tag no `docker-compose.prod.yml` e o host reconcilia. Ver `CICD.md`. A
+imagem ainda pode ser construída à mão, mas não é mais o caminho normal. `web`, `wallet`, and `emailer`
+services all share one `.env` file at `/var/rcaldas/rcaldas/.env`.
 
 Modules in this app: user management/auth, finance ("saldo disponível",
 cartões), "habitar", "digitar", and — as of this work — host provisioning
@@ -86,7 +87,7 @@ That repo/service is retired (not deleted — candidate for archival).
   already receives SSH keys).
 
 **Secrets** (names/purpose only — actual values live only in
-`/var/rc-web/.env` on `us`, never commit them): `CF_TOKEN` / `CF_ZONE_ID`
+`/var/rcaldas/rcaldas/.env` on `us`, never commit them): `CF_TOKEN` / `CF_ZONE_ID`
 (Cloudflare, for centralized DDNS), `MAILU_API_TOKEN` / `MAILU_API_URL` /
 `MAILU_FORWARD_TO`, `PROVISION_TOKEN` (shared secret gating
 `/api/mailu-account`).
@@ -231,11 +232,17 @@ heartbeat (delta of `/proc/stat` via a state file), in the provider's unit
 where 100% = one core — deliberately so it can be compared to (and beat)
 Linode's own alert, which only averages over 2 hours.
 
-## Próximo módulo: monitoramento/backup por SERVIÇO (não por host)
+## Módulo de serviços (implementado — ver `CICD.md`)
 
-O que existe hoje é tudo orientado a **host** (disco, CPU, memória, túnel,
-backup de diretórios). O próximo módulo é orientado a **serviço** — o
-usuário tem uma lista pra cadastrar (Mongo, este próprio app, e outros).
+O monitoramento por **host** (disco, CPU, memória, túnel, backup) ganhou
+um irmão por **serviço**: `monitor_services`, em `/monitor/servicos`. O
+registro nasce derivado do `docker compose` do host de produção, não
+digitado — inventário digitado à mão apodrece, e o caso do fail2ban abaixo
+é a prova. O que se edita à mão é só o que a máquina não tem como saber:
+origem do artefato, caminho do log, URL, auto-promoção.
+
+O inventário abaixo foi o levantamento que originou o módulo; hoje a parte
+de imagem/host/estado vem sozinha do agente.
 
 A ideia central, que apareceu de um caso real: hoje a jail `mongodb-auth`
 do fail2ban no `us` apontava pra `/var/mongodb/logs/mongodb.log`, mas o
@@ -257,11 +264,11 @@ memória.
 | **haproxy** | — | `/var/rcaldas/live/haproxy` | entrada de tudo; é onde ficam as proteções (rate limit, ACL da Cloudflare) |
 | **mongodb** | `mongo.rcaldas.com:8417` + registro SRV | `/var/rcaldas/mongodb` | dados em `db/` — **excluir do backup de config**, vão por `mongodump` no backup de dados |
 | **RC Web** | `web.rcaldas.com` (e `rcaldas.com` quando o legado cair) | `/var/rcaldas/rcaldas`, serviço `web` | este app |
-| **Car App** | `car.rcaldas.com` | `/var/rcaldas/car` | |
+| **Car App** | `car.rcaldas.com` | `/var/rcaldas/rcaldas`, serviço `car` | veio do repo `car-dev`, aposentado |
 | **Wallet** | `wallet.rcaldas.com` | `/var/rcaldas/rcaldas`, serviço `wallet` | mesmo compose do RC Web |
 | **CCXT** | interno | `/var/rcaldas/rcaldas` | |
-| **emailer** ×2 | interno | um em `rcaldas`, um em `car` | fila de email |
-| **redis** ×2 | interno | idem | |
+| **emailer** | interno | um só pra toda a stack — a identidade do app vai no payload da mensagem | fila de email |
+| **redis** | interno | um só, compartilhado | |
 | **S3** | externo | — | usado por car, wallet e backup; RC Web vai usar em breve. Se monitorar como serviço ainda está em aberto |
 | **Mailu** | MX `us.rcaldas.com` | `/mailu` | só SMTP; IMAP/POP desativados de propósito |
 | **Webssh** | `us.rcaldas.com` | `/var/rcaldas/webssh` | `wssh --address='127.0.0.1' --policy=reject --port=8899` — **script manual em background** |
@@ -274,9 +281,12 @@ conhecida:
   sem restart automático, sem log rotacionado. Um reboot do `us` derruba os
   dois silenciosamente, e são justamente as ferramentas de acesso de
   emergência. Viraram unit de systemd é o conserto óbvio.
-- **`rcaldas.com` responde 503** — aponta pro `rcaldas-site` na 8608, que
-  foi aposentado. O apontamento pro serviço `web` depende de confirmar que
-  o legado não é mais necessário.
+- **Rota de hostname é fácil de esquecer.** Um domínio habilitado para
+  links curtos no Monitor **também precisa de entrada no `hosts.map` do
+  HAProxy** — sem ela cai no backend `Default`, que redireciona pra
+  `rcaldas.com`, e o link de upload simplesmente não baixa. Aconteceu com
+  o `123lucro.com` (o `hosts.map` tinha só o `.online`, que nem DNS tem).
+  O cadastro do domínio e a rota são dois lugares hoje.
 
 Outros itens que caem nesse módulo:
 - Backup de serviço (dump do Mongo, buckets S3 de produção) — hoje coberto

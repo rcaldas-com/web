@@ -184,8 +184,11 @@ limites e comentários escritos à mão. A linha `image:` é alvo estável e
 o que a automação de imagem do Flux faz — este é o caminho **mais**
 portável, não menos.
 
-Credencial: token do GitHub com escrita **só no repo `dev`**, no `.env` do
-`us` (onde já moram `CF_TOKEN`, `PROVISION_TOKEN`, `MAILU_API_TOKEN`).
+Credencial: `GITHUB_TOKEN` no `.env` do `us` (onde já moram `CF_TOKEN`,
+`PROVISION_TOKEN`, `MAILU_API_TOKEN`). ⚠️ O token em uso hoje tem
+permissão de **admin** no repo — bem mais amplo do que a promoção precisa,
+que é só `Contents: Read and write` em `rcaldas-com/dev`. Vale estreitar:
+se esse `.env` vazar, a diferença importa.
 
 `autoPromote` nasce desmarcado em todos. Primeiro candidato: `site`.
 

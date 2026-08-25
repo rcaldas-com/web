@@ -254,7 +254,8 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
         )}
 
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          O botão de promover para produção entra na Fase 4 — ver <code>CICD.md</code>.
+          Promover escreve a tag no <code>docker-compose.prod.yml</code> e commita — o container só muda quando o host
+          reconciliar. Ver <code>CICD.md</code>.
         </p>
       </div>
     </main>
