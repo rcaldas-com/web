@@ -1776,12 +1776,26 @@ export function renderNftablesSuggestion(plan: FirewallPlan): string {
   // separada nao resolve: com duas base chains no mesmo hook, um `drop` em
   // qualquer uma e' terminal e o `accept` da outra NAO resgata o pacote
   // (verificado em netns).
-  if (plan.role === 'home' && plan.lanIface) {
-    const lan = plan.lanIface;
-    regras.push(`# --- router: DHCP e DNS so' na LAN (${lan}) ---`);
-    regras.push(`iifname "${lan}" udp dport { 67, 53 } accept`);
-    regras.push(`iifname "${lan}" tcp dport 53 accept`);
+  const ehRouter = plan.role === 'home' && !!plan.lanIface;
+  if (ehRouter) {
+    regras.push(`# Regras da LAN vivem em chain propria (ver os drop-ins).`);
+    regras.push(`jump home_lan_input`);
   }
+
+  // Chains VAZIAS + jump: este arquivo cria so' a ESTRUTURA; o conteudo
+  // vem dos drop-ins (ver renderRouterDropins).
+  //
+  // E' o que torna a ativacao barata. Uma vez que a chain existe e o jump
+  // aponta pra ela, toda mudanca de regra vira `nft -f` no drop-in --
+  // atomico, isolado, sem `flush ruleset`. Sem isso, cada ajuste exigiria
+  // recarregar este arquivo, que apaga as regras do Docker e do fail2ban
+  // junto -- e o fail2ban falha calado.
+  const chainsRouter: string[] = [];
+  if (ehRouter) {
+    chainsRouter.push('\tchain home_lan_input {', '\t}');
+    if (plan.wanIface) chainsRouter.push('\tchain home_lan_forward {', '\t}');
+  }
+  const blocoChainsRouter = chainsRouter.length ? chainsRouter.join('\n') + '\n' : '';
 
   const blocoSets = sets.filter(Boolean).join('\n');
 
@@ -1790,15 +1804,24 @@ export function renderNftablesSuggestion(plan: FirewallPlan): string {
   // explicitamente as pontes do Docker (docker0, br-*), e um esquecimento
   // derruba a rede de todo container do host.
   const linhasForward: string[] = [];
-  if (plan.role === 'home' && plan.lanIface && plan.wanIface) {
-    linhasForward.push(`\t\tct state established,related accept`);
-    linhasForward.push(`\t\tiifname "${plan.lanIface}" oifname "${plan.wanIface}" accept`);
+  if (ehRouter && plan.wanIface) {
+    linhasForward.push(`\t\tjump home_lan_forward`);
   }
   const blocoForward = linhasForward.length ? `\n${linhasForward.join('\n')}\n` : '';
 
   // NAT em tabela propria e' seguro: o hook nat postrouting nao tem
   // 'drop' competindo, entao coexistir com a tabela do Docker nao derruba
   // trafego (ao contrario do hook filter).
+  // O include vem DEPOIS do bloco que declara as chains, e a ordem nao e'
+  // estetica: antes, o `flush chain` do drop-in nao acha o alvo e o nft
+  // aborta a carga inteira com "No such file or directory; did you mean
+  // chain 'home_lan_input'?". Erro duro, felizmente, nao silencioso.
+  //
+  // Glob com prefixo `home-` de proposito: o diretorio pode conter
+  // drop-ins de outra convencao (statements soltos pra viver DENTRO de uma
+  // chain), e misturar os dois formatos quebra na primeira carga.
+  const blocoInclude = ehRouter ? '\ninclude "/etc/nftables.d/home-*.conf"\n' : '';
+
   const blocoNat =
     plan.role === 'home' && plan.wanIface
       ? `
@@ -1854,7 +1877,7 @@ table ip router_nat {
 flush ruleset
 
 table inet filter {
-${blocoSets}
+${blocoSets}${blocoChainsRouter}
 \tchain input {
 \t\ttype filter hook input priority filter; policy drop;
 
@@ -1912,7 +1935,60 @@ ${regras.map((l) => `\t\t${l}`).join('\n')}
 \t\ttype filter hook output priority filter; policy accept;
 \t}
 }
-${blocoNat}`;
+${blocoNat}${blocoInclude}`;
+}
+
+// Drop-ins da role home (router). Mesmo formato que o
+// home/router/provision-router-role.sh gera e consome -- o que a pagina
+// do host sugere e o que o script aplica sao literalmente iguais.
+//
+// Cada arquivo e' AUTOCONTIDO e idempotente: zera a propria chain e
+// repovoa, numa transacao so'. Serve aos dois caminhos sem intermediario:
+//
+//   update a quente:  nft -f /etc/nftables.d/home-lan-input.conf
+//   boot:             include "/etc/nftables.d/home-*.conf"
+//
+// O que NAO tem aqui e' tao importante quanto o que tem: nenhum
+// `flush ruleset`. E' por isso que atualizar regra deixou de arriscar as
+// regras do Docker e do fail2ban, que vivem no mesmo ruleset (o iptables
+// destes hosts e' nf_tables).
+export function renderRouterDropins(plan: FirewallPlan): { path: string; content: string }[] {
+  if (plan.role !== 'home' || !plan.lanIface) return [];
+  const lan = plan.lanIface;
+  const arquivos: { path: string; content: string }[] = [];
+
+  arquivos.push({
+    path: '/etc/nftables.d/home-lan-input.conf',
+    content: `# Gerado pelo Monitor para "${plan.host}". Idempotente.
+# Aplicar: nft -f /etc/nftables.d/home-lan-input.conf
+#
+# Sem esta liberacao, a policy drop da chain input descarta o
+# DHCPDISCOVER do cliente novo ANTES do dnsmasq ver -- sem erro no
+# dnsmasq e sem nada no tcpdump do container. So' aparece comparando o
+# que chega na interface com o que o firewall deixa passar.
+flush chain inet filter home_lan_input
+add rule inet filter home_lan_input iifname "${lan}" udp dport { 67, 53 } accept
+add rule inet filter home_lan_input iifname "${lan}" tcp dport 53 accept
+`,
+  });
+
+  if (plan.wanIface) {
+    arquivos.push({
+      path: '/etc/nftables.d/home-lan-forward.conf',
+      content: `# Gerado pelo Monitor para "${plan.host}". Idempotente.
+# Aplicar: nft -f /etc/nftables.d/home-lan-forward.conf
+#
+# A chain forward de base continua com policy ACCEPT. Default-deny ali
+# derrubaria o trafego dos containers do proprio host: com duas base
+# chains no mesmo hook, um drop em qualquer uma e' terminal.
+flush chain inet filter home_lan_forward
+add rule inet filter home_lan_forward ct state established,related accept
+add rule inet filter home_lan_forward iifname "${lan}" oifname "${plan.wanIface}" accept
+`,
+    });
+  }
+
+  return arquivos;
 }
 
 export async function createHost(hostName: string, options: { ddnsEnabled: boolean; tunnelEnabled: boolean }) {

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAdmin } from '@/lib/auth';
-import { getMonitorHost, getFirewallPlan, renderNftablesSuggestion } from '@/lib/monitor';
+import { getMonitorHost, getFirewallPlan, renderNftablesSuggestion, renderRouterDropins } from '@/lib/monitor';
 import {
   toggleDdnsAction,
   disableTunnelAction,
@@ -56,6 +56,7 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
   if (!host) notFound();
   const firewallPlan = await getFirewallPlan(hostParam);
   const firewallSuggestion = firewallPlan ? renderNftablesSuggestion(firewallPlan) : '';
+  const routerDropins = firewallPlan ? renderRouterDropins(firewallPlan) : [];
 
   return (
     <main className="min-h-screen bg-zinc-100 dark:bg-zinc-950">
@@ -292,6 +293,7 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
           lanPorts={host.firewall?.lanPorts ?? []}
           lanIface={host.firewall?.lanIface}
           wanIface={host.firewall?.wanIface}
+          routerDropins={routerDropins}
           suggestion={firewallSuggestion}
           action={setFirewallSectionAction}
         />

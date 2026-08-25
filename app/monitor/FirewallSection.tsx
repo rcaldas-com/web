@@ -23,6 +23,7 @@ export default function FirewallSection({
   lanIface,
   wanIface,
   suggestion,
+  routerDropins = [],
   action,
 }: {
   hostName: string;
@@ -32,6 +33,7 @@ export default function FirewallSection({
   lanIface?: string;
   wanIface?: string;
   suggestion: string;
+  routerDropins?: { path: string; content: string }[];
   action: (formData: FormData) => void;
 }) {
   const [role, setRole] = useState<Role>(initialRole);
@@ -132,6 +134,25 @@ export default function FirewallSection({
           salvar
         </SubmitButton>
       </form>
+
+      {routerDropins.length > 0 && (
+        <div className="mt-4 flex flex-col gap-3">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <strong>Drop-ins do roteador.</strong> Cada arquivo é autocontido e idempotente — aplicar é{' '}
+            <code>nft -f &lt;arquivo&gt;</code>, sem <code>flush ruleset</code>, então não encosta nas regras do
+            Docker nem do fail2ban. O mesmo arquivo serve no boot, pelo{' '}
+            <code>include &quot;/etc/nftables.d/home-*.conf&quot;</code>.
+          </p>
+          {routerDropins.map((f) => (
+            <div key={f.path}>
+              <p className="mb-1 font-mono text-xs text-zinc-500 dark:text-zinc-400">{f.path}</p>
+              <pre className="overflow-auto rounded bg-zinc-100 p-3 text-xs text-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+                {f.content}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Fechado por padrão: são ~110 linhas que empurrariam o resto da
           página pra fora da tela, e é conteúdo pra copiar uma vez, não pra
