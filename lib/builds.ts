@@ -71,12 +71,12 @@ export async function startBuild(params: {
 export async function finishBuild(
   jobId: string,
   outcome: { ok: boolean; sha?: string; tag?: string; image?: string; message?: string }
-): Promise<void> {
+): Promise<{ service: string; tag?: string } | null> {
   const client = await clientPromise;
   const db = client.db();
   const col = db.collection<MonitorBuild>('monitor_builds');
   const doc = await col.findOne({ jobId, status: 'running' });
-  if (!doc) return;
+  if (!doc) return null;
   const now = new Date();
   await col.updateOne(
     { _id: doc._id },
@@ -92,6 +92,11 @@ export async function finishBuild(
       },
     }
   );
+
+  // Devolve servico e tag pra quem chamou poder decidir a auto-promocao
+  // sem uma segunda consulta -- e sem builds.ts precisar saber o que
+  // promocao significa.
+  return outcome.ok ? { service: doc.service, tag: outcome.tag } : null;
 }
 
 export type BuildView = Omit<MonitorBuild, '_id' | 'startedAt' | 'finishedAt'> & {

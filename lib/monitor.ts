@@ -7,6 +7,7 @@ import { sendTunnelKeyApprovalEmail, sendIncidentEmail } from './email';
 import { ingestInventory, saveRepoState } from './services';
 import { finishBuild } from './builds';
 import { ingestRepoHeads, requestRepoHeadsThrottled } from './polling';
+import { maybeAutoPromote } from './promote';
 import redis from './redis';
 
 // Fonte unica pra versao do agente: app/install/route.ts interpola isso no
@@ -1071,13 +1072,17 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
         // Sem isto o build roda, publica a imagem e fica 'running' pra
         // sempre na tela: o proximo clique em "buildar agora" seria
         // bloqueado por um build que ja terminou ha horas.
-        await finishBuild(result.id, {
+        const fechado = await finishBuild(result.id, {
           ok: result.status === 'ok',
           sha: buildsPorJob.get(result.id)?.sha,
           tag: buildsPorJob.get(result.id)?.tag,
           image: buildsPorJob.get(result.id)?.image,
           message: result.message,
         });
+        // Build terminou bem: promove sozinho se o servico estiver marcado.
+        // Nao e' o default -- subir pra producao sem clique tem que ser
+        // escolha explicita por servico.
+        if (fechado?.tag) await maybeAutoPromote(fechado.service, fechado.tag);
       } catch {
         // id malformado -- ignora em vez de derrubar o heartbeat
       }

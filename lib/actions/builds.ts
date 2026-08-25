@@ -5,6 +5,32 @@ import { requireAdmin } from '@/lib/auth';
 import { enqueueBuildJob, pickBuildWorker, setBuildWorker } from '@/lib/monitor';
 import { getService } from '@/lib/services';
 import { hasRunningBuild, startBuild } from '@/lib/builds';
+import { promoteImage } from '@/lib/promote';
+
+export async function promoteBuildAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const service = String(formData.get('service') || '');
+  const tag = String(formData.get('tag') || '');
+  if (!service || !tag) return;
+
+  const svc = await getService(service);
+  // So' promove o que tem imagem que alguem publica. 'managed'/'external'
+  // nao tem o que promover.
+  if (!svc || (svc.source?.kind !== 'build' && svc.source?.kind !== 'upstream')) return;
+
+  const resultado = await promoteImage(`registry.rcaldas.com/rcaldas/${service}`, tag);
+  if (!resultado.ok) {
+    // Nao lanca: erro de promocao nao deve virar tela de erro 500. Fica no
+    // log do servidor e a pagina simplesmente continua mostrando a tag
+    // antiga, que e' a verdade.
+    console.error(`promocao de ${service}:${tag} falhou: ${resultado.erro}`);
+    return;
+  }
+
+  console.log(`promovido ${service}: ${resultado.de} -> ${resultado.para} (commit ${resultado.commit})`);
+  revalidatePath(`/monitor/servicos/${service}`);
+  revalidatePath('/monitor/servicos');
+}
 
 export async function setBuildWorkerAction(formData: FormData) {
   await requireAdmin();

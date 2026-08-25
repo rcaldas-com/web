@@ -99,14 +99,14 @@ histórico e o botão não mudam.
 
 ## Fases
 
-### Fase 0 — pré-requisitos ✅
+### Fase 0 — pré-requisitos ✅ feito
 
 - [x] repo em `/var/rcaldas/rcaldas` nos três hosts
 - [x] credencial do registry nos workers
 - [x] chave git com acesso aos submódulos nos workers
 - [x] `bag`, `tp`, `us` no agente 2.3.0
 
-### Fase 1 — registro de serviços
+### Fase 1 — registro de serviços ✅ em produção
 
 Collection `monitor_services`, páginas `/monitor/servicos[/<nome>]`, no
 padrão da página de host.
@@ -120,7 +120,7 @@ com imagem e nome. Inventário digitado à mão rota — o fail2ban é a prova.
 Monitor compara o que o git declara com o que o host roda, e divergência
 abre incidente pelo pipeline de alarme existente.
 
-### Fase 2 — papel de worker + job `build`
+### Fase 2 — papel de worker + job `build` ✅ em produção
 
 `buildWorker?: { enabled?: boolean }` em `MonitorHost`. Ao contrário do
 `backupRunner`, **vários** podem estar ativos; seleção entre os habilitados
@@ -151,7 +151,7 @@ via `/var/log/rcaldas-agent.log`.
 **Serialização:** a fila já é por host e o agente processa em série — dois
 builds no mesmo worker não disputam o daemon.
 
-### Fase 3 — polling
+### Fase 3 — polling ✅ aguardando imagem
 
 Mesmo padrão da varredura de hosts offline: pendurado no heartbeat, trava
 no Redis, 5 min.
@@ -170,7 +170,7 @@ app; mexer no `package.json` muda tudo). Builda sempre; se nada que entra
 na imagem mudou, o cache resolve em segundos e o **digest sai idêntico** —
 aí não se publica tag. O build vira o detector, e ele não erra.
 
-### Fase 4 — página do serviço e promoção
+### Fase 4 — página do serviço e promoção ✅ aguardando GITHUB_TOKEN
 
 Collection `monitor_builds`: serviço, sha, tag, digest, worker, status,
 início, duração.

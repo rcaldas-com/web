@@ -3,9 +3,10 @@ import { notFound } from 'next/navigation';
 import { requireAdmin } from '@/lib/auth';
 import { getService } from '@/lib/services';
 import { setServiceAction } from '@/lib/actions/services';
-import { triggerBuildAction } from '@/lib/actions/builds';
+import { triggerBuildAction, promoteBuildAction } from '@/lib/actions/builds';
 import { listBuilds, hasRunningBuild } from '@/lib/builds';
 import { pickBuildWorker } from '@/lib/monitor';
+import { promoteConfigurado } from '@/lib/promote';
 import SubmitButton from '@/components/SubmitButton';
 
 function formatDate(value?: string) {
@@ -48,6 +49,12 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
     src?.kind === 'build'
       ? await Promise.all([listBuilds(svc.name), hasRunningBuild(svc.name), pickBuildWorker().then(Boolean)])
       : [[], false, false];
+
+  // "Em producao" e a tag DECLARADA no compose, nao a que esta rodando: e'
+  // o que o git manda subir. Se as duas divergirem, a secao de deriva la
+  // em cima ja avisa -- sao dois problemas diferentes.
+  const tagEmProducao = svc.observed?.declaredImage?.split(':').pop();
+  const promoverDisponivel = promoteConfigurado();
 
   return (
     <main className="min-h-screen bg-zinc-100 dark:bg-zinc-950">
@@ -185,6 +192,14 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
               </form>
             </div>
 
+            {!promoverDisponivel && (
+              <p className="mb-3 rounded bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                Promoção indisponível: falta <code>GITHUB_TOKEN</code> no <code>.env</code> do servidor. Build funciona
+                normalmente — o que não dá é escrever a tag no repo. O token precisa de escrita só em{' '}
+                <code>rcaldas-com/dev</code>.
+              </p>
+            )}
+
             {!workerDisponivel && (
               <p className="mb-3 rounded bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
                 Nenhum worker disponível: marque um host como worker de build e confirme que ele está com heartbeat
@@ -211,6 +226,20 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
                     {b.message && <span className="ml-2 text-xs text-zinc-500 dark:text-zinc-400">{b.message}</span>}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
+                    {b.status === 'ok' && b.tag && b.tag !== tagEmProducao && (
+                      <form action={promoteBuildAction}>
+                        <input type="hidden" name="service" value={svc.name} />
+                        <input type="hidden" name="tag" value={b.tag} />
+                        <SubmitButton className="rounded-full bg-zinc-900 px-2 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
+                          promover
+                        </SubmitButton>
+                      </form>
+                    )}
+                    {b.tag && b.tag === tagEmProducao && (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                        em produção
+                      </span>
+                    )}
                     <span>{b.worker}</span>
                     {b.durationMs != null && <span>{Math.round(b.durationMs / 1000)}s</span>}
                     <span>{formatDate(b.startedAt)}</span>
