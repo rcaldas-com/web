@@ -117,6 +117,24 @@ export async function listBuilds(service: string, limit = 20): Promise<BuildView
   }));
 }
 
+/**
+ * Ultimo sha que este servico TENTOU buildar -- com sucesso ou nao.
+ *
+ * Comparar com a ultima tentativa, e nao com o ultimo sucesso, e' o que
+ * impede rebuild em loop: se o commit X falha ao buildar, ele nao volta a
+ * ser enfileirado a cada 5 minutos pra sempre. Falha exige commit novo ou
+ * um clique manual -- que e' o comportamento certo, porque build que falha
+ * sozinho tende a continuar falhando sozinho.
+ */
+export async function lastAttemptedSha(service: string): Promise<string | null> {
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db
+    .collection<MonitorBuild>('monitor_builds')
+    .findOne({ service, sha: { $exists: true } }, { sort: { startedAt: -1 }, projection: { sha: 1 } });
+  return doc?.sha ?? null;
+}
+
 export async function hasRunningBuild(service: string): Promise<boolean> {
   const client = await clientPromise;
   const db = client.db();

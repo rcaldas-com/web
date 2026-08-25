@@ -274,7 +274,7 @@ payload=$(cat <<JSON
   "network":{"ipv4":"$(json_escape "$ipv4")","ipv6":"$(json_escape "$ipv6")"},
   "system":{"uptime":$uptime_seconds,"load1":$load1,"cpuPct":$cpu_pct,"cpuCount":$cpu_count,"topCpu":"$(json_escape "$top_cpu")","diskRootPct":$disk_root,"diskVarPct":$disk_var_pct,"diskVarLogPct":$disk_varlog_pct,"backupDiskPct":$backup_disk_pct,"memoryPct":$memory_pct},
   "tunnel":{"enabled":$ENABLE_TUNNEL,"activeRemotePort":${'$'}{active_port:-null}},
-  "capabilities":["heartbeat","tcp_banner","tunnel","service-inventory","build"],
+  "capabilities":["heartbeat","tcp_banner","tunnel","service-inventory","build","repo-heads"],
   "results":$results_payload
 }
 JSON
@@ -463,6 +463,41 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
             info_result="$info_result,{\\"id\\":\\"repo-state\\",\\"type\\":\\"inventory\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$inv_repo")\\"}"
           else
             jmsg="falha ao ler compose config/ps"
+          fi
+        fi
+        ;;
+      repo-heads)
+        # Le o HEAD remoto de cada repo. Sem token e sem API de propósito:
+        # ls-remote fala direto com o git por SSH, nao tem rate limit, e o
+        # worker ja tem a chave. Pela API do GitHub sem token seriam 60
+        # req/h por IP -- 6 repos a cada 5min dao 72/h e estouram.
+        #
+        # So submodulo entra: um diretorio comum dentro do dev (ccxt) teria
+        # como "HEAD" o sha do proprio dev, e mudaria a cada commit da
+        # stack inteira -- buildaria sem nada dele ter mudado.
+        rh_repos=$(printf '%s' "$job" | sed -n 's/.*"repos":"\\([^"]*\\)".*/\\1/p')
+        rh_root="/var/rcaldas/rcaldas"
+        rh_git="git -c safe.directory=*"
+        rh_tmp="/tmp/rcaldas-repo-heads.$$"
+        log "job $jid: lendo HEAD remoto de $rh_repos"
+        if [[ -z "$rh_repos" ]]; then
+          jmsg="job sem lista de repos"
+        else
+          : > "$rh_tmp"
+          for rh_r in $(printf '%s' "$rh_repos" | tr ',' ' '); do
+            [[ -e "$rh_root/$rh_r/.git" ]] || continue
+            rh_sha=$(cd "$rh_root/$rh_r" && ${'$'}rh_git ls-remote origin HEAD 2>/dev/null | awk '{print $1}' | head -1 || echo "")
+            [[ -n "$rh_sha" ]] && printf '%s %s\\n' "$rh_r" "$rh_sha" >> "$rh_tmp"
+          done
+          # Montado por jq a partir de linhas "repo sha": concatenar JSON no
+          # shell e' o que ja quebrou este arquivo antes.
+          rh_out=$(jq -Rsc 'split("\\n") | map(select(. != "")) | map(split(" ")) | map({(.[0]): .[1]}) | add // {}' < "$rh_tmp" 2>/dev/null || echo "")
+          rm -f "$rh_tmp"
+          if [[ -n "$rh_out" ]]; then
+            jstatus="ok"; jmsg="HEADs lidos"
+            info_result=",{\\"id\\":\\"repo-heads\\",\\"type\\":\\"repo-heads\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$rh_out")\\"}"
+          else
+            jmsg="falha ao ler HEAD dos repos"
           fi
         fi
         ;;
