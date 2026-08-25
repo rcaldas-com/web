@@ -19,6 +19,7 @@ import AutoRefresh from '@/app/finance/AutoRefresh';
 import ConfirmSubmit from '@/components/ConfirmSubmit';
 import SubmitButton from '@/components/SubmitButton';
 import FirewallSection from '@/app/monitor/FirewallSection';
+import { setBuildWorkerAction } from '@/lib/actions/builds';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -255,6 +256,31 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
               <Link href="/monitor/servicos" className="text-xs text-zinc-500 underline dark:text-zinc-400">
                 ver serviços
               </Link>
+            )}
+          </form>
+        </section>
+
+        <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="mb-1 font-semibold text-zinc-950 dark:text-zinc-50">Worker de build</h2>
+          <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+            Constrói as imagens dos serviços. Vários hosts podem estar marcados ao mesmo tempo — a escolha é feita a
+            cada build entre os que estão <strong>vivos</strong>, pelo menos carregado. Um notebook pode ficar marcado
+            o tempo todo: fechado, ele simplesmente não recebe trabalho.
+            {' '}O <code>us</code> não deve ser marcado — ele é produção e não tem folga de memória pra buildar.
+          </p>
+          <form action={setBuildWorkerAction} className="flex flex-wrap items-center gap-4 text-sm">
+            <input type="hidden" name="host" value={host.name} />
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="enabled" defaultChecked={host.buildWorker?.enabled} />
+              <span className="text-zinc-700 dark:text-zinc-300">Pode construir imagens</span>
+            </label>
+            <SubmitButton className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
+              salvar
+            </SubmitButton>
+            {host.buildWorker?.enabled && !host.capabilities?.includes('build') && (
+              <span className="text-xs text-amber-700 dark:text-amber-400">
+                agente ainda não declara a capacidade <code>build</code> — não receberá jobs até se atualizar
+              </span>
             )}
           </form>
         </section>

@@ -5,6 +5,7 @@ import { Db, ObjectId } from 'mongodb';
 import clientPromise from './mongodb';
 import { sendTunnelKeyApprovalEmail, sendIncidentEmail } from './email';
 import { ingestInventory, saveRepoState } from './services';
+import { finishBuild } from './builds';
 import redis from './redis';
 
 // Fonte unica pra versao do agente: app/install/route.ts interpola isso no
@@ -992,6 +993,17 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     // Hoje quem manda e o proprio agente; amanha pode ser um alarme do
     // Netdata repassado (curl 127.0.0.1:19999/api/v1/alarms) ou qualquer
     // outra fonte -- sem mudar nada aqui.
+    // Detalhes do build (sha/tag/imagem) chegam num result proprio, mas quem
+    // sabe se DEU CERTO e' o result do job. Coletar antes do laco de jobs e'
+    // o que permite fechar o build com as duas metades juntas -- na ordem
+    // inversa, um build de sucesso fecharia sem saber a tag que gerou.
+    const buildsPorJob = new Map<string, { sha: string; tag: string; image: string }>();
+    for (const result of lote) {
+      if (result.type !== 'build' || !result.message) continue;
+      const [jobId, sha, tag, image] = result.message.split(' ');
+      if (jobId && sha && tag && image) buildsPorJob.set(jobId, { sha, tag, image });
+    }
+
     // Confirmacao de execucao de job: fecha o ciclo enfileirar -> executar.
     for (const result of lote) {
       if (result.type !== 'job' || !result.id) continue;
@@ -1006,6 +1018,20 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
             },
           }
         );
+        // Fecha o build correspondente, se este job era um. finishBuild casa
+        // por jobId e nao faz nada quando nao ha build 'running' com esse id
+        // -- entao chamar pra todo job e' barato e dispensa um lookup extra.
+        //
+        // Sem isto o build roda, publica a imagem e fica 'running' pra
+        // sempre na tela: o proximo clique em "buildar agora" seria
+        // bloqueado por um build que ja terminou ha horas.
+        await finishBuild(result.id, {
+          ok: result.status === 'ok',
+          sha: buildsPorJob.get(result.id)?.sha,
+          tag: buildsPorJob.get(result.id)?.tag,
+          image: buildsPorJob.get(result.id)?.image,
+          message: result.message,
+        });
       } catch {
         // id malformado -- ignora em vez de derrubar o heartbeat
       }

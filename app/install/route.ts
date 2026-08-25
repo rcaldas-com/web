@@ -274,7 +274,7 @@ payload=$(cat <<JSON
   "network":{"ipv4":"$(json_escape "$ipv4")","ipv6":"$(json_escape "$ipv6")"},
   "system":{"uptime":$uptime_seconds,"load1":$load1,"cpuPct":$cpu_pct,"cpuCount":$cpu_count,"topCpu":"$(json_escape "$top_cpu")","diskRootPct":$disk_root,"diskVarPct":$disk_var_pct,"diskVarLogPct":$disk_varlog_pct,"backupDiskPct":$backup_disk_pct,"memoryPct":$memory_pct},
   "tunnel":{"enabled":$ENABLE_TUNNEL,"activeRemotePort":${'$'}{active_port:-null}},
-  "capabilities":["heartbeat","tcp_banner","tunnel","service-inventory"],
+  "capabilities":["heartbeat","tcp_banner","tunnel","service-inventory","build"],
   "results":$results_payload
 }
 JSON
@@ -463,6 +463,73 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
             info_result="$info_result,{\\"id\\":\\"repo-state\\",\\"type\\":\\"inventory\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$inv_repo")\\"}"
           else
             jmsg="falha ao ler compose config/ps"
+          fi
+        fi
+        ;;
+      build)
+        # Parametros vem planos no job (repo, imageBase, ref) -- lidos com o
+        # mesmo sed do id/type, porque o recorte do lado de la e
+        # grep -o '{[^}]*}' e nao aguenta objeto aninhado.
+        b_repo=$(printf '%s' "$job" | sed -n 's/.*"repo":"\\([^"]*\\)".*/\\1/p')
+        b_image=$(printf '%s' "$job" | sed -n 's/.*"imageBase":"\\([^"]*\\)".*/\\1/p')
+        b_ref=$(printf '%s' "$job" | sed -n 's/.*"ref":"\\([^"]*\\)".*/\\1/p')
+        b_ref="${'$'}{b_ref:-main}"
+        b_root="/var/rcaldas/rcaldas"
+        b_git="git -c safe.directory=*"
+        log "job $jid: build de $b_repo ($b_ref)"
+        if [[ -z "$b_repo" || -z "$b_image" ]]; then
+          jmsg="job de build sem repo/imageBase"
+        elif [[ ! -d "$b_root/$b_repo" ]]; then
+          jmsg="diretorio $b_repo nao existe em $b_root"
+        else
+          # Submodulo tem .git proprio (arquivo, apontando pro modules/ do
+          # pai); diretorio comum nao tem. Isso decide de qual repo sai a
+          # worktree e qual e' o contexto do build.
+          if [[ -e "$b_root/$b_repo/.git" ]]; then
+            b_src="$b_root/$b_repo"; b_ctx_sub=""
+          else
+            b_src="$b_root"; b_ctx_sub="/$b_repo"
+          fi
+          b_wt="/var/rcaldas/build/$b_repo"
+          # O agente roda como ROOT, e a credencial do registry foi feita
+          # com docker login pelo usuario rcaldas -- ela vive em
+          # /var/rcaldas/.docker, nao em /root/.docker. Sem apontar o
+          # DOCKER_CONFIG, o build passa e o PUSH falha com "no basic auth
+          # credentials", que nao diz nada sobre a causa.
+          #
+          # Reusar a credencial existente em vez de pedir um docker login
+          # como root em cada worker: um segredo a menos pra manter em
+          # sincronia, e host novo vira worker sem passo manual.
+          if [[ -f /var/rcaldas/.docker/config.json ]]; then
+            export DOCKER_CONFIG=/var/rcaldas/.docker
+          fi
+          b_sha=$(cd "$b_src" && ${'$'}b_git fetch -q origin "$b_ref" 2>/dev/null && ${'$'}b_git rev-parse FETCH_HEAD 2>/dev/null || echo "")
+          if [[ -z "$b_sha" ]]; then
+            jmsg="nao consegui resolver $b_ref em $b_repo"
+          else
+            b_tag="${'$'}{b_sha:0:7}"
+            # Worktree em vez de buildar no checkout: docker build usa o
+            # diretorio como CONTEXTO e arrastaria arquivo nao commitado pra
+            # dentro da imagem. Build "do commit X" tem que sair de arvore
+            # limpa. --force porque uma worktree orfa de um build anterior
+            # interrompido nao pode travar todos os proximos.
+            rm -rf "$b_wt" 2>/dev/null || true
+            mkdir -p /var/rcaldas/build
+            ${'$'}b_git -C "$b_src" worktree prune 2>/dev/null || true
+            if ! ${'$'}b_git -C "$b_src" worktree add --force --detach "$b_wt" "$b_sha" >> "$LOG" 2>&1; then
+              jmsg="falha ao criar worktree de $b_sha"
+            elif ! docker build -t "$b_image:$b_tag" "$b_wt$b_ctx_sub" >> "$LOG" 2>&1; then
+              # So o rabo do log vai no result: o log inteiro de um next
+              # build nao cabe num campo de JSON do heartbeat, e ja esta no
+              # Loki de qualquer forma.
+              jmsg="build falhou: $(tail -3 "$LOG" | tr '\\n' ' ' | tail -c 300)"
+            elif ! docker push "$b_image:$b_tag" >> "$LOG" 2>&1; then
+              jmsg="push falhou: $(tail -3 "$LOG" | tr '\\n' ' ' | tail -c 300)"
+            else
+              jstatus="ok"; jmsg="$b_image:$b_tag"
+              info_result=",{\\"id\\":\\"build\\",\\"type\\":\\"build\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$jid $b_sha $b_tag $b_image:$b_tag")\\"}"
+            fi
+            ${'$'}b_git -C "$b_src" worktree remove --force "$b_wt" >> "$LOG" 2>&1 || rm -rf "$b_wt" 2>/dev/null || true
           fi
         fi
         ;;
