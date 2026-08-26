@@ -682,6 +682,17 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
             jmsg="nao consegui resolver $b_ref em $b_repo"
           else
             b_tag="${'$'}{b_sha:0:7}"
+            # Emitido AQUI, antes de buildar, e nao so' no sucesso: o
+            # servidor precisa do sha mesmo quando falha. Sem isso o build
+            # falho ia pro banco sem sha, o lastAttemptedSha (que filtra por
+            # sha existente) o ignorava, e o polling reenfileirava o MESMO
+            # commit a cada 5 minutos pra sempre -- a trava anti-loop
+            # contornada justo no caso que ela devia cobrir. Aconteceu: 4
+            # builds do web sem sha e o mesmo commit enfileirado 3x.
+            #
+            # O status daqui nao decide nada; quem diz se deu certo e' o
+            # result do JOB. Este canal so' carrega os detalhes.
+            info_result=",{\\"id\\":\\"build\\",\\"type\\":\\"build\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$jid $b_sha $b_tag $b_image:$b_tag")\\"}"
             # Worktree em vez de buildar no checkout: docker build usa o
             # diretorio como CONTEXTO e arrastaria arquivo nao commitado pra
             # dentro da imagem. Build "do commit X" tem que sair de arvore
@@ -709,7 +720,6 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
               jmsg="push falhou 2x: $(tail -3 "$LOG" | tr '\\n' ' ' | tail -c 300)"
             else
               jstatus="ok"; jmsg="$b_image:$b_tag"
-              info_result=",{\\"id\\":\\"build\\",\\"type\\":\\"build\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$jid $b_sha $b_tag $b_image:$b_tag")\\"}"
             fi
             ${'$'}b_git -C "$b_src" worktree remove --force "$b_wt" >> "$LOG" 2>&1 || rm -rf "$b_wt" 2>/dev/null || true
           fi
