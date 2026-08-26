@@ -134,6 +134,104 @@ for sm in /usr/sbin/sendmail /usr/lib/sendmail; do
 done
 echo "mail local -> journal (tag local-mail); sendmail real, se havia, em *.real-mta"
 
+# Estado de disco -> journal -> coletor central.
+#
+# O log da EVENTO, nunca ESTADO: o zed do ZFS grita quando o erro JA
+# aconteceu, e um pool degradando devagar nao gera linha nenhuma. Foi assim
+# que um disco com erro de I/O passou 3 dias despercebido -- quem contou a
+# historia no fim nao foi o log, foi rodar smartctl na mao.
+#
+# No-op onde nao houver zpool/smartctl, entao custa zero no resto da frota.
+# smartmontools entra se faltar, tolerando falha: isto e monitoramento, nao
+# pode derrubar a instalacao do agente.
+if ! command -v smartctl >/dev/null 2>&1; then
+  DEBIAN_FRONTEND=noninteractive apt-get -qq install smartmontools > /dev/null 2>&1 || true
+fi
+
+cat > /usr/local/sbin/rcaldas-disk-health <<'DHEOF'
+#!/bin/bash
+# Sem -e: e COLETA, nao acao. Um smartctl que falha num disco nao pode
+# impedir a checagem dos outros nem derrubar o timer.
+set -uo pipefail
+ok()       { logger -t disk-health -p daemon.info "$*"; }
+problema() { logger -t disk-health -p daemon.err  "$*"; }
+
+if command -v zpool >/dev/null 2>&1; then
+  saida=$(zpool status -x 2>/dev/null)
+  if [ -n "$saida" ]; then
+    if [ "$saida" = "all pools are healthy" ]; then
+      ok "zfs: todos os pools saudaveis"
+    else
+      # Uma linha de log por linha: o Loki indexa por linha, e um bloco de
+      # 20 linhas numa entrada so fica ilegivel na busca.
+      printf '%s\\n' "$saida" | while IFS= read -r linha; do
+        [ -n "$linha" ] && problema "zfs: $linha"
+      done
+    fi
+  fi
+  # Contadores por vdev: o -x acima pode dizer que esta tudo bem enquanto
+  # um disco acumula CKSUM -- o ZFS corrige e segue.
+  zpool status 2>/dev/null | awk '
+    /^\tNAME/ { t=1; next }
+    /^$/       { t=0 }
+    t && NF>=5 && $3 ~ /^[0-9]+$/ && ($3+0 || $4+0 || $5+0) {
+      printf "%s READ=%s WRITE=%s CKSUM=%s\\n", $1, $3, $4, $5
+    }' | while IFS= read -r l; do
+      [ -n "$l" ] && problema "zfs erros: $l"
+    done
+fi
+
+if command -v smartctl >/dev/null 2>&1; then
+  lsblk -dno NAME,TYPE 2>/dev/null | awk '$2=="disk"{print $1}' | while IFS= read -r d; do
+    [ -z "$d" ] && continue
+    saude=$(smartctl -H "/dev/$d" 2>/dev/null | awk -F': *' '/overall-health/{print $2}')
+    [ -z "$saude" ] && continue
+    # PASSED e o indicador MENOS informativo do SMART: ele so reprova
+    # quando um atributo cruza o limiar, e um disco pode ter centenas de
+    # setores realocados antes disso. Os contadores e que contam a
+    # historia -- por isso vao junto, e por isso a soma decide o nivel.
+    linha=$(smartctl -A "/dev/$d" 2>/dev/null | awk '
+      /Reallocated_Sector_Ct/ {r=$10} /Current_Pending_Sector/ {p=$10}
+      /Offline_Uncorrectable/ {o=$10}  /Reported_Uncorrect/     {u=$10}
+      END { printf "realoc=%d pendentes=%d incorrigiveis=%d reportados=%d|%d",
+                   r+0, p+0, o+0, u+0, (r+0)+(p+0)+(o+0)+(u+0) }')
+    soma=$(printf '%s' "$linha" | cut -d"|" -f2)
+    attrs=$(printf '%s' "$linha" | cut -d"|" -f1)
+    if [ "$saude" = "PASSED" ] && [ "$soma" = "0" ]; then
+      ok "smart /dev/$d: $saude ($attrs)"
+    else
+      problema "smart /dev/$d: $saude ($attrs)"
+    fi
+  done
+fi
+DHEOF
+chmod 755 /usr/local/sbin/rcaldas-disk-health
+
+if command -v systemctl >/dev/null 2>&1; then
+  cat > /etc/systemd/system/rcaldas-disk-health.service <<'DHSEOF'
+[Unit]
+Description=Coleta estado de disco (ZFS/SMART) para o journal
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rcaldas-disk-health
+DHSEOF
+  cat > /etc/systemd/system/rcaldas-disk-health.timer <<'DHTEOF'
+[Unit]
+Description=Estado de disco de hora em hora
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
+DHTEOF
+  systemctl daemon-reload
+  systemctl enable --now rcaldas-disk-health.timer &> /dev/null || true
+fi
+
 cat > "$AGENT_BIN" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
