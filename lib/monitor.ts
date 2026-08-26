@@ -16,7 +16,26 @@ import redis from './redis';
 // AGENT_BIN mudar -- nao mudar isso foi o motivo do host-info ter ficado
 // invisivel: o codigo novo foi adicionado sem bump, entao nenhum host
 // existente jamais teria motivo pra se atualizar sozinho.
-export const AGENT_VERSION = '2.11.0';
+export const AGENT_VERSION = '2.12.0';
+
+// Ritmo da frota. O agente le nextIntervalSec do heartbeat e reescreve o
+// proprio timer quando muda, entao trocar estes numeros (ou marcar um host
+// como worker na UI) converge sozinho pela frota -- sem reinstalar agente.
+//
+// Por que dois ritmos: cada salto da pipeline espera uma batida (job
+// enfileirado -> worker pega; build promovido -> deployer aplica), entao o
+// intervalo entra DUAS vezes na latencia total. Metade do tempo nos hosts
+// que participam disso tira ate 1min do ciclo. Aplicar isso na frota
+// inteira so somaria trafego em host que nao constroi nem implanta nada.
+export const HEARTBEAT_INTERVAL_SEC = 60;
+export const HEARTBEAT_FAST_INTERVAL_SEC = 30;
+
+// De quanto em quanto tempo as telas do /monitor se atualizam sozinhas.
+// Montado uma vez no layout do segmento, entao vale pra toda pagina sob
+// /monitor com um numero so. Mais rapido que o heartbeat de proposito: o
+// dado pode mudar a qualquer momento dentro da janela de 30s, e a tela
+// existe justamente pra ser olhada enquanto a pipeline anda.
+export const MONITOR_REFRESH_MS = 10_000;
 
 // Uma porta ou faixa de portas, com protocolo -- o suficiente pra
 // representar o que o `us` ja tem aberto de verdade hoje na mao (ex:
@@ -992,6 +1011,24 @@ async function checkMonitoringThresholds(db: Db, host: string, existing: Monitor
   }
 }
 
+/**
+ * Ritmo que este host deve seguir. Ganha o ritmo curto quem tem alguma
+ * atribuicao na esteira -- construir, implantar, rotear ou servir de proxy.
+ * Sao papeis onde a demora de uma batida vira demora da pipeline inteira.
+ *
+ * Host novo (existing null) comeca no ritmo normal e sobe pro curto na
+ * batida seguinte a marcacao, sem intervencao.
+ */
+function heartbeatIntervalSec(existing?: MonitorHost | null): number {
+  if (!existing) return HEARTBEAT_INTERVAL_SEC;
+  const naEsteira =
+    existing.buildWorker?.enabled === true ||
+    existing.deployTarget?.enabled === true ||
+    existing.role === 'proxy' ||
+    existing.role === 'home';
+  return naEsteira ? HEARTBEAT_FAST_INTERVAL_SEC : HEARTBEAT_INTERVAL_SEC;
+}
+
 export async function registerHeartbeat(payload: HeartbeatPayload, headers: Headers) {
   if (!payload.host) {
     return { ok: false, status: 400, error: 'host is required' };
@@ -1271,7 +1308,7 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     status: 200,
     host,
     token: existing?.tokenHash ? undefined : nextToken,
-    nextIntervalSec: 60,
+    nextIntervalSec: heartbeatIntervalSec(existing),
     tunnel: tunnelEnabled && tunnelPort ? { enabled: true, port: tunnelPort } : { enabled: false },
     // Vai DEPOIS do tunnel: o agente extrai a porta com um sed ancorado em
     // "tunnel":{...}, entao nada pode ser inserido antes dele sem quebrar

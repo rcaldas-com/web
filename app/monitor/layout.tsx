@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import AutoRefresh from '@/app/finance/AutoRefresh';
+import { MONITOR_REFRESH_MS } from '@/lib/monitor';
 
 // ATUALIZACAO 24/08/2026 -- por que existe o hostname monitor.rcaldas.com
 //
@@ -50,5 +52,23 @@ export const metadata: Metadata = {
 };
 
 export default function MonitorLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  // Refresh de TODO o /monitor num lugar so. Estava espalhado pelas paginas
+  // com ritmos diferentes (10s aqui, 30s em servicos) e a pagina de detalhe
+  // do servico -- justo a dos botoes de build e promover -- nao tinha
+  // nenhum: quem ficava olhando ela nao via o build sair de 'running'.
+  //
+  // No layout, e nao nas paginas: o componente sobrevive a navegacao dentro
+  // do segmento (o intervalo nao reinicia a cada clique) e paginas novas
+  // sob /monitor ja nascem com refresh, sem ninguem lembrar de plugar.
+  //
+  // minIntervalMs igual ao pollMs pra que voltar pra aba nao caia na trava
+  // de 1min do padrao -- a promessa da tela passa a ser uma so: o dado
+  // nunca esta mais velho que MONITOR_REFRESH_MS, tenha a aba ficado em
+  // primeiro plano o tempo todo ou nao.
+  return (
+    <>
+      <AutoRefresh pollMs={MONITOR_REFRESH_MS} minIntervalMs={MONITOR_REFRESH_MS} />
+      {children}
+    </>
+  );
 }

@@ -1,4 +1,4 @@
-import { AGENT_VERSION } from '@/lib/monitor';
+import { AGENT_VERSION, HEARTBEAT_INTERVAL_SEC } from '@/lib/monitor';
 
 const APP_URL = process.env.AUTH_TRUST_HOST || 'http://localhost:8001';
 
@@ -254,6 +254,9 @@ DHCP_LEASES_FILE="${'$'}{DHCP_LEASES_FILE:-}"
 VERSION="${AGENT_VERSION}"
 LOG="/var/log/rcaldas-agent.log"
 PENDING_RESULTS_FILE="/etc/rcaldas-agent/pending-results.json"
+TIMER_FILE="/etc/systemd/system/rcaldas-agent.timer"
+QUIET_STAMP="/etc/rcaldas-agent/quiet-since"
+QUIET_COUNT="/etc/rcaldas-agent/quiet-count"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG" >/dev/null; }
 json_escape() { printf '%s' "$1" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g' | sed -z 's/\\n/\\\\n/g; s/\\t/\\\\t/g'; }
@@ -741,7 +744,52 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
   fi
 fi
 
-log "heartbeat ok: $response"
+# Ajusta o proprio timer quando o servidor pede outro intervalo. Host com
+# atribuicao de ci/cd (worker, deployer, proxy, router) roda na metade do
+# tempo pra pipeline andar antes; o resto da frota fica em 60s pra nao somar
+# trafego a toa. Converge sozinho -- marcar um host como worker no Monitor
+# muda o intervalo dele na proxima batida, sem reinstalar nada.
+#
+# No fim da rodada de proposito: reiniciar o timer no meio do processamento
+# de job nao derruba o servico (unidades distintas), mas nao ha motivo pra
+# arriscar. Host em cron nao tem TIMER_FILE e simplesmente ignora.
+hb_int=$(printf '%s' "$response" | sed -n 's/.*"nextIntervalSec":\\([0-9]*\\).*/\\1/p')
+if [[ "$hb_int" =~ ^[0-9]+$ && -f "$TIMER_FILE" ]]; then
+  cur_int=$(sed -n 's/^OnUnitActiveSec=\\([0-9]*\\)$/\\1/p' "$TIMER_FILE" | head -1)
+  if [[ -n "$cur_int" && "$cur_int" != "$hb_int" ]]; then
+    log "intervalo do heartbeat: ${'$'}{cur_int}s -> ${'$'}{hb_int}s"
+    sed -i "s/^OnUnitActiveSec=.*/OnUnitActiveSec=$hb_int/" "$TIMER_FILE"
+    systemctl daemon-reload 2>/dev/null && systemctl restart rcaldas-agent.timer 2>/dev/null \\
+      || log "falha ao aplicar o intervalo de $hb_int""s"
+  fi
+fi
+
+# Heartbeat silencioso. A resposta era identica batida apos batida
+# (hasJobs:false) e ainda arrastava a chave do runner inteira: 59 linhas/h
+# por host, ~1MB acumulado so no us, tudo ruido. Registrando so o que
+# ACONTECE, o host de 30s passa a gerar MENOS log do que gerava a 60s -- que
+# era a condicao pra poder acelerar a pipeline sem inchar o log.
+#
+# O rastro de vida nao se perde: sai um resumo por hora com a contagem. E
+# quem responde "o agente esta vivo?" e o lastSeen do Monitor, nao este
+# arquivo.
+if printf '%s' "$response" | grep -q '"hasJobs":true'; then
+  log "heartbeat: havia job pendente"
+else
+  agora=$(date +%s)
+  quiet_desde=$(cat "$QUIET_STAMP" 2>/dev/null || echo 0)
+  quiet_n=$(cat "$QUIET_COUNT" 2>/dev/null || echo 0)
+  [[ "$quiet_desde" =~ ^[0-9]+$ ]] || quiet_desde=0
+  [[ "$quiet_n" =~ ^[0-9]+$ ]] || quiet_n=0
+  quiet_n=$((quiet_n + 1))
+  if (( agora - quiet_desde >= 3600 )); then
+    log "heartbeat ok ($quiet_n batidas sem novidade)"
+    printf '%s' "$agora" > "$QUIET_STAMP"
+    printf '0' > "$QUIET_COUNT"
+  else
+    printf '%s' "$quiet_n" > "$QUIET_COUNT"
+  fi
+fi
 EOF
 chmod 755 "$AGENT_BIN"
 
@@ -775,13 +823,27 @@ Type=oneshot
 KillMode=process
 ExecStart=$AGENT_BIN
 EOF
+  # Preserva o ritmo que o host ja segue. Sem isto, toda atualizacao de
+  # agente jogaria um host de ci/cd de volta pros 60s ate a batida seguinte
+  # corrigir -- blip curto e auto-sanado, mas que apareceria no log a cada
+  # update e faria parecer que a marcacao no Monitor tinha se perdido.
+  hb_atual=$(sed -n 's/^OnUnitActiveSec=\\([0-9]*\\)$/\\1/p' /etc/systemd/system/rcaldas-agent.timer 2>/dev/null | head -1)
+  [[ -n "$hb_atual" ]] || hb_atual=${HEARTBEAT_INTERVAL_SEC}
   cat > /etc/systemd/system/rcaldas-agent.timer <<EOF
 [Unit]
-Description=Run RCaldas monitor agent every minute
+Description=Run RCaldas monitor agent
 
 [Timer]
 OnBootSec=30
-OnUnitActiveSec=60
+# Valor inicial. O agente reescreve esta linha sozinho quando o servidor
+# pede outro ritmo (host com atribuicao de ci/cd roda na metade do tempo),
+# entao nao adianta editar aqui a mao -- muda a marcacao no Monitor.
+#
+# AccuracySec mantido folgado de proposito: o desvio que ele permite
+# dessincroniza os hosts naturalmente, evitando que a frota inteira bata
+# no mesmo segundo -- o que importa mais agora que parte dela bate no dobro
+# da frequencia.
+OnUnitActiveSec=$hb_atual
 AccuracySec=10
 Unit=rcaldas-agent.service
 

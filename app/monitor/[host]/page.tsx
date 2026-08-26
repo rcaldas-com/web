@@ -15,7 +15,6 @@ import {
   setFirewallSectionAction,
   forceHostInfoAction,
 } from '@/lib/actions/monitor';
-import AutoRefresh from '@/app/finance/AutoRefresh';
 import ConfirmSubmit from '@/components/ConfirmSubmit';
 import SubmitButton from '@/components/SubmitButton';
 import FirewallSection from '@/app/monitor/FirewallSection';
@@ -60,7 +59,6 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
 
   return (
     <main className="min-h-screen bg-zinc-100 dark:bg-zinc-950">
-      <AutoRefresh pollMs={10_000} />
       <div className="mx-auto max-w-3xl p-6">
         <div className="mb-6 flex items-center gap-3">
           <Link href="/monitor" className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">

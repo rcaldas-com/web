@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { requireAdmin } from '@/lib/auth';
 import { listServices, getRepoStates } from '@/lib/services';
-import AutoRefresh from '@/app/finance/AutoRefresh';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -28,7 +27,6 @@ export default async function ServicosPage() {
 
   return (
     <main className="min-h-screen bg-zinc-100 dark:bg-zinc-950">
-      <AutoRefresh pollMs={30_000} />
       <div className="mx-auto max-w-5xl p-6">
         <div className="mb-6 flex items-center gap-3">
           <Link href="/monitor" className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">

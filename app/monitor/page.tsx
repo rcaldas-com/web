@@ -10,7 +10,6 @@ import {
   deleteHostAction,
   resolveIncidentAction,
 } from '@/lib/actions/monitor';
-import AutoRefresh from '@/app/finance/AutoRefresh';
 import SubmitButton from '@/components/SubmitButton';
 import HostsSection from '@/app/monitor/HostsSection';
 
@@ -50,7 +49,6 @@ export default async function MonitorPage() {
 
   return (
     <main className="min-h-screen bg-zinc-100 dark:bg-zinc-950">
-      <AutoRefresh pollMs={10_000} />
       <div className="mx-auto max-w-6xl p-6">
         <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
