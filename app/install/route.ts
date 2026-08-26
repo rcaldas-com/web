@@ -91,6 +91,45 @@ action(type="omfwd"
        queue.saveonshutdown="on"
        action.resumeRetryCount="-1")
 EOF
+
+  # O log do agente e um ARQUIVO, nao syslog -- e por isso a saida dos
+  # builds era invisivel no coletor mesmo com o host encaminhando tudo.
+  # O log() escreve com 'tee -a', e a saida dos jobs (docker build, git
+  # worktree, docker compose pull) vai por redirecionamento direto pro
+  # arquivo. Nada disso passa pelo syslog.
+  #
+  # imfile le o arquivo e injeta no fluxo, entao captura tudo que for
+  # escrito nele, independente de como foi escrito.
+  #
+  # Numerado 59 e nao 61 de proposito: o filtro abaixo precisa rodar ANTES
+  # do encaminhamento do 60-forward-central.conf, e o rsyslog avalia as
+  # regras na ordem alfabetica dos arquivos.
+  cat > /etc/rsyslog.d/59-agent-log.conf <<'AGENTLOGEOF'
+module(load="imfile")
+
+input(type="imfile"
+      File="/var/log/rcaldas-agent.log"
+      Tag="rcaldas-agent"
+      Severity="info"
+      Facility="local0"
+      # Sem isto o rsyslog reprocessa o arquivo inteiro a cada restart e
+      # duplica o historico no coletor.
+      #
+      # O arquivo de estado vai pro WorkDirectory do rsyslog.conf principal
+      # (/var/spool/rsyslog no Debian, conferido em us e bag). Se algum host
+      # nao tiver essa diretiva, o imfile grava o estado no diretorio
+      # corrente -- que sob systemd e a raiz. Se aparecer imfile-state:* em
+      # /, e' isso.
+      PersistStateInterval="200")
+
+# "heartbeat ok" e uma linha por minuto por host, com o JSON inteiro da
+# resposta -- a maior parte do volume deste arquivo, e nao informa nada
+# que o Monitor ja nao mostre melhor (lastSeen). Descartado aqui, antes de
+# ocupar banda do tunel e espaco no Loki. A FALHA continua passando, que e
+# a linha que importa.
+if $programname == "rcaldas-agent" and $msg contains "heartbeat ok:" then stop
+AGENTLOGEOF
+
   systemctl restart rsyslog &> /dev/null || true
 fi
 

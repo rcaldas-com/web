@@ -16,7 +16,7 @@ import redis from './redis';
 // AGENT_BIN mudar -- nao mudar isso foi o motivo do host-info ter ficado
 // invisivel: o codigo novo foi adicionado sem bump, entao nenhum host
 // existente jamais teria motivo pra se atualizar sozinho.
-export const AGENT_VERSION = '2.12.0';
+export const AGENT_VERSION = '2.13.0';
 
 // Ritmo da frota. O agente le nextIntervalSec do heartbeat e reescreve o
 // proprio timer quando muda, entao trocar estes numeros (ou marcar um host
