@@ -19,6 +19,7 @@ type Host = {
     diskVarLogPct?: number | null;
   };
   capabilities?: string[];
+  version?: string;
   monitoring?: { enabled?: boolean };
   ddnsEnabled?: boolean;
   tunnelEnabled?: boolean;
@@ -40,10 +41,11 @@ function formatDate(value?: string) {
   }).format(new Date(value));
 }
 
-// Texto pesquisavel de um host: nome, status, IP e capacidades, tudo
-// minusculo -- mesmo padrao do filtro de usuarios em configuracoes.
+// Texto pesquisavel de um host: nome, status, versao, IP e capacidades,
+// tudo minusculo -- mesmo padrao do filtro de usuarios em configuracoes.
+// A versao entra pra dar 'quem ainda nao atualizou' numa busca so'.
 function haystack(host: Host): string {
-  return `${host.name} ${host.status ?? ''} ${host.network?.publicIp ?? ''} ${host.network?.ipv4 ?? ''} ${host.lastIp ?? ''} ${(host.capabilities ?? []).join(' ')}`.toLowerCase();
+  return `${host.name} ${host.status ?? ''} ${host.version ?? ''} ${host.network?.publicIp ?? ''} ${host.network?.ipv4 ?? ''} ${host.lastIp ?? ''} ${(host.capabilities ?? []).join(' ')}`.toLowerCase();
 }
 
 export default function HostsSection({
@@ -120,7 +122,8 @@ export default function HostsSection({
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Ultimo heartbeat</th>
               <th className="px-4 py-3">IP</th>
-              <th className="px-4 py-3">Carga</th>
+              <th className="px-4 py-3">Agente</th>
+                <th className="px-4 py-3">Carga</th>
               <th className="px-4 py-3">Disco</th>
               <th className="px-4 py-3">DDNS</th>
               <th className="px-4 py-3">Túnel</th>
@@ -155,6 +158,7 @@ export default function HostsSection({
                 <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${statusClass(host.status)}`}>{host.status}</span></td>
                 <td className="px-4 py-3">{formatDate(host.lastSeen)}</td>
                 <td className="px-4 py-3">{host.network?.publicIp || host.network?.ipv4 || host.lastIp || '-'}</td>
+                <td className="px-4 py-3 text-xs">{host.version ?? '-'}</td>
                 <td className="px-4 py-3">{host.system?.load1 ?? '-'}</td>
                 <td className="px-4 py-3">
                   {host.system?.diskRootPct != null ? `${host.system.diskRootPct}%` : '-'}

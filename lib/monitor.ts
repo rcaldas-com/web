@@ -610,6 +610,18 @@ export async function enqueueDeployJobs(): Promise<string[]> {
       { $set: { host: alvo.name, type: 'deploy', status: 'pending' }, $setOnInsert: { createdAt: now } },
       { upsert: true }
     );
+    // Inventario junto, pra tela nao mentir enquanto espera.
+    //
+    // O selo "em producao" compara a tag do build com observed.declaredImage,
+    // que so' e' atualizado pelo job service-inventory -- agendado a cada
+    // 30min. Sem este pedido, logo depois de promover a pagina continua
+    // mostrando a tag antiga e oferecendo "promover" no build que ACABOU de
+    // ir pra producao. Parece que o clique nao funcionou.
+    await db.collection<AgentJob>('monitor_agent_jobs').updateOne(
+      { host: alvo.name, type: 'service-inventory', status: 'pending' },
+      { $set: { host: alvo.name, type: 'service-inventory', status: 'pending' }, $setOnInsert: { createdAt: now } },
+      { upsert: true }
+    );
   }
   return alvos.map((a) => a.name);
 }
