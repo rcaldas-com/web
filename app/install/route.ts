@@ -697,8 +697,16 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
               # build nao cabe num campo de JSON do heartbeat, e ja esta no
               # Loki de qualquer forma.
               jmsg="build falhou: $(tail -3 "$LOG" | tr '\\n' ' ' | tail -c 300)"
-            elif ! docker push "$b_image:$b_tag" >> "$LOG" 2>&1; then
-              jmsg="push falhou: $(tail -3 "$LOG" | tr '\\n' ' ' | tail -c 300)"
+            # Push com uma segunda tentativa: docker push e' idempotente
+            # (reenvia so' o que faltou) e a falha aqui costuma ser rede,
+            # nao imagem. Isso importa porque falha QUEIMA o sha --
+            # lastAttemptedSha impede o polling de reconstruir, entao um
+            # timeout de upload deixaria o commit sem imagem ate alguem
+            # clicar. Ja aconteceu: push do web pelo tp, "net/http: timeout
+            # awaiting response headers", em internet residencial.
+            elif ! { docker push "$b_image:$b_tag" >> "$LOG" 2>&1 || \
+                     { sleep 5; docker push "$b_image:$b_tag" >> "$LOG" 2>&1; }; }; then
+              jmsg="push falhou 2x: $(tail -3 "$LOG" | tr '\\n' ' ' | tail -c 300)"
             else
               jstatus="ok"; jmsg="$b_image:$b_tag"
               info_result=",{\\"id\\":\\"build\\",\\"type\\":\\"build\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$jid $b_sha $b_tag $b_image:$b_tag")\\"}"
