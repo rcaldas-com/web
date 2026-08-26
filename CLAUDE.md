@@ -29,7 +29,12 @@ That repo/service is retired (not deleted — candidate for archival).
   provisioned host also gets monitoring/DDNS in one command.
 - `GET /install` (`app/install/route.ts`) — monitoring/DDNS agent only
   (for hosts that don't need full provisioning). Installs a systemd timer
-  that heartbeats every 60s to `/heartbeat`, and processes `tunnel` jobs
+  that heartbeats to `/heartbeat` every 60s — or every 30s where the host
+  has an attribution on the pipeline (build worker, deploy target, proxy
+  or router role). The interval is **not** fixed at install time: the
+  server returns `nextIntervalSec` per host and the agent rewrites its own
+  timer when it changes, so ticking "worker" in the UI re-paces that host
+  on its next beat with no reinstall. See `CICD.md`. Also processes `tunnel` jobs
   returned in the heartbeat response to open on-demand SSH reverse
   tunnels.
 - `GET /monitor` (`app/monitor/page.tsx`, admin-only) — dashboard: list

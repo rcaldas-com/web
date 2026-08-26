@@ -156,6 +156,36 @@ builds no mesmo worker não disputam o daemon.
 Mesmo padrão da varredura de hosts offline: pendurado no heartbeat, trava
 no Redis, 5 min.
 
+#### Onde a latência mora
+
+O agente manda o resultado de um job na batida **seguinte** à que o
+processou (`pending-results.json` só sobe no próximo heartbeat), então o
+intervalo entra cinco vezes no ciclo — não uma:
+
+| passo | espera |
+|---|---|
+| trava do polling detectar o commit | até 290s |
+| worker pega o `repo-heads` | 1 batida |
+| worker reporta o `repo-heads` | 1 batida |
+| worker pega o `build` | 1 batida |
+| worker reporta o build (dispara a promoção) | 1 batida |
+| `us` pega o `deploy` | 1 batida |
+
+Daí o ritmo ser por host (`HEARTBEAT_FAST_INTERVAL_SEC`, 30s) em vez de
+global: as cinco batidas acontecem só em quem constrói, implanta, roteia
+ou serve de proxy. Dobrar a frequência da frota inteira pagaria tráfego em
+host que não participa de nenhum desses passos.
+
+O agente lê `nextIntervalSec` do heartbeat e reescreve o próprio timer
+quando o valor muda — marcar um host como worker na UI muda o ritmo dele
+na batida seguinte, sem reinstalar nada, e o instalador preserva o ritmo
+já em uso a cada atualização de agente.
+
+> Condição para isso: o log do agente teve que parar de registrar a
+> resposta inteira do heartbeat a cada batida (59 linhas/h por host, ~1MB
+> só no `us`, todas idênticas). Registrando só o que **acontece**, mais um
+> resumo por hora, o host de 30s gera menos log do que gerava a 60s.
+
 **Sem token do GitHub:** o worker já tem a chave e `git ls-remote` não tem
 rate limit. O agente reporta os `HEAD` dos repos como result leve, e o
 servidor compara com o último buildado.
