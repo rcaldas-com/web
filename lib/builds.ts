@@ -140,6 +140,25 @@ export async function lastAttemptedSha(service: string): Promise<string | null> 
   return doc?.sha ?? null;
 }
 
+/**
+ * Ultimo build BEM-SUCEDIDO com tag, se houver.
+ *
+ * Existe pra resolver um caso que so' aparece na pratica: marcar
+ * auto-promocao depois que o build ja terminou. O gancho normal roda no
+ * fim do build, entao ligar a caixa depois nao promovia nada, e o polling
+ * tambem nao reconstruia (o SHA nao mudou) -- o servico ficava com imagem
+ * nova pronta e tag velha em producao, esperando um commit que talvez
+ * demorasse dias.
+ */
+export async function latestSuccessfulBuild(service: string): Promise<{ tag: string; sha?: string } | null> {
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db
+    .collection<MonitorBuild>('monitor_builds')
+    .findOne({ service, status: 'ok', tag: { $exists: true } }, { sort: { startedAt: -1 } });
+  return doc?.tag ? { tag: doc.tag, sha: doc.sha } : null;
+}
+
 export async function hasRunningBuild(service: string): Promise<boolean> {
   const client = await clientPromise;
   const db = client.db();
