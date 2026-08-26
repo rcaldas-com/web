@@ -64,6 +64,11 @@ export async function POST(request: Request) {
       // responde "quanto?" sem abrir o Grafana.
       detail: [anot.description, a.valueString].filter(Boolean).join(' | ') || undefined,
       severity: labels.severity === 'critical' ? 'critical' : 'warning',
+      // Vem da annotation `logFilter` da regra. Sem ela o email traz as
+      // ultimas linhas do servico em vez das linhas que dispararam o
+      // alerta -- pro haproxy isso e' log de acesso comum, sem relacao
+      // nenhuma com o assunto.
+      logFilter: anot.logFilter,
     });
     resultados.push(`${r.key}:${r.acao}`);
   }

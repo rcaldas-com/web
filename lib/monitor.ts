@@ -510,6 +510,14 @@ export async function handleLogAlert(alerta: {
   summary: string;
   detail?: string;
   severity?: MonitorIncident['severity'];
+  // Filtro de linha LogQL da regra que disparou -- ex:
+  // '|~ `(?i)error` != `Cannot polyfill`'.
+  //
+  // Sem ele o email trazia as ULTIMAS linhas do servico, nao as linhas do
+  // PROBLEMA: pro haproxy isso e' log de acesso comum, que nada tem a ver
+  // com o assunto do alerta. Viaja junto da regra (annotation) de
+  // proposito -- assim regra e email nao divergem por construcao.
+  logFilter?: string;
 }) {
   const client = await clientPromise;
   const db = client.db();
@@ -533,9 +541,10 @@ export async function handleLogAlert(alerta: {
     // avaliacao. Sem isto o assunto do email mudaria a cada re-ocorrencia
     // e o Gmail nunca agruparia abertura e resolucao na mesma conversa.
     emailSubject: `erro no log de ${alerta.service || alerta.host}`,
-    logSelector: alerta.service
-      ? `{host="${alerta.host}", service="${alerta.service}"}`
-      : `{host="${alerta.host}"}`,
+    logSelector:
+      (alerta.service
+        ? `{host="${alerta.host}", service="${alerta.service}"}`
+        : `{host="${alerta.host}"}`) + (alerta.logFilter ? ` ${alerta.logFilter}` : ''),
   });
   return { key, acao: 'aberto' as const };
 }
