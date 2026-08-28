@@ -1885,6 +1885,26 @@ export function renderNftablesSuggestion(plan: FirewallPlan): string {
   // atomico, isolado, sem `flush ruleset`. Sem isso, cada ajuste exigiria
   // recarregar este arquivo, que apaga as regras do Docker e do fail2ban
   // junto -- e o fail2ban falha calado.
+  // Chains PESSOAIS, sempre declaradas e sempre vazias aqui. O conteudo
+  // mora em /etc/nftables.d/local-*.conf, que esta sugestao NUNCA escreve.
+  //
+  // E' o que torna seguro reaplicar: o arquivo principal pode ser
+  // regerado quantas vezes for, que o ajuste feito a mao continua onde
+  // estava. Sem isso, "reaplicar a sugestao" e "perder minhas regras" sao
+  // a mesma acao -- e ai ninguem reaplica, e a sugestao apodrece.
+  //
+  // Declaradas mesmo vazias de proposito: o jump precisa de alvo existente,
+  // e o `flush chain` do drop-in precisa achar a chain. Chain vazia nao
+  // custa nada -- o pacote atravessa e volta.
+  const chainsPessoais = [
+    '\tchain local_input {',
+    '\t}',
+    '\tchain local_forward {',
+    '\t}',
+    '\tchain local_output {',
+    '\t}',
+  ].join('\n') + '\n';
+
   const chainsRouter: string[] = [];
   if (ehRouter) {
     chainsRouter.push('\tchain home_lan_input {', '\t}');
@@ -1915,7 +1935,16 @@ export function renderNftablesSuggestion(plan: FirewallPlan): string {
   // Glob com prefixo `home-` de proposito: o diretorio pode conter
   // drop-ins de outra convencao (statements soltos pra viver DENTRO de uma
   // chain), e misturar os dois formatos quebra na primeira carga.
-  const blocoInclude = ehRouter ? '\ninclude "/etc/nftables.d/home-*.conf"\n' : '';
+  // Os locais entram SEMPRE; os do router so' quando ha router. Dois globs
+  // separados, e nao um `*.conf`, porque o diretorio pode receber drop-in
+  // de outra convencao e misturar formatos quebra na primeira carga.
+  //
+  // Depois do bloco que declara as chains, obrigatoriamente: antes, o
+  // `flush chain` do drop-in nao acha o alvo e o nft aborta a carga
+  // inteira.
+  const blocoInclude =
+    '\ninclude "/etc/nftables.d/local-*.conf"\n' +
+    (ehRouter ? 'include "/etc/nftables.d/home-*.conf"\n' : '');
 
   const blocoNat =
     plan.role === 'home' && plan.wanIface
@@ -1972,7 +2001,7 @@ table ip router_nat {
 flush ruleset
 
 table inet filter {
-${blocoSets}${blocoChainsRouter}
+${blocoSets}${chainsPessoais}${blocoChainsRouter}
 \tchain input {
 \t\ttype filter hook input priority filter; policy drop;
 
@@ -2002,6 +2031,18 @@ ${blocoSets}${blocoChainsRouter}
 ${regras.map((l) => `\t\t${l}`).join('\n')}
 \t\t# --- fim das regras do papel ---
 
+\t\t# Ajustes seus. O conteudo vem de /etc/nftables.d/local-input.conf,
+\t\t# que esta sugestao nunca escreve -- da' pra reaplicar tudo isto sem
+\t\t# perder o que voce mexeu a mao.
+\t\t#
+\t\t# A POSICAO importa e foi escolhida: depois dos accepts padrao e da
+\t\t# lista de bloqueio (entao um IP bloqueado continua bloqueado, mesmo
+\t\t# que voce libere a porta dele aqui) e antes do contador/log (entao o
+\t\t# que voce aceitar nao polui a amostra de trafego dropado). Se
+\t\t# precisar passar na frente do bloqueio, mova o jump pra cima --
+\t\t# sabendo do que abre mao.
+\t\tjump local_input
+
 \t\t# Contador = CENSO do que e' dropado; o log abaixo e' AMOSTRA (tem
 \t\t# limite). Pra "quantos pacotes?" olhe o contador; pra "o que
 \t\t# exatamente esta chegando?" olhe o log.
@@ -2024,10 +2065,15 @@ ${regras.map((l) => `\t\t${l}`).join('\n')}
 \t\t# Isso vale MESMO num router. Verificado em netns: com duas base
 \t\t# chains no mesmo hook, um 'drop' em qualquer uma e' terminal --
 \t\t# entao uma tabela extra com policy drop derrubaria o Docker daqui.
-\t\ttype filter hook forward priority filter; policy accept;${blocoForward}\t}
+\t\ttype filter hook forward priority filter; policy accept;${blocoForward}
+\t\tjump local_forward
+\t}
 
 \tchain output {
 \t\ttype filter hook output priority filter; policy accept;
+\t\t# Raramente usado (a policy ja e' accept), mas custa uma linha e evita
+\t\t# ter que reescrever o arquivo no dia em que precisar bloquear saida.
+\t\tjump local_output
 \t}
 }
 ${blocoNat}${blocoInclude}`;

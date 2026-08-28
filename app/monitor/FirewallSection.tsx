@@ -15,6 +15,55 @@ function formatPortRules(rules: PortRuleLike[]): string {
     .join(' ');
 }
 
+// Botao de copiar. Fica sobreposto ao canto do <pre> em vez de acima dele
+// pra nao empurrar o conteudo -- ganha lugar sem custar altura, que e'
+// escassa nesta pagina.
+function BotaoCopiar({ texto, titulo }: { texto: string; titulo: string }) {
+  const [copiado, setCopiado] = useState(false);
+
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(texto);
+    } catch {
+      // clipboard exige contexto seguro (https ou localhost). Se falhar,
+      // seleciona o texto pra que Ctrl+C ainda resolva -- pior que copiar
+      // sozinho, melhor que um botao que nao faz nada e nao explica.
+      const alvo = document.getElementById(titulo);
+      if (alvo) {
+        const faixa = document.createRange();
+        faixa.selectNodeContents(alvo);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(faixa);
+      }
+      return;
+    }
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 1500);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copiar}
+      title={copiado ? 'copiado' : 'copiar para a área de transferência'}
+      aria-label={copiado ? 'copiado' : 'copiar para a área de transferência'}
+      className="absolute right-2 top-2 rounded border border-zinc-300 bg-white/90 p-1 text-zinc-600 opacity-70 transition hover:opacity-100 dark:border-zinc-700 dark:bg-zinc-900/90 dark:text-zinc-300"
+    >
+      {copiado ? (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 export default function FirewallSection({
   hostName,
   initialRole,
@@ -146,9 +195,15 @@ export default function FirewallSection({
           {routerDropins.map((f) => (
             <div key={f.path}>
               <p className="mb-1 font-mono text-xs text-zinc-500 dark:text-zinc-400">{f.path}</p>
-              <pre className="overflow-auto rounded bg-zinc-100 p-3 text-xs text-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
-                {f.content}
-              </pre>
+              <div className="relative">
+                <BotaoCopiar texto={f.content} titulo={f.path} />
+                <pre
+                  id={f.path}
+                  className="overflow-auto rounded bg-zinc-100 p-3 pr-10 text-xs text-zinc-800 dark:bg-zinc-950 dark:text-zinc-200"
+                >
+                  {f.content}
+                </pre>
+              </div>
             </div>
           ))}
         </div>
@@ -165,9 +220,15 @@ export default function FirewallSection({
           </span>
           Sugestão de nftables.conf pra este host
         </summary>
-        <pre className="mt-2 max-h-96 overflow-auto rounded bg-zinc-100 p-3 text-xs text-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
-          {suggestion}
-        </pre>
+        <div className="relative mt-2">
+          <BotaoCopiar texto={suggestion} titulo="sugestao-nftables" />
+          <pre
+            id="sugestao-nftables"
+            className="max-h-96 overflow-auto rounded bg-zinc-100 p-3 pr-10 text-xs text-zinc-800 dark:bg-zinc-950 dark:text-zinc-200"
+          >
+            {suggestion}
+          </pre>
+        </div>
       </details>
     </section>
   );
