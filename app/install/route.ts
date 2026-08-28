@@ -51,7 +51,22 @@ chmod 700 "$CONFIG_DIR"
 
 DEFAULT_HOST="${'$'}{HOST_NAME:-$(hostname -s 2>/dev/null || hostname)}"
 HOST_NAME="${'$'}(ask 'Nome do host para o monitor' "$DEFAULT_HOST")"
-AGENT_TOKEN="${'$'}(ask 'Token do agente (vazio para primeiro cadastro)' "${'$'}{AGENT_TOKEN:-}")"
+# Token: so' pergunta quando NAO existe um. Perguntar com o token atual
+# como default tinha dois problemas -- imprimia o segredo em texto claro no
+# terminal (o ask() ecoa o default no prompt) e deixava ambiguo o que
+# "enter" faz. Foi assim que o m2 acabou reinstalado sem token: a primeira
+# execucao nao chegou a registrar, a segunda perguntou, e nao havia como
+# saber que a resposta certa era vazio mesmo.
+#
+# Token nao e' coisa que alguem escolhe: o servidor emite no primeiro
+# heartbeat e o agente grava sozinho aqui. Digitar so' faz sentido pra
+# mover um host ja cadastrado -- e pra isso da' pra exportar AGENT_TOKEN
+# antes de rodar, que o source acima respeita.
+if [[ -n "${'$'}{AGENT_TOKEN:-}" ]]; then
+  echo "Token do agente: ja cadastrado, mantendo."
+else
+  AGENT_TOKEN="${'$'}(ask 'Token do agente (vazio para primeiro cadastro)' '')"
+fi
 DEFAULT_TUNNEL="sim"
 [[ "${'$'}{ENABLE_TUNNEL:-}" == "false" ]] && DEFAULT_TUNNEL="nao"
 ENABLE_TUNNEL="${'$'}(ask_bool 'Habilitar tunel SSH reverso' "$DEFAULT_TUNNEL")"
@@ -866,7 +881,17 @@ EOF
   # agente jogaria um host de ci/cd de volta pros 60s ate a batida seguinte
   # corrigir -- blip curto e auto-sanado, mas que apareceria no log a cada
   # update e faria parecer que a marcacao no Monitor tinha se perdido.
-  hb_atual=$(sed -n 's/^OnUnitActiveSec=\\([0-9]*\\)$/\\1/p' /etc/systemd/system/rcaldas-agent.timer 2>/dev/null | head -1)
+  # O fallback com 'echo' NAO e' zelo: num host NOVO o .timer ainda nao existe, o
+  # sed sai diferente de zero, o pipefail propaga isso pro
+  # pipeline, e o set -e mata o instalador AQUI -- depois de gravar o
+  # .service e antes de gravar o .timer. O agente fica instalado e nunca
+  # roda, sem timer e sem log, e o host aparece eternamente offline no
+  # Monitor. Foi exatamente o que aconteceu com o m2.
+  #
+  # Hosts que ja tinham o .timer nao viam o problema (o sed achava o
+  # arquivo e devolvia zero), entao a frota inteira mascarava o bug: so'
+  # quebrava em host novo, que e' justamente quando ninguem esta olhando.
+  hb_atual=$(sed -n 's/^OnUnitActiveSec=\\([0-9]*\\)$/\\1/p' /etc/systemd/system/rcaldas-agent.timer 2>/dev/null | head -1 || echo "")
   [[ -n "$hb_atual" ]] || hb_atual=${HEARTBEAT_INTERVAL_SEC}
   cat > /etc/systemd/system/rcaldas-agent.timer <<EOF
 [Unit]

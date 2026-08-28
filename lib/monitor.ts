@@ -1431,10 +1431,23 @@ export async function registerLegacyPing(hostName: string, headers: Headers): Pr
     lastSeen: now,
     updatedAt: now,
     tunnelPort: port,
-    capabilities: ['tunnel-legacy'],
     network,
     lastIp: ip,
   };
+
+  // NAO carimba 'tunnel-legacy' num host que ja tem agente novo. Este
+  // endpoint roda a cada ping do zxnet e sobrescrevia as capabilities
+  // reais toda vez, deixando o host eternamente marcado como legado mesmo
+  // depois de migrado -- exatamente o que se viu no rec02 depois de rodar
+  // o /init nele.
+  //
+  // `version` so' existe quando um heartbeat do agente NOVO chegou, entao
+  // e' o sinal de migracao. Enquanto nao houver, a marca continua valendo
+  // -- e ai ela e' informacao util, nao ruido: diz que aquele host ainda
+  // esta so' no protocolo antigo.
+  if (!existing.version) {
+    set.capabilities = ['tunnel-legacy'];
+  }
 
   // DDNS NAO sai daqui de proposito. Como este endpoint nao autentica
   // ninguem, quem chamasse /ping?host=X apontaria o DNS de X pro proprio
