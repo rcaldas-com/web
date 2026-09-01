@@ -892,8 +892,25 @@ export async function toggleMonthCardInvoicePaid(
     if (nowPaid) invoices[idx].paidFromBank = paidFromBank;
     else delete invoices[idx].paidFromBank;
   } else {
+    // `invoiceTotal` chega aqui como o valor EXIBIDO (base + ajustes), mas
+    // este campo guarda a BASE -- getOrInitMonthCardInvoices soma os ajustes
+    // por cima na hora de exibir. Gravar o exibido faz o ajuste ser contado
+    // duas vezes, e a fatura DOBRA assim que a tela recarrega.
+    //
+    // Acontecia so' no primeiro pagamento de um mes ainda nao tocado (que e'
+    // quando nao ha registro e cai neste ramo) e so' em cartao cujo valor
+    // vem de ajuste, nao de parcela -- por isso passou tanto tempo sem
+    // aparecer. Caso real: fatura MP de 119,69, sem parcelas, paga no mes
+    // seguinte -- base 0 + ajuste 119,69 exibia certo, e depois de paga
+    // virava 239,38. A baixa no banco usou o valor certo; so' o que ficou
+    // gravado estava errado.
+    //
+    // Mesma conversao que updateMonthInvoice ja faz (entered - existingAdj).
+    // O doc ja esta carregado, entao nao custa consulta nova.
+    const adj = (doc?.cardExpenseAdjustments as { cardId: string; amount: number }[] | undefined)
+      ?.find(a => a.cardId === cardId)?.amount ?? 0;
     nowPaid = true;
-    invoices.push({ cardId, cardName, invoiceTotal, paid: true, paidFromBank });
+    invoices.push({ cardId, cardName, invoiceTotal: round2(invoiceTotal - adj), paid: true, paidFromBank });
   }
 
   await db.collection('financeMonth').updateOne(

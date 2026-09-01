@@ -4,11 +4,13 @@ import { listServices } from './services';
 import { hasRunningBuild, lastAttemptedSha, startBuild } from './builds';
 import { enqueueBuildJob, enqueueRepoHeadsJob, pickBuildWorker } from './monitor';
 
-// Intervalo entre leituras do HEAD remoto. Cinco minutos e' folgado de
-// proposito: o custo de descobrir um commit 5 min depois e' zero, e o de
-// martelar os repos e os workers nao e'.
+// Intervalo entre leituras do HEAD remoto. Era o maior termo isolado da
+// latencia da pipeline: as batidas somadas dao ~2,5min e esta trava sozinha
+// dava ate 5. Cortada pela metade porque o custo real e' baixo -- um
+// git ls-remote por repo, sem API e sem rate limit, num worker que ja esta
+// de pe. O teto continua existindo pra nao martelar os repos a cada batida.
 const POLL_LOCK = 'monitor:repo-poll';
-const POLL_LOCK_TTL = 290;
+const POLL_LOCK_TTL = 150;
 
 /**
  * Pede a um worker que leia o HEAD remoto dos repos que a gente builda.

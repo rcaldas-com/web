@@ -147,6 +147,15 @@ export default function DashboardClient({
     : 0;
   const projectedAfterSalary = effectiveBalance + pendingSalary;
 
+  // O numero grande e' o saldo JA CONTANDO o salario que ainda vai cair.
+  //
+  // Antes do dia do pagamento, o saldo sem o salario nao descreve nenhuma
+  // situacao real: e' um vale temporario que some no dia 7 e nao e' com
+  // base nele que se decide nada. Quem continua do mes anterior, e quem
+  // vale pelo resto do mes, e' este. O saldo cru vira so a nota que
+  // explica de onde vem -- nao um numero concorrente na tela.
+  const heroBalance = pendingSalary > 0 ? projectedAfterSalary : effectiveBalance;
+
   return (
     <ActionsContext.Provider value={actions}>
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-4">
@@ -188,25 +197,19 @@ export default function DashboardClient({
 
       {/* Hero: Saldo Disponível + Saldo Mês na mesma linha */}
       <div className="grid grid-cols-3 gap-4">
-        <div className={`col-span-2 rounded-lg p-5 text-center ${effectiveBalance >= 0 ? 'bg-green-50 border border-green-200 dark:border-green-900/60 dark:bg-green-950/30' : 'bg-red-50 border border-red-200 dark:border-red-900/60 dark:bg-red-950/30'}`}>
+        <div className={`col-span-2 rounded-lg p-5 text-center ${heroBalance >= 0 ? 'bg-green-50 border border-green-200 dark:border-green-900/60 dark:bg-green-950/30' : 'bg-red-50 border border-red-200 dark:border-red-900/60 dark:bg-red-950/30'}`}>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">Saldo Disponível</p>
-          <p className={`text-3xl font-bold ${effectiveBalance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-            {BRL(effectiveBalance)}
+          <p className={`text-3xl font-bold ${heroBalance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+            {BRL(heroBalance)}
           </p>
           <p className="text-xs text-zinc-400 mt-1 dark:text-zinc-500">
-            {isCurrentMonth
-              ? <>saldo {BRL(bankTotal)} − à vista {BRL(unpaidCash)} − faturas {BRL(unpaidInvoices)}{advanceDeducted > 0 && <> − adiant. {BRL(advanceDeducted)}</>}</>
-              : <>projeção a partir do saldo atual</>
+            {pendingSalary > 0
+              ? <>previsto após salário no dia {profile.salary.paymentDay}</>
+              : isCurrentMonth
+                ? <>saldo {BRL(bankTotal)} − à vista {BRL(unpaidCash)} − faturas {BRL(unpaidInvoices)}{advanceDeducted > 0 && <> − adiant. {BRL(advanceDeducted)}</>}</>
+                : <>projeção a partir do saldo atual</>
             }
           </p>
-          {pendingSalary > 0 && (
-            <div className="mt-3 rounded-md border border-zinc-200 bg-white/70 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900/70">
-              <span className="text-zinc-500 dark:text-zinc-400">Após salário previsto dia {profile.salary.paymentDay}: </span>
-              <span className={`font-mono font-semibold ${projectedAfterSalary >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                {BRL(projectedAfterSalary)}
-              </span>
-            </div>
-          )}
         </div>
         <div className={`rounded-lg p-5 text-center border ${monthBalance >= 0 ? 'bg-zinc-50 border-zinc-200 dark:border-zinc-800 dark:bg-zinc-900' : 'bg-red-50/50 border-red-100 dark:border-red-900/60 dark:bg-red-950/30'}`}>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">Saldo do Mês</p>
