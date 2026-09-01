@@ -419,6 +419,11 @@ fi
 # reportado no heartbeat, e usado abaixo pra decidir se precisa abrir,
 # trocar ou derrubar, sem depender de nenhum job vindo do servidor.
 active_port=$(ps -Af | grep -- '-fNR ' | grep "$TUNNEL_RELAY" | grep -v grep | sed -n 's/.*-fNR \\([0-9]*\\):.*/\\1/p' | head -1 || true)
+# Para ONDE o tunel aponta deste lado, nao so' em que porta ele escuta do
+# outro. Um tunel pode estar "aberto" e nao levar a lugar nenhum: se
+# apontar pra uma porta onde nao ha sshd, quem chega pelo relay leva
+# connection reset. Comparar so' a porta remota nunca detecta isso.
+active_local=$(ps -Af | grep -- '-fNR ' | grep "$TUNNEL_RELAY" | grep -v grep | sed -n 's/.*-fNR [0-9]*:[^:]*:\\([0-9]*\\).*/\\1/p' | head -1 || true)
 
 payload=$(cat <<JSON
 {
@@ -491,16 +496,34 @@ if [[ "$ENABLE_TUNNEL" == "true" ]]; then
   wanted_port=$(printf '%s' "$response" | sed -n 's/.*"tunnel":{"enabled":true,"port":\\([0-9]*\\).*/\\1/p')
 fi
 
+# Porta onde o sshd DESTE host escuta. Descoberta, nunca fixa: a frota usa
+# 8422, mas um host novo pode estar em 22 antes de o /init trocar.
+#
+# Sem fallback de proposito. O fallback pra 22 que existia aqui criava um
+# tunel quebrado e PERMANENTE: o agente sobe junto com o boot e chega neste
+# ponto antes de o sshd terminar de subir (medido no r64: boot 02:20:51,
+# tunel aberto 02:21:07, 16s depois), a deteccao volta vazia, o tunel abre
+# apontando pra 127.0.0.1:22 -- onde nao ha nada -- e a reconciliacao nunca
+# mais mexe nele, porque a porta REMOTA esta certa. Resultado: o Monitor
+# mostra tunel de pe, e todo acesso por ele (inclusive o backup) falha com
+# connection reset. Vazio agora significa "tenta de novo no proximo ciclo",
+# 60s depois, com o sshd ja no ar.
+local_ssh_port=$(ss -4tlnp 2>/dev/null | awk '/sshd/ {print $4}' | sed 's/.*://' | head -1)
+
 if [[ -n "$active_port" && "$active_port" != "$wanted_port" ]]; then
   log "derrubando tunel na porta $active_port (desejado: ${'$'}{wanted_port:-nenhum})"
   pkill -f -- "-fNR $active_port:.*$TUNNEL_RELAY" &> /dev/null || true
   active_port=""
+elif [[ -n "$active_port" && -n "$local_ssh_port" && -n "$active_local" && "$active_local" != "$local_ssh_port" ]]; then
+  # Mesma porta remota, alvo local errado -- o caso do tunel que existe e
+  # nao serve pra nada. Derruba pra reabrir apontando certo logo abaixo.
+  log "tunel na porta $active_port aponta pro 127.0.0.1:$active_local, mas o sshd esta em $local_ssh_port -- reabrindo"
+  pkill -f -- "-fNR $active_port:.*$TUNNEL_RELAY" &> /dev/null || true
+  active_port=""
 fi
 
-if [[ -n "$wanted_port" && -z "$active_port" ]]; then
-  log "abrindo tunel reverso na porta $wanted_port via $TUNNEL_RELAY"
-  local_ssh_port=$(ss -4tlnp 2>/dev/null | awk '/sshd/ {print $4}' | cut -d: -f2 | head -1)
-  local_ssh_port="${'$'}{local_ssh_port:-22}"
+if [[ -n "$wanted_port" && -z "$active_port" && -n "$local_ssh_port" ]]; then
+  log "abrindo tunel reverso na porta $wanted_port via $TUNNEL_RELAY (sshd local em $local_ssh_port)"
   # O mesmo processo ssh leva as duas direcoes: -R da acesso ao host, -L
   # leva o syslog daqui pro coletor do us. Um processo so, reaproveitando
   # o loop de reconciliacao que ja se auto-recupera -- e nenhuma porta
@@ -510,6 +533,11 @@ if [[ -n "$wanted_port" && -z "$active_port" ]]; then
       -L "$LOG_FORWARD_PORT:127.0.0.1:514" \
       -p "$TUNNEL_RELAY_PORT" "zxnet@$TUNNEL_RELAY" 2>>"$LOG" \
       || log "falha ao abrir tunel na porta $wanted_port"
+elif [[ -n "$wanted_port" && -z "$active_port" && -z "$local_ssh_port" ]]; then
+  # Nao da' pra abrir sem saber pra onde apontar. Silencio aqui seria pior
+  # que o bug antigo: o tunel simplesmente nunca subiria e nada diria por
+  # que. Normal nos primeiros segundos de boot; persistente e' problema.
+  log "sshd local ainda nao esta escutando -- adiando o tunel pro proximo ciclo"
 fi
 
 # Jobs: o heartbeat so avisa que existe algo; o conteudo vem daqui. Cada
@@ -674,6 +702,18 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
         rh_repos=$(printf '%s' "$job" | sed -n 's/.*"repos":"\\([^"]*\\)".*/\\1/p')
         rh_root="/var/rcaldas/rcaldas"
         rh_git="git -c safe.directory=*"
+        # Operacao de REDE vai pelo usuario rcaldas, nao pelo root: e' ele
+        # que tem a chave do GitHub e o insteadOf que troca https por ssh.
+        # Como root nao tem chave nenhuma, repo privado pedia usuario e
+        # morria em silencio (o repo sumia do mapa e o servico nunca
+        # buildava). Passou despercebido porque so' o car e' privado -- os
+        # outros quatro sao publicos e a leitura anonima por https
+        # funcionava mesmo sem chave.
+        #
+        # Mesmo runuser que o job de deploy ja usa. Nao da pra resolver
+        # so' com insteadOf global: sem chave no root ela transformaria os
+        # quatro que hoje funcionam em Permission denied.
+        rh_run="/usr/sbin/runuser -u rcaldas -- env HOME=/var/rcaldas"
         rh_tmp="/tmp/rcaldas-repo-heads.$$"
         log "job $jid: lendo HEAD remoto de $rh_repos"
         if [[ -z "$rh_repos" ]]; then
@@ -682,7 +722,7 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
           : > "$rh_tmp"
           for rh_r in $(printf '%s' "$rh_repos" | tr ',' ' '); do
             [[ -e "$rh_root/$rh_r/.git" ]] || continue
-            rh_sha=$(cd "$rh_root/$rh_r" && ${'$'}rh_git ls-remote origin HEAD 2>/dev/null | awk '{print $1}' | head -1 || echo "")
+            rh_sha=$(${'$'}rh_run ${'$'}rh_git -C "$rh_root/$rh_r" ls-remote origin HEAD 2>/dev/null | awk '{print $1}' | head -1 || echo "")
             [[ -n "$rh_sha" ]] && printf '%s %s\\n' "$rh_r" "$rh_sha" >> "$rh_tmp"
           done
           # Montado por jq a partir de linhas "repo sha": concatenar JSON no
@@ -707,6 +747,9 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
         b_ref="${'$'}{b_ref:-main}"
         b_root="/var/rcaldas/rcaldas"
         b_git="git -c safe.directory=*"
+        # Mesmo motivo do repo-heads: o fetch e' rede e precisa da chave do
+        # rcaldas. Sem isto o car ate seria detectado, mas morreria aqui.
+        b_run="/usr/sbin/runuser -u rcaldas -- env HOME=/var/rcaldas"
         log "job $jid: build de $b_repo ($b_ref)"
         if [[ -z "$b_repo" || -z "$b_image" ]]; then
           jmsg="job de build sem repo/imageBase"
@@ -734,7 +777,7 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
           if [[ -f /var/rcaldas/.docker/config.json ]]; then
             export DOCKER_CONFIG=/var/rcaldas/.docker
           fi
-          b_sha=$(cd "$b_src" && ${'$'}b_git fetch -q origin "$b_ref" 2>/dev/null && ${'$'}b_git rev-parse FETCH_HEAD 2>/dev/null || echo "")
+          b_sha=$(${'$'}b_run ${'$'}b_git -C "$b_src" fetch -q origin "$b_ref" 2>/dev/null && ${'$'}b_git -C "$b_src" rev-parse FETCH_HEAD 2>/dev/null || echo "")
           if [[ -z "$b_sha" ]]; then
             jmsg="nao consegui resolver $b_ref em $b_repo"
           else

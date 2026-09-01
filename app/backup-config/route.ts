@@ -2,6 +2,64 @@ import { getBackupPlan, type BackupPlanEntry } from '@/lib/monitor';
 
 const SNAPSHOT_ROOT = process.env.BACKUP_SNAPSHOT_ROOT || '/tank/bkp';
 const BACKUP_USER = process.env.BACKUP_SSH_USER || 'rcaldas';
+// Mesmo caminho que o setup-backup-runner gera. A chave dedicada existe
+// justamente pra isso, mas so' passa a ser usada se for pedida na config:
+// sem IdentityFile o ssh oferece as chaves padrao do root primeiro.
+const RUNNER_KEY = '/root/.ssh/backup-runner';
+const SSH_CONFIG = '/etc/rsnapshot/ssh_config';
+// known_hosts proprio do backup. Separado do /root/.ssh/known_hosts de
+// proposito: os aliases daqui apontam pro mesmo host por caminhos
+// diferentes, e misturar isso com o known_hosts que a pessoa usa na mao
+// so' gera confusao quando um host e' reinstalado.
+const SSH_KNOWN_HOSTS = '/etc/rsnapshot/known_hosts';
+
+// Alias por host, no mesmo espirito dos aliases do ~/.ssh/config do
+// usuario -- so' que este e' gerado, entao nao envelhece sozinho.
+function aliasSsh(entry: BackupPlanEntry) {
+  return `${entry.host}-bkp`;
+}
+
+// Um bloco de ssh_config por host, com a ordem de tentativa embutida.
+//
+// O fallback vira ProxyCommand porque o ssh nao sabe tentar host:porta
+// alternativos sozinho (ele so' percorre varios IPs do MESMO nome/porta).
+//
+// DOIS detalhes que custaram teste pra descobrir, nenhum obvio lendo doc:
+//
+// 1. O `sh -c` NAO e' redundante. O ssh executa o ProxyCommand com `exec`
+//    na frente; sem um shell explicito o `exec` substitui o shell pelo
+//    primeiro socat, e quando ele falha nao sobrou ninguem pra avaliar o
+//    `||`. O fallback simplesmente nunca acontecia.
+// 2. socat, e nao nc. O netcat instalado (netcat-traditional) e' SO IPv4
+//    e nao resolve nome que so' tem AAAA -- que e' exatamente o caso dos
+//    nomes DDNS da frota. Falha com "forward host lookup failed".
+function blocoSsh(entry: BackupPlanEntry) {
+  const alvos = entry.enderecos;
+  const cadeia = alvos
+    .map((a, i) => {
+      // Timeout curto no primeiro: se o direto nao responde, o que
+      // interessa e' chegar rapido na reserva, nao insistir.
+      const timeout = i === alvos.length - 1 ? 8 : 3;
+      // stderr do socat vai pro lixo em todos menos o ultimo: falhar no
+      // primeiro e' esperado e nao e' erro que valha poluir o log.
+      const silencio = i === alvos.length - 1 ? '' : ' 2>/dev/null';
+      return `socat - TCP:${a.host}:${a.port},connect-timeout=${timeout}${silencio}`;
+    })
+    .join(' || ');
+
+  return [
+    `Host ${aliasSsh(entry)}`,
+    `  User ${BACKUP_USER}`,
+    `  IdentityFile ${RUNNER_KEY}`,
+    '  IdentitiesOnly yes',
+    `  UserKnownHostsFile ${SSH_KNOWN_HOSTS}`,
+    '  StrictHostKeyChecking accept-new',
+    '  BatchMode yes',
+    `  ProxyCommand sh -c '${cadeia}'`,
+    `  # ordem: ${alvos.map((a) => `${a.host}:${a.port}`).join(' -> ')}`,
+    '',
+  ].join('\n');
+}
 
 // Gera um .conf de rsnapshot por host, no mesmo formato dos .bkp escritos
 // a mao hoje (mesmo rsync_long_args, mesmo --rsync-path="sudo rsync",
@@ -27,9 +85,9 @@ function rsnapshotConfig(entry: BackupPlanEntry) {
     'loglevel\t3',
     'logfile\t/var/log/rsnapshot.log',
     `lockfile\t/var/run/rsnapshot-${entry.host}.pid`,
-    // Porta resolvida pelo Monitor: tunel se o host esta atras de NAT,
-    // 8422 direto se tem IP proprio.
-    `ssh_args${t}-p ${entry.sshPort}`,
+    // Endereco, porta, chave e ordem de tentativa saem todos do ssh_config
+    // gerado junto -- aqui fica so' o ponteiro pra ele.
+    `ssh_args${t}-F ${SSH_CONFIG}`,
     'rsync_short_args\t-a',
     'rsync_long_args\t--delete --numeric-ids --relative --delete-excluded --rsync-path="sudo /usr/bin/rsync"',
     'link_dest\t1',
@@ -42,7 +100,7 @@ function rsnapshotConfig(entry: BackupPlanEntry) {
   }
 
   for (const inc of entry.includes) {
-    linhas.push(`backup${t}${BACKUP_USER}@${entry.sshHost}:${inc.path}${t}./`);
+    linhas.push(`backup${t}${BACKUP_USER}@${aliasSsh(entry)}:${inc.path}${t}./`);
     for (const ex of inc.excludes ?? []) {
       linhas.push(`exclude${t}${ex}`);
     }
@@ -77,7 +135,7 @@ export async function GET(request: Request) {
   const partes = plano.map((entry, i) => {
     const delim = `BKPCONF_${i}_EOF`;
     const linhas = [
-      `echo "  ${entry.host} (porta ${entry.sshPort})"`,
+      `echo "  ${entry.host} (${entry.enderecos.map((a) => `${a.host}:${a.port}`).join(' -> ')})"`,
       `cat <<'${delim}' > /etc/rsnapshot/${entry.host}.conf`,
       rsnapshotConfig(entry),
       delim,
@@ -104,6 +162,26 @@ set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "Precisa rodar como root."; exit 1; }
 
 mkdir -p /etc/rsnapshot
+
+# socat e' o que faz o encadeamento de enderecos do ProxyCommand funcionar.
+# Checado, e nao assumido: sem ele TODO backup remoto para de uma vez, e o
+# erro que aparece ("proxy command failed") nao diz o que faltou.
+if ! command -v socat >/dev/null 2>&1; then
+  echo "  instalando socat (necessario pro fallback de endereco)"
+  apt-get update -qq && apt-get install -y -qq socat
+fi
+
+echo "Escrevendo ssh_config do backup:"
+cat <<'BKPSSH_EOF' > ${SSH_CONFIG}
+# Gerado pelo Monitor -- nao editar a mao.
+#
+# Um alias por host, com a ordem de tentativa no ProxyCommand: nome DDNS
+# primeiro (que em IPv6 resolve pro endereco global e, dentro de casa, e'
+# entregue direto na LAN pelo Neighbor Discovery), tunel via relay depois.
+${plano.map(blocoSsh).join('\n')}
+BKPSSH_EOF
+chmod 600 ${SSH_CONFIG}
+touch ${SSH_KNOWN_HOSTS} && chmod 600 ${SSH_KNOWN_HOSTS}
 
 echo "Escrevendo configs de backup:"
 ${partes.length ? partes.join('\n\n') : 'echo "  (nenhum host com backup habilitado)"'}

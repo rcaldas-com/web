@@ -16,7 +16,7 @@ import redis from './redis';
 // AGENT_BIN mudar -- nao mudar isso foi o motivo do host-info ter ficado
 // invisivel: o codigo novo foi adicionado sem bump, entao nenhum host
 // existente jamais teria motivo pra se atualizar sozinho.
-export const AGENT_VERSION = '2.13.0';
+export const AGENT_VERSION = '2.14.0';
 
 // Ritmo da frota. O agente le nextIntervalSec do heartbeat e reescreve o
 // proprio timer quando muda, entao trocar estes numeros (ou marcar um host
@@ -265,9 +265,11 @@ export type MonitorHost = {
 // precisa ser gerada aqui, que e quem sabe a porta de cada um.
 export type BackupPlanEntry = {
   host: string;
-  // Como o runner alcanca esse host: porta do tunel no relay, ou direto.
-  sshPort: number;
-  sshHost: string;
+  // Enderecos a tentar, EM ORDEM -- o primeiro que aceitar conexao ganha.
+  // Lista, e nao um endereco so', porque o melhor caminho depende de onde
+  // o host esta no momento, e isso muda: o mesmo notebook e' vizinho de
+  // LAN em casa e esta atras de NAT alheio no dia seguinte.
+  enderecos: { host: string; port: number }[];
   includes: { path: string; excludes?: string[]; mountPoint?: string }[];
   retention: { hora: number; dia: number; semana: number; mes: number };
 };
@@ -336,6 +338,11 @@ export type MonitorMailEvent = {
 // este arquivo, sem reprovisionar host nenhum.
 const SYNC_HOME_DIR = process.env.SYNC_HOME_DIR || '/var/rcaldas/live/home';
 
+// Dominio dos nomes DDNS da frota. O mesmo nome que o Monitor mantem no
+// Cloudflare e' o que o backup usa pra alcancar o host -- por isso vive
+// numa constante so', em vez de montado em cada lugar que precisa.
+const DDNS_DOMAIN = process.env.DDNS_DOMAIN || 'rcaldas.com';
+
 // Cache: sem isso seria um read de disco por heartbeat de cada host,
 // pra um arquivo que quase nunca muda.
 let runnerKeyCache: { valor?: string; ate: number } = { ate: 0 };
@@ -392,7 +399,7 @@ async function updateCloudflareDdns(name: string, ipv6: string, cachedRecordId?:
   const zoneId = process.env.CF_ZONE_ID;
   if (!token || !zoneId) return undefined;
 
-  const cfName = `${name}.rcaldas.com`;
+  const cfName = `${name}.${DDNS_DOMAIN}`;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   let recordId = cachedRecordId;
 
@@ -1641,10 +1648,36 @@ export async function getBackupPlan(runnerHost: string): Promise<BackupPlanEntry
       // simples e nao depende de rede/tunel pra uma operacao que e local.
       const isSelf = h.name === runner;
       const viaTunnel = Boolean(h.tunnelEnabled && h.tunnelPort);
+
+      // Ordem: do mais barato pro mais garantido.
+      //
+      // O nome DDNS vem primeiro porque, em IPv6, ele resolve pro endereco
+      // GLOBAL do host -- e sem NAT o mesmo endereco serve dentro e fora de
+      // casa. Dois hosts no mesmo /64 se enxergam pelo Neighbor Discovery e
+      // o pacote nao sai do link: medido bag->r64, 2.6ms pelo nome DDNS
+      // contra 2.9ms pelo IP de LAN. Pelo relay seriam ~254ms (127ms ate o
+      // us, duas vezes), com todo byte atravessando o Atlantico duas vezes.
+      //
+      // O tunel fica como reserva, nao como padrao, porque ele resolve o
+      // caso em que o direto nao serve: prefixo do ISP recem-rotacionado
+      // (visto entre 29/ago e 01/set), host sem IPv6, ou rede que filtra
+      // entrada. Nesses casos o custo alto e' melhor que backup nenhum.
+      const enderecos: { host: string; port: number }[] = [];
+      if (isSelf) {
+        // Backup de si mesmo nunca sai pela rede.
+        enderecos.push({ host: '127.0.0.1', port: DIRECT_SSH_PORT });
+      } else {
+        if (h.ddnsEnabled) enderecos.push({ host: `${h.name}.${DDNS_DOMAIN}`, port: DIRECT_SSH_PORT });
+        if (viaTunnel) enderecos.push({ host: TUNNEL_RELAY_HOST, port: h.tunnelPort as number });
+        // Sem DDNS e sem tunel resta o nome proprio do host: e' o caso de
+        // quem tem DNS estatico (o us), e generaliza melhor que apontar
+        // pro relay, que so' acertava porque o relay E' o us.
+        if (!enderecos.length) enderecos.push({ host: `${h.name}.${DDNS_DOMAIN}`, port: DIRECT_SSH_PORT });
+      }
+
       return {
         host: h.name,
-        sshHost: isSelf ? '127.0.0.1' : TUNNEL_RELAY_HOST,
-        sshPort: isSelf ? DIRECT_SSH_PORT : viaTunnel ? (h.tunnelPort as number) : DIRECT_SSH_PORT,
+        enderecos,
         includes: h.backup?.includes ?? [],
         // Math.max(N, ...) e nao so '??': rsnapshot rejeita retain 0 em
         // QUALQUER nivel ("must be at least 1 or higher") e derruba o
