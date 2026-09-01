@@ -208,6 +208,30 @@ início, duração.
 Botão **promover** → o Monitor edita a linha `image:` daquele serviço no
 `docker-compose.prod.yml` e commita no `dev`.
 
+#### Os três estados de um build
+
+Promover **não** coloca nada em produção na hora: escreve a tag e enfileira
+o deploy. Quem confirma a chegada é o inventário. Daí a tela ter três
+estados por build, e não dois:
+
+| condição | mostra |
+|---|---|
+| tag ≠ produção e ≠ promovida | botão **promover** |
+| tag = `promoted.tag` e ≠ produção | **promovida, aguardando o host** |
+| tag = produção | **em produção** |
+
+O estado do meio existe porque sem ele a tela voltava idêntica depois do
+clique — nenhum sinal de que a ação valeu, e o caminho natural era clicar
+de novo. O botão **some** em vez de desabilitar: promover a mesma tag não
+quebraria nada, mas botão cinza ainda parece clicável.
+
+`promoted` fica no documento do serviço (não em estado de tela) para
+sobreviver ao refresh e a outra aba, e é gravado dentro de `promoteImage`
+— são três caminhos que promovem (botão, auto-promoção ao terminar build,
+e ligar a caixa) e deixar a cargo de cada um garantiria o esquecimento de
+algum. O estado se limpa por comparação com o observado, sem flag
+"pendente" que alguém precise zerar.
+
 **Editar a linha, não gerar o arquivo:** o compose tem volumes, redes,
 limites e comentários escritos à mão. A linha `image:` é alvo estável e
 único por serviço. Validar que o YAML ainda faz parse antes de commitar. É
