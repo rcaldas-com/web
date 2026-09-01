@@ -45,6 +45,11 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
   // melhor que mostrar um botao morto.
   const temPipeline = src?.kind === 'build' || src?.kind === 'upstream';
 
+  // Alerta de build so' faz sentido em quem builda: 'upstream' tem pipeline
+  // (promove) mas nunca constroi nada, entao a caixa ali seria um controle
+  // sobre um evento que nao pode acontecer.
+  const constroi = src?.kind === 'build';
+
   // Só busca o que a seção de builds usa, e só quando ela vai aparecer.
   const [builds, emAndamento, workerDisponivel] =
     src?.kind === 'build'
@@ -177,7 +182,20 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
               </span>
             </label>
 
-            <SubmitButton className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
+            <label className="flex w-fit items-center gap-2">
+              <input
+                type="checkbox"
+                name="alertBuildFailure"
+                defaultChecked={constroi && (svc.alertBuildFailure ?? false)}
+                disabled={!constroi}
+                className="h-4 w-4 rounded border-zinc-300 disabled:opacity-40 dark:border-zinc-700"
+              />
+              <span className={`text-sm ${constroi ? 'text-zinc-700 dark:text-zinc-300' : 'text-zinc-400 dark:text-zinc-600'}`}>
+                Abrir incidente quando o build falhar {constroi ? '' : '(só para build)'}
+              </span>
+            </label>
+
+                        <SubmitButton className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
               salvar
             </SubmitButton>
           </form>

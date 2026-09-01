@@ -71,7 +71,7 @@ export async function startBuild(params: {
 export async function finishBuild(
   jobId: string,
   outcome: { ok: boolean; sha?: string; tag?: string; image?: string; message?: string }
-): Promise<{ service: string; tag?: string } | null> {
+): Promise<{ service: string; tag?: string; ok: boolean } | null> {
   const client = await clientPromise;
   const db = client.db();
   const col = db.collection<MonitorBuild>('monitor_builds');
@@ -96,7 +96,13 @@ export async function finishBuild(
   // Devolve servico e tag pra quem chamou poder decidir a auto-promocao
   // sem uma segunda consulta -- e sem builds.ts precisar saber o que
   // promocao significa.
-  return outcome.ok ? { service: doc.service, tag: outcome.tag } : null;
+  //
+  // Devolve TAMBEM quando falhou (com ok:false), e nao null: antes o
+  // fracasso era indistinguivel de "nao havia build rodando com esse id",
+  // entao quem chamava nao tinha como saber qual servico quebrou -- e o
+  // build que falha ficava silencioso. null agora significa so' uma coisa:
+  // nenhum build 'running' casou com este jobId.
+  return { service: doc.service, tag: outcome.tag, ok: outcome.ok };
 }
 
 export type BuildView = Omit<MonitorBuild, '_id' | 'startedAt' | 'finishedAt'> & {
