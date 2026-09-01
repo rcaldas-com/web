@@ -6,7 +6,7 @@
 // o agente do host de deploy, amanha um controlador de cluster lendo o
 // mesmo repo. Troca-se o executor, nao a UI nem o modelo. Ver CICD.md.
 
-import { getService } from './services';
+import { getService, recordPromotion } from './services';
 import { enqueueDeployJobs } from './monitor';
 
 const GITHUB_API = 'https://api.github.com';
@@ -132,6 +132,25 @@ export async function promoteImage(imageBase: string, novaTag: string): Promise<
     if (alvos.length) console.log(`reconciliacao pedida a: ${alvos.join(', ')}`);
   } catch (error) {
     console.error('nao consegui pedir reconciliacao:', error);
+  }
+
+  // Registra o PEDIDO. Fica aqui, e nao nos chamadores, porque sao tres
+  // caminhos que promovem (botao, auto-promocao ao terminar build, e ligar
+  // a caixa de auto-promover) -- se cada um tivesse que lembrar, um deles
+  // esqueceria e a tela ficaria muda justo naquele.
+  //
+  // O nome do servico sai do imageBase porque e' dele que a linha do
+  // compose foi encontrada: os dois sao sempre o mesmo servico, entao nao
+  // ha como divergirem.
+  const servico = imageBase.split('/').pop() || '';
+  if (servico) {
+    try {
+      await recordPromotion(servico, novaTag);
+    } catch (error) {
+      // A promocao em si ja deu certo -- falhar aqui so' custa o aviso na
+      // tela, nunca o deploy. Nao pode virar erro do fluxo.
+      console.error(`nao consegui registrar a promocao de ${servico}:`, error);
+    }
   }
 
   return { ok: true, commit: novoSha.slice(0, 7), de: tagAtual, para: novaTag };

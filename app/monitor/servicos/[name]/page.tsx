@@ -8,6 +8,7 @@ import { listBuilds, hasRunningBuild } from '@/lib/builds';
 import { pickBuildWorker } from '@/lib/monitor';
 import { promoteConfigurado } from '@/lib/promote';
 import SubmitButton from '@/components/SubmitButton';
+import Spinner from '@/components/Spinner';
 
 function formatDate(value?: string) {
   if (!value) return 'nunca';
@@ -54,6 +55,10 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
   // o que o git manda subir. Se as duas divergirem, a secao de deriva la
   // em cima ja avisa -- sao dois problemas diferentes.
   const tagEmProducao = svc.observed?.declaredImage?.split(':').pop();
+  // Promocao pedida que ainda nao apareceu no inventario. Zerada assim que
+  // a producao alcanca -- dai a comparacao com tagEmProducao em vez de um
+  // flag "pendente" no banco, que exigiria alguem lembrar de limpar.
+  const tagPromovida = svc.promoted?.tag !== tagEmProducao ? svc.promoted?.tag : undefined;
   const promoverDisponivel = promoteConfigurado();
 
   return (
@@ -226,7 +231,7 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
                     {b.message && <span className="ml-2 text-xs text-zinc-500 dark:text-zinc-400">{b.message}</span>}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
-                    {b.status === 'ok' && b.tag && b.tag !== tagEmProducao && (
+                    {b.status === 'ok' && b.tag && b.tag !== tagEmProducao && b.tag !== tagPromovida && (
                       <form action={promoteBuildAction}>
                         <input type="hidden" name="service" value={svc.name} />
                         <input type="hidden" name="tag" value={b.tag} />
@@ -234,6 +239,19 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
                           promover
                         </SubmitButton>
                       </form>
+                    )}
+                    {/* Promovida mas ainda nao observada em producao. O botao
+                        SOME em vez de so' desabilitar: promover de novo a
+                        mesma tag nao quebra nada, mas o clique sem resposta
+                        e' o que faz duvidar se o primeiro valeu. */}
+                    {b.tag && b.tag === tagPromovida && b.tag !== tagEmProducao && (
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                        title={`Tag escrita no compose${svc.promoted?.at ? ` em ${formatDate(svc.promoted.at)}` : ''}. Falta o host reconciliar e o inventario confirmar.`}
+                      >
+                        <Spinner />
+                        promovida, aguardando o host
+                      </span>
                     )}
                     {b.tag && b.tag === tagEmProducao && (
                       <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">

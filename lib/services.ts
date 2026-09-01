@@ -45,6 +45,16 @@ export type MonitorService = {
   logPath?: string;
   url?: string;
   autoPromote?: boolean;
+  // Ultima promocao PEDIDA. Existe porque promover nao coloca nada em
+  // producao na hora: escreve a tag no git e enfileira o deploy, e o selo
+  // "em producao" so' muda quando o inventario confirma. Sem registrar o
+  // pedido, a tela voltava identica depois do clique -- nenhum sinal de
+  // que a acao valeu, e o caminho natural era clicar de novo.
+  //
+  // Fica no documento, e nao em estado de tela, justamente pra sobreviver
+  // ao refresh e a outra aba: quem abrir a pagina no meio do caminho ve o
+  // mesmo que quem clicou.
+  promoted?: { tag: string; at: Date };
   createdAt: Date;
   updatedAt: Date;
 };
@@ -130,9 +140,10 @@ export async function ingestInventory(params: {
   }
 }
 
-export type ServiceView = Omit<MonitorService, '_id' | 'createdAt' | 'updatedAt' | 'observed'> & {
+export type ServiceView = Omit<MonitorService, '_id' | 'createdAt' | 'updatedAt' | 'observed' | 'promoted'> & {
   _id: string;
   observed?: { declaredImage?: string; runningImage?: string; state?: string; seenAt: string };
+  promoted?: { tag: string; at: string };
   drift: boolean;
 };
 
@@ -167,8 +178,21 @@ function toView(doc: MonitorService): ServiceView {
     observed: doc.observed
       ? { ...doc.observed, seenAt: doc.observed.seenAt.toISOString() }
       : undefined,
+    promoted: doc.promoted ? { tag: doc.promoted.tag, at: doc.promoted.at.toISOString() } : undefined,
     drift: hasDrift(doc),
   };
+}
+
+/**
+ * Registra que uma promocao foi PEDIDA -- nao que ela chegou em producao.
+ * Quem confirma a chegada e' o inventario, comparando observed.declaredImage.
+ */
+export async function recordPromotion(name: string, tag: string): Promise<void> {
+  const client = await clientPromise;
+  const db = client.db();
+  await db
+    .collection<MonitorService>('monitor_services')
+    .updateOne({ name }, { $set: { promoted: { tag, at: new Date() }, updatedAt: new Date() } });
 }
 
 export async function setServiceEnrichment(
