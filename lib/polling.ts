@@ -3,6 +3,7 @@ import redis from './redis';
 import { listServices } from './services';
 import { hasRunningBuild, lastAttemptedSha, startBuild } from './builds';
 import { enqueueBuildJob, enqueueRepoHeadsJob, pickBuildWorker } from './monitor';
+import { reconcileComposeDrift } from './promote';
 
 // Intervalo entre leituras do HEAD remoto. Era o maior termo isolado da
 // latencia da pipeline: as batidas somadas dao ~2,5min e esta trava sozinha
@@ -24,6 +25,12 @@ export async function requestRepoHeadsThrottled(): Promise<void> {
   try {
     const gotLock = await redis.set(POLL_LOCK, '1', 'EX', POLL_LOCK_TTL, 'NX');
     if (!gotLock) return;
+
+    // Na mesma janela: producao converge pro git tenha ele mudado por quem
+    // for, nao so' por promocao. Vai ANTES do worker porque nao depende de
+    // haver worker vivo -- o alvo de deploy e' outro host, e sem esta ordem
+    // uma frota sem worker deixaria de reconciliar tambem.
+    await reconcileComposeDrift();
 
     const worker = await pickBuildWorker();
     if (!worker) return;

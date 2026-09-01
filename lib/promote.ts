@@ -6,7 +6,7 @@
 // o agente do host de deploy, amanha um controlador de cluster lendo o
 // mesmo repo. Troca-se o executor, nao a UI nem o modelo. Ver CICD.md.
 
-import { getService, recordPromotion } from './services';
+import { getService, listServices, recordPromotion } from './services';
 import { enqueueDeployJobs } from './monitor';
 
 const GITHUB_API = 'https://api.github.com';
@@ -178,5 +178,64 @@ export async function maybeAutoPromote(service: string, tag: string): Promise<vo
     }
   } catch (error) {
     console.error('auto-promocao falhou:', error);
+  }
+}
+
+/**
+ * Fase 5 do CICD.md: producao converge pro git, tenha o git mudado por quem
+ * for.
+ *
+ * Ate aqui o deploy so' era enfileirado pelo promoteImage. Qualquer outra
+ * escrita no compose -- bot de dependencia, edicao a mao, outro chat --
+ * ficava no git sem chegar em producao, e so' era aplicada por acidente,
+ * de carona no proximo deploy que alguma promocao nao relacionada
+ * disparasse. Num modelo em que o git e' a fonte da verdade, isso e' um
+ * buraco: o repo dizia uma coisa e a maquina rodava outra, sem ninguem
+ * avisar.
+ *
+ * Compara o que o compose do git manda subir com o que o host reporta ter
+ * declarado (observed.declaredImage, do inventario). Divergiu -> deploy.
+ *
+ * Sem estado proprio de proposito: a propria comparacao e' a memoria. E
+ * enqueueDeployJobs faz upsert por {host, type, pending}, entao chamar de
+ * novo enquanto um deploy espera nao empilha nada -- e ele ja pede o
+ * inventario junto, que e' o que fecha o ciclo e faz a divergencia sumir.
+ */
+export async function reconcileComposeDrift(): Promise<void> {
+  if (!promoteConfigurado()) return;
+  try {
+    const atual = await gh(`/repos/${REPO}/contents/${encodeURIComponent(COMPOSE_PATH)}?ref=${BRANCH}`);
+    if (!atual.res.ok) return;
+
+    const conteudo = Buffer.from(String(atual.body.content || ''), 'base64').toString('utf8');
+    // servico -> tag que o git manda subir. O nome sai do proprio caminho da
+    // imagem, que e' como o resto do sistema ja identifica servico.
+    const noGit = new Map<string, string>();
+    for (const linha of conteudo.split('\n')) {
+      const m = linha.match(/^\s*image:\s*(\S+?):(\S+?)\s*$/);
+      if (!m) continue;
+      const nome = m[1].split('/').pop();
+      if (nome) noGit.set(nome, m[2]);
+    }
+    if (!noGit.size) return;
+
+    const servicos = await listServices();
+    const divergentes = servicos.filter((s) => {
+      const declarada = s.observed?.declaredImage?.split(':').pop();
+      // Sem inventario ainda, nao da pra afirmar divergencia -- e chutar
+      // aqui viraria deploy em loop no primeiro servico nunca visto.
+      if (!declarada) return false;
+      const esperada = noGit.get(s.name);
+      return Boolean(esperada) && esperada !== declarada;
+    });
+    if (!divergentes.length) return;
+
+    const alvos = await enqueueDeployJobs();
+    console.log(
+      `deriva do compose: ${divergentes.map((s) => `${s.name} ${s.observed?.declaredImage?.split(':').pop()}->${noGit.get(s.name)}`).join(', ')} | reconciliacao pedida a: ${alvos.join(', ')}`
+    );
+  } catch (error) {
+    // Nunca pode derrubar o heartbeat que chamou.
+    console.error('checagem de deriva do compose falhou:', error);
   }
 }
