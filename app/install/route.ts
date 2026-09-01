@@ -94,6 +94,23 @@ if [[ "$ENABLE_TUNNEL" == "true" ]] && ! command -v rsyslogd >/dev/null 2>&1; th
 fi
 
 if [[ "$ENABLE_TUNNEL" == "true" ]] && [[ -d /etc/rsyslog.d ]]; then
+  # O coletor central arquiva em /var/log/remote/%HOSTNAME%/ -- o nome que
+  # o rsyslog ANUNCIA, nao o IP (pelo tunel todo mundo chega como
+  # 127.0.0.1). Sem fixar aqui, o rsyslog usa o hostname resolvido, e basta
+  # o /etc/hosts trazer o nome como apelido de localhost
+  # ("127.0.0.1 localhost <nome>", em vez da linha 127.0.1.1 do padrao
+  # Debian) pra ele se anunciar como "localhost".
+  #
+  # O estrago e' silencioso e confunde: o host nunca aparece no Grafana, e
+  # os logs dele vao TODOS pro diretorio de outro host, misturados. Foi o
+  # caso do 'len' -- levava 27k linhas/dia pro stream do 'us' e parecia
+  # simplesmente "nao coletado". Numerado 01 pra valer antes de qualquer
+  # regra de saida.
+  cat > /etc/rsyslog.d/01-hostname.conf <<EOF
+# Fixado pelo /install: o coletor central chaveia por este nome.
+\\$LocalHostName $HOST_NAME
+EOF
+
   cat > /etc/rsyslog.d/60-forward-central.conf <<EOF
 # Fila EM DISCO com teto: se o coletor cair, enfileira ate 200MB e drena
 # sozinho quando voltar; se estourar o teto, descarta o mais antigo em vez
