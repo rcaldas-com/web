@@ -55,6 +55,13 @@ function blocoSsh(entry: BackupPlanEntry) {
     `  UserKnownHostsFile ${SSH_KNOWN_HOSTS}`,
     '  StrictHostKeyChecking accept-new',
     '  BatchMode yes',
+    // O -F do rsnapshot IGNORA o ~/.ssh/config do root -- inclusive o
+    // bloco "Host *" que trazia estes dois. Sem eles uma conexao que morre
+    // no meio de um rsync longo (wifi caindo, host suspendendo) fica
+    // pendurada pra sempre segurando o flock do runner, e o proximo ciclo
+    // espera 1h antes de desistir. 60x3 = a execucao morre em ~3min.
+    '  ServerAliveInterval 60',
+    '  ServerAliveCountMax 3',
     `  ProxyCommand sh -c '${cadeia}'`,
     `  # ordem: ${alvos.map((a) => `${a.host}:${a.port}`).join(' -> ')}`,
     '',
