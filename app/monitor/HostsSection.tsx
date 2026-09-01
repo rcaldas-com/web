@@ -137,11 +137,6 @@ export default function HostsSection({
                   <Link href={`/monitor/${host.name}`} className="hover:underline">
                     {host.name}
                   </Link>
-                  {host.capabilities?.includes('tunnel-legacy') && (
-                    <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                      legado
-                    </span>
-                  )}
                   {/* Alerta desligado e o DEFAULT, entao precisa ser visivel
                       na lista: sem isto so da pra saber quem esta armado
                       abrindo host por host, e um host silencioso por

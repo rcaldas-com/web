@@ -546,7 +546,14 @@ export async function handleLogAlert(alerta: {
   const key = `log:${alerta.host}:${alerta.service || 'all'}`;
 
   if (alerta.status === 'resolved') {
-    await resolveIncident(db, key);
+    // Sem email de propósito. Aqui "resolvido" so' significa que a rajada
+    // de linhas parou -- ninguem consertou nada. Mandar email disso dobra
+    // o volume do canal sem dobrar a informacao, e ruido em canal de
+    // alerta custa caro: ensina a ignorar o canal.
+    //
+    // Alerta de ESTADO (disco, heartbeat) continua notificando na
+    // resolucao, porque la "resolvido" e' informacao de verdade.
+    await resolveIncident(db, key, false);
     return { key, acao: 'resolvido' as const };
   }
 
@@ -1385,83 +1392,6 @@ export async function openTunnel(hostName: string) {
   return port;
 }
 
-// Ponte de compatibilidade com o zxnet antigo: GET /ping?host=X esperando de
-// volta "0" (matar tunel), ou um numero de porta >1024 (abrir/manter tunel
-// nessa porta). Cada host que ainda pinga vira/atualiza um host normal em
-// monitor_hosts (aparece no Monitor como qualquer outro), so que marcado via
-// capabilities pra indicar que so fala esse protocolo velho, sem heartbeat
-// completo. So define tunnelEnabled/porta na primeira vez que o host aparece
-// -- pings seguintes nao sobrescrevem o que o admin decidir depois no Monitor.
-export async function registerLegacyPing(hostName: string, headers: Headers): Promise<number> {
-  const host = normalizeHostName(hostName);
-  if (!host) return 0;
-
-  const client = await clientPromise;
-  const db = client.db();
-  const now = new Date();
-
-  const existing = await db.collection<MonitorHost>('monitor_hosts').findOne({ name: host });
-
-  // O protocolo legado nao tem como se autenticar (o zxnet so faz um GET
-  // sem segredo nenhum), entao esta rota NAO cria host. Sem isso, qualquer
-  // um cria hosts a vontade com um curl -- inclusive em loop, enchendo a
-  // base. Host novo tem que ser cadastrado no Monitor de proposito, e so
-  // depois o ping dele passa a valer.
-  if (!existing) return 0;
-
-  const port = existing.tunnelPort ?? (await nextTunnelPort(db, host));
-  const tunnelEnabled = existing.tunnelEnabled ?? true;
-
-  // getRemoteIp ja cuida de pegar o IP real por tras do Cloudflare/HAProxy
-  // (cf-connecting-ip antes de x-forwarded-for) -- o zxnet antigo nao manda
-  // nenhum payload com IP, entao essa e a unica fonte que temos pra ele.
-  // Muitos desses hosts nao tem IPv6 (o proprio caso que motivou isso), daí
-  // guardar em ambos os campos em vez de exigir um ou outro: ipv6 alimenta
-  // o DDNS, ipv4 garante que pelo menos algum IP aparece no Monitor.
-  const ip = getRemoteIp(headers);
-  const isIpv6 = !!ip?.includes(':');
-  const network = {
-    ...existing?.network,
-    ...(isIpv6 ? { ipv6: ip } : { ipv4: ip }),
-  };
-
-  const set: Partial<MonitorHost> = {
-    name: host,
-    status: 'ok',
-    lastSeen: now,
-    updatedAt: now,
-    tunnelPort: port,
-    network,
-    lastIp: ip,
-  };
-
-  // NAO carimba 'tunnel-legacy' num host que ja tem agente novo. Este
-  // endpoint roda a cada ping do zxnet e sobrescrevia as capabilities
-  // reais toda vez, deixando o host eternamente marcado como legado mesmo
-  // depois de migrado -- exatamente o que se viu no rec02 depois de rodar
-  // o /init nele.
-  //
-  // `version` so' existe quando um heartbeat do agente NOVO chegou, entao
-  // e' o sinal de migracao. Enquanto nao houver, a marca continua valendo
-  // -- e ai ela e' informacao util, nao ruido: diz que aquele host ainda
-  // esta so' no protocolo antigo.
-  if (!existing.version) {
-    set.capabilities = ['tunnel-legacy'];
-  }
-
-  // DDNS NAO sai daqui de proposito. Como este endpoint nao autentica
-  // ninguem, quem chamasse /ping?host=X apontaria o DNS de X pro proprio
-  // IP -- sequestro de subdominio com um curl. Ja aconteceu por acidente:
-  // um teste feito do tp reescreveu o registro do lev. DDNS so pelo
-  // /heartbeat, que exige token do agente.
-
-  await db.collection<MonitorHost>('monitor_hosts').updateOne({ name: host }, { $set: set });
-
-  return tunnelEnabled ? port : 0;
-}
-
-// Qual host executa os backups. So um por vez -- se marcarem dois, vence
-// o primeiro por nome, de forma estavel, em vez de alternar entre eles.
 export async function findBackupRunner(): Promise<string | undefined> {
   const client = await clientPromise;
   const db = client.db();
