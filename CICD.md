@@ -1,8 +1,10 @@
 # CI/CD — build no worker, promoção pelo Monitor
 
-> Plano de implementação, escrito pra ser revisado **antes** de virar
-> código. O que está marcado como medido foi verificado na máquina em
-> 23/08/2026; o resto é desenho.
+> Referência do que está no ar. Nasceu como plano; as fases 0 a 5 estão
+> implementadas e o texto passou a descrever o sistema, não a intenção. A
+> fase 6 segue pendente — ver a seção dela.
+> Onde a implementação divergiu do plano, o desvio está registrado com o
+> motivo — é a parte mais útil de reler. Medições datadas de 23/08/2026.
 
 ## O problema
 
@@ -151,7 +153,7 @@ via `/var/log/rcaldas-agent.log`.
 **Serialização:** a fila já é por host e o agente processa em série — dois
 builds no mesmo worker não disputam o daemon.
 
-### Fase 3 — polling ✅ aguardando imagem
+### Fase 3 — polling ✅ em produção
 
 Mesmo padrão da varredura de hosts offline: pendurado no heartbeat, trava
 no Redis, 5 min.
@@ -200,7 +202,7 @@ app; mexer no `package.json` muda tudo). Builda sempre; se nada que entra
 na imagem mudou, o cache resolve em segundos e o **digest sai idêntico** —
 aí não se publica tag. O build vira o detector, e ele não erra.
 
-### Fase 4 — página do serviço e promoção ✅ aguardando GITHUB_TOKEN
+### Fase 4 — página do serviço e promoção ✅ em produção
 
 Collection `monitor_builds`: serviço, sha, tag, digest, worker, status,
 início, duração.
@@ -294,11 +296,26 @@ ele o bump ficaria parado no git.
 - É o modelo do Flux. Trocar o executor por `kubectl apply` transforma isso
   em deploy de cluster sem tocar em mais nada.
 
-### Fase 6 — falha vira incidente
+### Fase 6 — falha vira incidente ⬜ pendente
 
-Quase de graça: result com `type:"alarm"` e `status:"fail"` já entra no
-`upsertIncident`, com dedupe, email só na transição e teto de 10
+A ideia era sair de graça: result com `type:"alarm"` e `status:"fail"` já
+entra no `upsertIncident`, com dedupe, email só na transição e teto de 10
 emails/host/hora.
+
+**Só que o job de build não emite `type:"alarm"`** — ele emite
+`type:"build"`. `finishBuild` grava a falha em `monitor_builds` e para aí;
+nada chama `upsertIncident`. Resultado: **build que falha é silencioso**.
+
+Medido em 01/09/2026: os quatro builds do `web` que falharam (aqueles sem
+sha, do bug do loop de rebuild) não geraram nenhum incidente —
+`monitor_incidents` não tem um único documento com `build` na chave. A
+falha só apareceu porque alguém foi ler o log.
+
+Falta ligar os dois lados na ingestão do heartbeat: resultado de job
+`build` com `status:"fail"` → `upsertIncident` com chave por serviço.
+⚠️ Alerta novo tem dono: a frota já tem interruptor de alerta por host
+(`monitoring.enabled`, desligado por padrão), e essa decisão vale aqui
+também — build falhando não deveria mandar email sem alguém ter pedido.
 
 ---
 
