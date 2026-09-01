@@ -475,6 +475,7 @@ function PaymentPicker({
         <MoneyInput
           ref={amountInputRef}
           value={amount}
+          selectOnFocus
           onChange={onAmountChange}
           onEscape={onDismiss}
           autoFocus
@@ -710,6 +711,7 @@ function ExpenseChecklist({
                   <MoneyInput
                     ref={editInputRef}
                     value={editVal}
+                    selectOnFocus
                     onChange={setEditVal}
                     onEnter={() => handleSaveValue(e)}
                     onEscape={() => setEditingId(null)}

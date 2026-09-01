@@ -86,7 +86,30 @@ export type AgentJobResult = {
   endedAt?: string;
   durationMs?: number;
   details?: Record<string, unknown>;
+  // Filtro LogQL opcional pra estreitar o trecho de log que vai no email.
+  // Quem dispara o alarme e' quem sabe qual pedaco do log explica ele --
+  // o servidor nao tem como adivinhar. Sem isso o email leva o syslog
+  // inteiro do host, que e' o que fazia o trecho parecer nao ter relacao
+  // com o assunto: 20 linhas de sessao de ssh pra um alarme de backup.
+  logFilter?: string;
 };
+
+// O logFilter vem do agente e e' concatenado numa query LogQL. Autenticado
+// nao e' o mesmo que confiavel: um valor torto quebra a consulta (email sem
+// trecho, tolerado) e um valor malicioso tentaria sair do seletor. A
+// consulta e' somente-leitura no Loki, entao o pior caso e' pequeno -- mas
+// o filtro tem forma conhecida e restrita, entao vale recusar o resto.
+const FILTRO_LOG_VALIDO = /^[\w\s|!=~`."'\-/\\().+*[\]{}$^:,@]{1,200}$/;
+
+function filtroLogSeguro(filtro?: string): string | undefined {
+  if (!filtro) return undefined;
+  const limpo = filtro.trim();
+  if (!limpo || !FILTRO_LOG_VALIDO.test(limpo)) return undefined;
+  // Chaves fecham o seletor de stream; um filtro so' pode ADICIONAR
+  // estagios de pipeline depois dele, nunca abrir outro seletor.
+  if (!limpo.startsWith('|')) return undefined;
+  return limpo;
+}
 
 export type MonitorHost = {
   _id: ObjectId;
@@ -1238,17 +1261,19 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
       if (result.status === 'ok') {
         await resolveIncident(db, key);
       } else {
+        const filtro = filtroLogSeguro(result.logFilter);
         await upsertIncident(db, {
           key,
           target: host,
           severity: result.status === 'fail' ? 'critical' : 'warning',
           summary: result.message || `Alarme ${result.id}`,
           detail: result.details ? JSON.stringify(result.details) : undefined,
-          // Log do host que reportou. Pro alarme de backup isso traz as
-          // linhas do rcaldas-backup (que agora passa pelo logger), que
-          // sao exatamente as que dizem POR QUE falhou -- a mensagem do
-          // alarme sozinha so' diz QUE falhou.
-          logSelector: `{host="${host}"}`,
+          // Log do host que reportou, estreitado pelo filtro que o proprio
+          // alarme mandou quando manda um. Pro backup isso reduz de "o
+          // syslog inteiro do bag" pra "as linhas do rsnapshot daquele
+          // .conf" -- a diferenca entre um email com 20 linhas de sessao
+          // de ssh e um com a linha que diz POR QUE falhou.
+          logSelector: `{host="${host}"}${filtro ? ` ${filtro}` : ''}`,
         });
       }
     }

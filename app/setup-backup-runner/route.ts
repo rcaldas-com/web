@@ -134,14 +134,26 @@ flock -w 3600 200 || { echo "[$(date '+%Y-%m-%d %H:%M:%S')] outra execucao de rc
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG" | logger -t rcaldas-backup; }
 
 resultados=""
+# O id carrega o alvo E o intervalo. Os dois importam: o id vira a chave do
+# incidente no Monitor, e "hora"/"dia"/"mes" sao execucoes independentes que
+# falham por motivos diferentes. Com a chave so' no alvo, o "dia" passando
+# as 03:30 FECHAVA o incidente que o "hora" tinha aberto as 00:00 -- email
+# de "resolvido" pra uma falha que continuava de pe, e reabertura as 04:00.
+# Era esse o par alerta/resolvido que aparecia toda hora.
 add_resultado() {
   [[ -n "$resultados" ]] && resultados="$resultados,"
-  resultados="$resultados{\\"id\\":\\"backup-$1\\",\\"type\\":\\"alarm\\",\\"status\\":\\"$2\\",\\"message\\":\\"$3\\"}"
+  resultados="$resultados{\\"id\\":\\"backup-$1-$INTERVALO\\",\\"type\\":\\"alarm\\",\\"status\\":\\"$2\\",\\"message\\":\\"$3\\",\\"logFilter\\":\\"$4\\"}"
 }
 
 for conf in /etc/rsnapshot/*.conf; do
   [[ -e "$conf" ]] || continue
   host=$(basename "$conf" .conf)
+  # So' as linhas do rsnapshot DESTE .conf, mais as do proprio runner. O
+  # caminho do .conf aparece em toda linha que o rsnapshot loga, entao da'
+  # pra separar as tres execucoes que rodam no mesmo minuto no mesmo host.
+  # O "!= COMMAND=" tira o log de auditoria do sudo, que casa "rcaldas-backup"
+  # sempre que alguem inspeciona o arquivo -- ruido que nao e' do backup.
+  filtro="|~ \\\`rsnapshot/$host[.]conf|rcaldas-backup\\\` != \\\`COMMAND=\\\`"
   inicio=$(date +%s)
   saida=$(rsnapshot -c "$conf" "$INTERVALO" 2>&1)
   codigo=$?
@@ -149,7 +161,7 @@ for conf in /etc/rsnapshot/*.conf; do
   if [[ $codigo -eq 0 ]]; then
     dur=$(( $(date +%s) - inicio ))
     log "$host: ok em ${'$'}{dur}s"
-    add_resultado "$host" "ok" "backup $INTERVALO ok em ${'$'}{dur}s"
+    add_resultado "$host" "ok" "backup $INTERVALO de $host ok em ${'$'}{dur}s" "$filtro"
   elif echo "$saida" | grep -q "refusing to rotate this level"; then
     # Esperado nos primeiros dias/semanas de um backup novo: o nivel de
     # baixo (hora/dia) ainda nao acumulou historico suficiente pra
@@ -159,12 +171,28 @@ for conf in /etc/rsnapshot/*.conf; do
     # ignorar alerta critico. So loga.
     log "$host: $INTERVALO ainda sem historico suficiente pra rotacionar (normal em backup novo)"
   else
-    log "$host: FALHOU"
-    add_resultado "$host" "fail" "backup $INTERVALO falhou -- ver $LOG"
+    # Classifica o motivo em vez de copiar a linha crua do rsnapshot. Duas
+    # razoes: a mensagem vira ASSUNTO de email, entao precisa ser estavel
+    # entre ocorrencias da MESMA falha (texto cru traz path e codigo que
+    # variam e quebram o agrupamento do Gmail); e o assunto precisa dizer
+    # algo acionavel. "backup hora falhou -- ver /var/log/..." nao dizia
+    # nem qual dos tres alvos tinha falhado.
+    if echo "$saida" | grep -q "rsync returned 255"; then
+      motivo="sem acesso ssh ao alvo"
+    elif echo "$saida" | grep -q "only transferred partially"; then
+      motivo="origem indisponivel ou copiada pela metade"
+    elif echo "$saida" | grep -q "No space left"; then
+      motivo="sem espaco no destino"
+    else
+      motivo="ver $LOG"
+    fi
+    log "$host: FALHOU ($motivo)"
+    add_resultado "$host" "fail" "backup $INTERVALO de $host falhou: $motivo" "$filtro"
   fi
 done
 
 # Offsite cifrado: so no intervalo diario, pra nao subir a cada hora.
+filtro_offsite="|~ \\\`restic|rcaldas-backup\\\` != \\\`COMMAND=\\\`"
 if [[ "$INTERVALO" == "dia" ]] && command -v restic >/dev/null 2>&1; then
   if [[ -f "$CONF_DIR/s3.env" && -f "$CONF_DIR/restic-pass" ]]; then
     set -a; . "$CONF_DIR/s3.env"; set +a
@@ -188,10 +216,10 @@ if [[ "$INTERVALO" == "dia" ]] && command -v restic >/dev/null 2>&1; then
       log "restic: nada pra enviar ainda (nenhum host com hora.0)"
     elif restic backup --tag diario "${'$'}{fontes[@]}" >> "$LOG" 2>&1; then
       log "restic: enviado pro S3"
-      add_resultado "offsite" "ok" "copia offsite enviada"
+      add_resultado "offsite" "ok" "copia offsite enviada" "$filtro_offsite"
     else
       log "restic: FALHOU"
-      add_resultado "offsite" "fail" "copia offsite falhou -- ver $LOG"
+      add_resultado "offsite" "fail" "copia offsite falhou -- ver $LOG" "$filtro_offsite"
     fi
   fi
 fi
