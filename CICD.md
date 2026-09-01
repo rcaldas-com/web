@@ -246,10 +246,46 @@ se esse `.env` vazar, a diferença importa.
 
 `autoPromote` nasce desmarcado em todos. Primeiro candidato: `site`.
 
-### Fase 5 — reconciliação no alvo
+### Fase 5 — reconciliação no alvo ✅
 
-O host alvo compara, a cada heartbeat, o SHA local com o remoto; diferente
-→ `git pull` + `docker compose up -d`.
+O host alvo faz `git pull` + `docker compose up -d` quando o git e a
+produção divergem.
+
+**O gatilho ficou no servidor, não no host.** O plano original era o host
+comparar o SHA local com o remoto a cada batida, mas isso custaria um
+`fetch` por host por batida. O Monitor já lê o compose do GitHub (o mesmo
+código da promoção) e já sabe o que cada host declara
+(`observed.declaredImage`, do inventário) — comparar os dois na janela do
+polling não custa nada além de uma chamada de API, e o resultado é o mesmo.
+
+Até isso existir, **o deploy só era enfileirado pelo `promoteImage`**.
+Qualquer outra escrita no compose — bot de dependência, edição à mão,
+outro chat — ficava parada no git e só chegava em produção por acidente,
+de carona no próximo deploy que alguma promoção não relacionada
+disparasse. O repo dizia uma coisa, a máquina rodava outra, e nada avisava.
+
+Sem estado próprio: a comparação é a memória. `enqueueDeployJobs` faz
+upsert por `{host, type, pending}`, então chamar de novo enquanto um deploy
+espera não empilha; e ele já pede o inventário junto, que atualiza o
+observado e faz a divergência sumir sozinha. Serviço ainda sem inventário
+**não** conta como divergente — chutar ali viraria deploy em loop no
+primeiro serviço nunca visto.
+
+Verificado em produção fixando o `redis`:
+
+```
+deriva do compose: redis 8-alpine->8.10.1-alpine | reconciliacao pedida a: us
+```
+
+**É isto que torna útil o Dependabot** (`.github/dependabot.yml` no `dev`,
+ecossistema `docker-compose` — o `docker` lê só Dockerfile). Ele abre o PR
+das imagens públicas, o merge muda o compose, o reconciliador aplica. Sem
+ele o bump ficaria parado no git.
+
+> Imagem com tag flutuante fica de fora desse fluxo: o bot não tem o que
+> bumpar em `redis:8-alpine`, e a imagem ainda troca sozinha em qualquer
+> `pull`, sem commit e sem registro. Mesmo problema do `ccxt>=4.4.0`. Por
+> isso as quatro públicas estão fixas em versão exata.
 
 - **Só fast-forward**, nunca `reset --hard`: o `.env` não está no git
   (`.gitignore` tem `.env*`) e há ajustes manuais legítimos no host.
