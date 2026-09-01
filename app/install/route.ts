@@ -473,10 +473,24 @@ if [[ -n "$runner_key" ]]; then
     if ! grep -qsF "$runner_key" "$bkp_auth"; then
       # Remove chave de runner anterior antes de gravar a nova, senao a
       # cada troca sobraria uma chave velha ainda valida no host.
-      sed -i '/backup-runner@/d' "$bkp_auth" 2>/dev/null || true
+      #
+      # --follow-symlinks NAO e' opcional aqui. Em host com Syncthing este
+      # arquivo e' um LINK pra /var/rcaldas/live/home/.ssh/authorized_keys,
+      # que e' a fonte unica de chaves da frota. O sed -i escreve num
+      # temporario e renomeia por cima do caminho: sem esta flag ele
+      # SUBSTITUI o link por arquivo comum, o host silenciosamente para de
+      # receber chave nova pelo Syncthing, e ninguem percebe ate precisar
+      # entrar num host a partir de um cliente novo. Foi assim que 4 hosts
+      # (us, bag, len, tp) ficaram com o link quebrado enquanto o .ssh/config
+      # e o .bashrc do lado continuavam linkados -- exatamente a assimetria
+      # que denunciou o problema.
+      sed -i --follow-symlinks '/backup-runner@/d' "$bkp_auth" 2>/dev/null || true
       echo "$runner_key" >> "$bkp_auth"
-      chown rcaldas: "$bkp_auth" 2>/dev/null || true
-      chmod 600 "$bkp_auth" 2>/dev/null || true
+      # chown/chmod no ALVO do link, nao no link (chmod num symlink nao faz
+      # nada util, e chown trocaria o dono do link, nao do arquivo).
+      alvo_auth=$(readlink -f "$bkp_auth")
+      chown rcaldas: "$alvo_auth" 2>/dev/null || true
+      chmod 600 "$alvo_auth" 2>/dev/null || true
       log "chave do runner de backup autorizada"
     fi
   fi
