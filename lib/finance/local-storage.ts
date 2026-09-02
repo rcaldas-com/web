@@ -335,10 +335,14 @@ export function updateLocalExpenseOverride(
   const overrides: MonthExpenseOverride[] = month.expenseOverrides || [];
 
   const idx = overrides.findIndex(o => o.expenseId === expenseId);
+  // Mesma regra do caminho autenticado: no mes corrente a edicao vale so'
+  // pra ele; num mes futuro, dali em diante. Ver MonthExpenseOverride.
+  const scope: 'month' | 'forward' = yearMonth === getFinanceToday().yearMonth ? 'month' : 'forward';
   if (idx >= 0) {
     overrides[idx].value = value;
+    overrides[idx].scope = scope;
   } else {
-    overrides.push({ expenseId, value });
+    overrides.push({ expenseId, value, scope });
   }
 
   month.expenseOverrides = overrides;
@@ -374,10 +378,11 @@ export function getLocalExpenseOverrides(yearMonth: string): Map<string, number>
 
   for (const ym of sortedKeys) {
     const month = months[ym];
+    const doProprioMes = ym === yearMonth;
     for (const override of (month.expenseOverrides || [])) {
-      if (!overrideMap.has(override.expenseId)) {
-        overrideMap.set(override.expenseId, override.value);
-      }
+      if (overrideMap.has(override.expenseId)) continue;
+      if (override.scope === 'month' && !doProprioMes) continue;
+      overrideMap.set(override.expenseId, override.value);
     }
   }
 

@@ -721,10 +721,16 @@ export async function updateMonthExpenseValue(
   // da despesa. É o que o usuário via antes de alterar.
   const expenseDoc = await db.collection('financeExpense').findOne({ _id: new ObjectId(expenseId) });
   const beforeValue = idx >= 0 ? overrides[idx].value : (expenseDoc?.value as number | undefined) ?? null;
+  // Escopo pelo mes que esta sendo editado, nao por opcao na tela: no mes
+  // corrente a edicao e' quase sempre "foi isso que veio desta vez", e num
+  // mes futuro e' "o padrao mudou". Pedir pro usuario declarar a intencao
+  // seria pedir o que a propria posicao no calendario ja diz.
+  const scope: 'month' | 'forward' = yearMonth === getFinanceToday().yearMonth ? 'month' : 'forward';
   if (idx >= 0) {
     overrides[idx].value = value;
+    overrides[idx].scope = scope;
   } else {
-    overrides.push({ expenseId, value });
+    overrides.push({ expenseId, value, scope });
   }
 
   await db.collection('financeMonth').updateOne(
@@ -767,13 +773,22 @@ export async function getExpenseOverrides(
     .sort({ yearMonth: -1 })
     .toArray();
 
-  // Build map: for each expense, use the most recent override <= yearMonth
+  // Mais recente <= yearMonth vence -- mas override de escopo 'month' so'
+  // vale no proprio mes dele. Sem isso, corrigir "a luz veio 40 a mais
+  // desta vez" no mes corrente reescrevia novembro, dezembro e todos os
+  // seguintes com um valor que nunca foi o padrao.
+  //
+  // O `has` continua sendo o que impede um mes mais antigo de sobrepor:
+  // quando um 'month' de mes anterior e' pulado, o laco segue procurando o
+  // proximo 'forward' mais recente, que e' o padrao correto.
   const overrideMap = new Map<string, number>();
   for (const doc of docs) {
+    const doProprioMes = doc.yearMonth === yearMonth;
     for (const override of (doc.expenseOverrides || []) as MonthExpenseOverride[]) {
-      if (!overrideMap.has(override.expenseId)) {
-        overrideMap.set(override.expenseId, override.value);
-      }
+      if (overrideMap.has(override.expenseId)) continue;
+      const soNesteMes = override.scope === 'month';
+      if (soNesteMes && !doProprioMes) continue;
+      overrideMap.set(override.expenseId, override.value);
     }
   }
 

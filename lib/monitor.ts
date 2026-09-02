@@ -4,7 +4,7 @@ import path from 'node:path';
 import { Db, ObjectId } from 'mongodb';
 import clientPromise from './mongodb';
 import { sendTunnelKeyApprovalEmail, sendIncidentEmail } from './email';
-import { getService, ingestInventory, saveRepoState } from './services';
+import { ingestInventory, saveRepoState } from './services';
 import { finishBuild } from './builds';
 import { ingestRepoHeads, requestRepoHeadsThrottled } from './polling';
 import { maybeAutoPromote } from './promote';
@@ -1203,7 +1203,7 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
         // escolha explicita por servico.
         if (fechado?.ok && fechado.tag) await maybeAutoPromote(fechado.service, fechado.tag);
 
-        // Build falhou: vira incidente, se o servico pediu.
+        // Build falhou: vira incidente.
         //
         // Ate aqui a falha era SILENCIOSA -- ficava gravada em
         // monitor_builds e mais nada. Os quatro builds do web que falharam
@@ -1214,27 +1214,31 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
         // vira ${'$'}inc count num incidente aberto, em vez de encher a caixa a
         // cada tentativa -- que e' exatamente o que um loop de rebuild
         // faria.
+        //
+        // SEM interruptor, ao contrario do alerta de host: aquele e' de
+        // limiar (disco, memoria, cpu) -- repete, precisa de ajuste por
+        // maquina, e por isso nasce desligado. Falha de build e' discreta,
+        // rara e sempre acionavel: nao existe servico cujo build possa
+        // quebrar sem que alguem queira saber. Caixa ali so' criaria a
+        // chance de estar desmarcada justo no dia em que importava.
         if (fechado && !fechado.ok) {
-          const svcDoc = await getService(fechado.service);
-          if (svcDoc?.alertBuildFailure) {
-            await upsertIncident(db, {
-              key: `build:${'$'}{fechado.service}`,
-              target: fechado.service,
-              severity: 'warning',
-              summary: `build de ${'$'}{fechado.service} falhou em ${'$'}{host}`,
-              detail: result.message?.slice(0, 500),
-              emailSubject: `build de ${'$'}{fechado.service} falhou`,
-              // Log do AGENTE (onde o build roda), nao do web -- e' la que
-              // esta a saida do docker build. Sem filtro de host de
-              // proposito: o bag, que e' o worker permanente, ainda nao
-              // manda log pro coletor, entao amarrar no host deixaria o
-              // email vazio justo no caso mais comum.
-              //
-              // O motivo da falha nao depende disto: 'detail' ja leva o
-              // rabo do log que o agente devolveu no proprio result.
-              logSelector: `{service_name="rcaldas-agent"} |= \`${'$'}{fechado.service}\``,
-            });
-          }
+          await upsertIncident(db, {
+            key: `build:${'$'}{fechado.service}`,
+            target: fechado.service,
+            severity: 'warning',
+            summary: `build de ${'$'}{fechado.service} falhou em ${'$'}{host}`,
+            detail: result.message?.slice(0, 500),
+            emailSubject: `build de ${'$'}{fechado.service} falhou`,
+            // Log do AGENTE (onde o build roda), nao do web -- e' la que
+            // esta a saida do docker build. Sem filtro de host de
+            // proposito: o bag, que e' o worker permanente, ainda nao
+            // manda log pro coletor, entao amarrar no host deixaria o
+            // email vazio justo no caso mais comum.
+            //
+            // O motivo da falha nao depende disto: 'detail' ja leva o
+            // rabo do log que o agente devolveu no proprio result.
+            logSelector: `{service_name="rcaldas-agent"} |= \`${'$'}{fechado.service}\``,
+          });
         }
       } catch {
         // id malformado -- ignora em vez de derrubar o heartbeat

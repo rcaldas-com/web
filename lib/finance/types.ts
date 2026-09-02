@@ -67,7 +67,19 @@ export interface MonthData {
 
 export interface MonthExpenseOverride {
   expenseId: string;
-  value: number;             // valor alterado para este mês (e futuros sem override próprio)
+  value: number;
+  // Ate onde este valor vale.
+  //
+  // 'month'   -> so' este mes. E' o que se quer ao corrigir o mes CORRENTE:
+  //              a conta de luz veio 40 a mais desta vez, e isso nao diz
+  //              nada sobre a de novembro.
+  // 'forward' -> deste mes em diante, ate outro override. E' o que se quer
+  //              ao editar um mes FUTURO: ali a intencao e' mudar o padrao.
+  //
+  // Ausente = 'forward'. Todo override gravado antes desta distincao existir
+  // tinha semantica de propagar, e reinterpreta-los mudaria valores de meses
+  // ja fechados.
+  scope?: 'month' | 'forward';
 }
 
 export interface MonthCardInvoice {

@@ -45,18 +45,6 @@ export type MonitorService = {
   logPath?: string;
   url?: string;
   autoPromote?: boolean;
-  // Abre incidente (e email, pelo caminho normal) quando o build falha.
-  //
-  // Por SERVICO e nao por host, embora o build rode num worker: quem
-  // quebrou foi a esteira do servico, nao a maquina. E a escolha do worker
-  // e' dinamica (desempate por menos jobs pendentes entre os habilitados),
-  // entao amarrar no host daria alerta nao-deterministico -- a mesma falha
-  // avisando hoje e ficando muda amanha, conforme quem pegou o job. O
-  // interruptor de alerta do host (monitoring.enabled) e' outra coisa:
-  // cuida da saude da MAQUINA (disco, memoria, cpu, offline).
-  //
-  // Nasce desligado, como autoPromote e como o alerta de host.
-  alertBuildFailure?: boolean;
   // Ultima promocao PEDIDA. Existe porque promover nao coloca nada em
   // producao na hora: escreve a tag no git e enfileira o deploy, e o selo
   // "em producao" so' muda quando o inventario confirma. Sem registrar o
@@ -209,7 +197,7 @@ export async function recordPromotion(name: string, tag: string): Promise<void> 
 
 export async function setServiceEnrichment(
   name: string,
-  patch: { source?: ServiceSource; logPath?: string; url?: string; autoPromote?: boolean; alertBuildFailure?: boolean }
+  patch: { source?: ServiceSource; logPath?: string; url?: string; autoPromote?: boolean }
 ) {
   const client = await clientPromise;
   const db = client.db();
@@ -218,7 +206,6 @@ export async function setServiceEnrichment(
   if (patch.logPath !== undefined) set.logPath = patch.logPath || undefined;
   if (patch.url !== undefined) set.url = patch.url || undefined;
   if (patch.autoPromote !== undefined) set.autoPromote = patch.autoPromote;
-  if (patch.alertBuildFailure !== undefined) set.alertBuildFailure = patch.alertBuildFailure;
   await db.collection<MonitorService>('monitor_services').updateOne({ name }, { $set: set });
 }
 

@@ -168,17 +168,3 @@ export function initMonthCardInvoices(
   });
 }
 
-export function getExpenseOverridesFromDocs(
-  monthDocs: { yearMonth: string; expenseOverrides?: MonthExpenseOverride[] }[],
-): Map<string, number> {
-  const overrideMap = new Map<string, number>();
-  // docs should be sorted desc by yearMonth — first match wins (most recent)
-  for (const doc of monthDocs) {
-    for (const override of (doc.expenseOverrides || [])) {
-      if (!overrideMap.has(override.expenseId)) {
-        overrideMap.set(override.expenseId, override.value);
-      }
-    }
-  }
-  return overrideMap;
-}

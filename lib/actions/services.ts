@@ -39,7 +39,6 @@ export async function setServiceAction(formData: FormData) {
   if (!name) return;
 
   const autoPromote = formData.get('autoPromote') === 'on';
-  const alertBuildFailure = formData.get('alertBuildFailure') === 'on';
 
   await setServiceEnrichment(name, {
     source: parseSource(formData),
@@ -49,11 +48,6 @@ export async function setServiceAction(formData: FormData) {
     // so com clique. Qualquer caminho que perca o campo erra pro lado de
     // pedir aprovacao, nunca pro lado de subir sozinho.
     autoPromote,
-    // Mesma regra do autoPromote: caixa ausente = desmarcada, e o default
-    // do sistema e' nao alertar. Qualquer caminho que perca o campo erra
-    // pro lado do silencio, nunca pro de mandar email sem alguem ter
-    // pedido.
-    alertBuildFailure,
   });
 
   // Ligar a auto-promocao promove o que JA esta pronto, em vez de so' valer
