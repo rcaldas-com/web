@@ -177,7 +177,14 @@ for conf in /etc/rsnapshot/*.conf; do
     # variam e quebram o agrupamento do Gmail); e o assunto precisa dizer
     # algo acionavel. "backup hora falhou -- ver /var/log/..." nao dizia
     # nem qual dos tres alvos tinha falhado.
-    if echo "$saida" | grep -q "rsync returned 255"; then
+    # preexec vem PRIMEIRO: quando ele aborta, o ciclo nao chegou a rodar,
+    # entao qualquer outro sintoma no texto seria consequencia, nao causa.
+    # E' tambem o unico caso aqui que costuma ter acao humana obvia --
+    # destravar/montar o disco -- entao dizer isso no assunto do email
+    # poupa abrir o log.
+    if echo "$saida" | grep -q "cmd_preexec\|nao esta montado"; then
+      motivo="disco de origem nao esta montado"
+    elif echo "$saida" | grep -q "rsync returned 255"; then
       motivo="sem acesso ssh ao alvo"
     elif echo "$saida" | grep -q "only transferred partially"; then
       motivo="origem indisponivel ou copiada pela metade"
