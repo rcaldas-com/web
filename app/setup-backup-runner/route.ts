@@ -212,11 +212,26 @@ if [[ "$INTERVALO" == "dia" ]] && command -v restic >/dev/null 2>&1; then
     # foi desativado no Monitor e cujo .conf sumiu mas a arvore antiga de
     # snapshots ficou pra tras -- foi exatamente isso que mandou 22GB de
     # dados desativados pro S3 numa execucao manual de teste.
+    # A raiz vem do arquivo que o instalador ja grava, NAO de substituicao
+    # de texto no proprio script. O jeito antigo (SNAPSHOT_ROOT_PLACEHOLDER
+    # + sed no fim do instalador) quebrou de forma silenciosa e cara: a
+    # linha abaixo passou a citar o placeholder DUAS vezes, e o sed nao
+    # tinha a flag "g" -- entao trocava so' a primeira. O teste -d ficava
+    # com o caminho certo e PASSAVA, e o que ia pro array era o literal
+    # "SNAPSHOT_ROOT_PLACEHOLDER/<host>/hora.0". Resultado: restic com
+    # "Fatal: all source directories/files do not exist", so' no ciclo
+    # diario, so' depois de uma reinstalacao do runner -- semanas depois de
+    # a linha ter sido escrita.
+    #
+    # Ler de um arquivo nao tem esse modo de falha: se sumir, o fallback
+    # aparece; se estiver errado, o -d reprova e o log diz que nao ha o que
+    # enviar. Nenhum caminho leva a "enviei lixo" nem a "achei que enviei".
+    raiz=$(cat "$CONF_DIR/snapshot-root" 2>/dev/null || echo /tank/bkp)
     fontes=()
     for conf in /etc/rsnapshot/*.conf; do
       [[ -e "$conf" ]] || continue
       h=$(basename "$conf" .conf)
-      [[ -d "SNAPSHOT_ROOT_PLACEHOLDER/$h/hora.0" ]] && fontes+=("SNAPSHOT_ROOT_PLACEHOLDER/$h/hora.0")
+      [[ -d "$raiz/$h/hora.0" ]] && fontes+=("$raiz/$h/hora.0")
     done
 
     if [[ ${'$'}{#fontes[@]} -eq 0 ]]; then
@@ -237,8 +252,26 @@ if [[ -n "$resultados" ]] && [[ -d /etc/rcaldas-agent ]]; then
   printf '[%s]' "$resultados" > "$PENDING"
 fi
 RUNEOF
-sed -i "s|SNAPSHOT_ROOT_PLACEHOLDER|$SNAPSHOT_ROOT|" /usr/local/bin/rcaldas-backup
 chmod 755 /usr/local/bin/rcaldas-backup
+
+# Confere o que acabou de escrever, em vez de supor. O bug que motivou isto
+# nao era de sintaxe -- era um marcador de substituicao que sobrou vivo --
+# mas o principio vale para os dois: o instalador e' a ULTIMA chance de
+# pegar o erro antes de ele virar um cron que falha as 3 da manha.
+if ! bash -n /usr/local/bin/rcaldas-backup 2>/dev/null; then
+  echo "  ERRO: o runner gerado nao e' bash valido -- nao vou ativar o cron"
+  bash -n /usr/local/bin/rcaldas-backup
+  exit 1
+fi
+# Ignora linha de comentario de proposito: o historico do bug esta
+# documentado no proprio runner e cita o marcador pelo nome.
+sobrou=$(grep -n "_PLACEHOLDER" /usr/local/bin/rcaldas-backup | grep -vE "^[0-9]+: *#" || true)
+if [[ -n "$sobrou" ]]; then
+  echo "  ERRO: sobrou marcador de substituicao em codigo ativo do runner:"
+  printf '%s\n' "$sobrou"
+  exit 1
+fi
+echo "  runner verificado (sintaxe ok, sem marcador pendente)"
 
 echo "cron"
 cat > /etc/cron.d/rcaldas-backup <<'EOF'
