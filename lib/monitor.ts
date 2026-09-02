@@ -1223,21 +1223,35 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
         // chance de estar desmarcada justo no dia em que importava.
         if (fechado && !fechado.ok) {
           await upsertIncident(db, {
-            key: `build:${'$'}{fechado.service}`,
+            key: `build:${fechado.service}`,
             target: fechado.service,
             severity: 'warning',
-            summary: `build de ${'$'}{fechado.service} falhou em ${'$'}{host}`,
+            summary: `build de ${fechado.service} falhou em ${host}`,
             detail: result.message?.slice(0, 500),
-            emailSubject: `build de ${'$'}{fechado.service} falhou`,
+            emailSubject: `build de ${fechado.service} falhou`,
             // Log do AGENTE (onde o build roda), nao do web -- e' la que
-            // esta a saida do docker build. Sem filtro de host de
-            // proposito: o bag, que e' o worker permanente, ainda nao
-            // manda log pro coletor, entao amarrar no host deixaria o
-            // email vazio justo no caso mais comum.
+            // esta a saida do docker build.
+            //
+            // COM filtro de host: e' o host que rodou o build. Amarrar nele
+            // evita o erro que ja apareceu duas vezes nesta stack -- alerta
+            // rotulado com a maquina errada.
+            //
+            // O service=~ traz as DUAS rotulagens porque o coletor nao e'
+            // simetrico: no `us` o rsyslog local separa um arquivo por
+            // programa (service="rcaldas-agent"), enquanto os hosts da frota
+            // mandam tudo num syslog.log so' (service="syslog", com o nome
+            // do programa dentro da linha).
+            //
+            // Medido: {service_name="rcaldas-agent"} achava 3 linhas, todas
+            // no us. O log do agente do BAG -- 1.112 linhas/24h, de longe o
+            // maior da frota, porque e' o worker permanente -- ficava
+            // invisivel. Nao era o bag deixando de mandar log (ele manda 37
+            // mil linhas/dia, segundo maior da frota): era o seletor lendo
+            // um rotulo que so' existe no us.
             //
             // O motivo da falha nao depende disto: 'detail' ja leva o
             // rabo do log que o agente devolveu no proprio result.
-            logSelector: `{service_name="rcaldas-agent"} |= \`${'$'}{fechado.service}\``,
+            logSelector: `{host="${host}", service=~"rcaldas-agent|syslog"} |= \`${fechado.service}\``,
           });
         }
       } catch {
