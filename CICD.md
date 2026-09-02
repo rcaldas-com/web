@@ -1,8 +1,9 @@
 # CI/CD — build no worker, promoção pelo Monitor
 
-> Referência do que está no ar. Nasceu como plano; as fases 0 a 5 estão
-> implementadas e o texto passou a descrever o sistema, não a intenção. A
-> fase 6 segue pendente — ver a seção dela.
+> Referência do que está no ar. Nasceu como plano; as seis fases estão
+> implementadas e o texto passou a descrever o sistema, não a intenção.
+> Onde a implementação divergiu do plano, o desvio está registrado com o
+> motivo — é a parte mais útil de reler. Medições datadas de 23/08/2026.
 > Onde a implementação divergiu do plano, o desvio está registrado com o
 > motivo — é a parte mais útil de reler. Medições datadas de 23/08/2026.
 
@@ -296,26 +297,45 @@ ele o bump ficaria parado no git.
 - É o modelo do Flux. Trocar o executor por `kubectl apply` transforma isso
   em deploy de cluster sem tocar em mais nada.
 
-### Fase 6 — falha vira incidente ⬜ pendente
+### Fase 6 — falha vira incidente ✅
 
-A ideia era sair de graça: result com `type:"alarm"` e `status:"fail"` já
-entra no `upsertIncident`, com dedupe, email só na transição e teto de 10
-emails/host/hora.
+O plano dizia que sairia de graça: result com `type:"alarm"` e
+`status:"fail"` já entra no `upsertIncident`. **Mas o job de build emite
+`type:"build"`**, então nada disparava — `finishBuild` gravava a falha em
+`monitor_builds` e parava aí. Build que falhava era **silencioso**: os
+quatro builds do `web` que falharam (o loop de rebuild) não geraram um
+único incidente, e a falha só apareceu porque alguém foi ler o log.
 
-**Só que o job de build não emite `type:"alarm"`** — ele emite
-`type:"build"`. `finishBuild` grava a falha em `monitor_builds` e para aí;
-nada chama `upsertIncident`. Resultado: **build que falha é silencioso**.
+**O interruptor é por serviço (`alertBuildFailure`), não por host** — e
+essa é a decisão que importa aqui. O build roda num worker, então a
+tentação é usar o `monitoring.enabled` da máquina. Duas razões contra:
 
-Medido em 01/09/2026: os quatro builds do `web` que falharam (aqueles sem
-sha, do bug do loop de rebuild) não geraram nenhum incidente —
-`monitor_incidents` não tem um único documento com `build` na chave. A
-falha só apareceu porque alguém foi ler o log.
+1. `monitoring.enabled` cuida da saúde da **máquina** (disco, memória,
+   CPU, offline). Um build que falha não diz nada sobre o `bag`; diz que a
+   esteira daquele serviço quebrou.
+2. **A escolha do worker é dinâmica** (desempate por menos jobs pendentes).
+   Amarrado ao host, a mesma falha avisaria hoje e ficaria muda amanhã,
+   conforme quem pegou o job. Alerta não-determinístico é pior que nenhum:
+   ensina a não confiar nele.
 
-Falta ligar os dois lados na ingestão do heartbeat: resultado de job
-`build` com `status:"fail"` → `upsertIncident` com chave por serviço.
-⚠️ Alerta novo tem dono: a frota já tem interruptor de alerta por host
-(`monitoring.enabled`, desligado por padrão), e essa decisão vale aqui
-também — build falhando não deveria mandar email sem alguém ter pedido.
+Nasce desligado, como `autoPromote` e como o alerta de host. Só aparece
+habilitável em serviço que **constrói** — `upstream` tem pipeline mas
+nunca builda, e a caixa ali controlaria um evento impossível.
+
+**Chave por serviço** (`build:<nome>`), não por build: reincidência vira
+`$inc count` num incidente aberto, em vez de um email por tentativa — que
+é exatamente o que o loop de rebuild teria produzido.
+
+`finishBuild` passou a devolver o serviço **também quando falha**
+(`ok:false`). Antes o fracasso era indistinguível de "não havia build com
+esse id" e quem chamava não sabia qual serviço quebrou; `null` agora
+significa uma coisa só.
+
+> O `logSelector` aponta pro log do **agente** (`service_name="rcaldas-agent"`),
+> onde mora a saída do `docker build` — não pro log do `web`, que só tem as
+> linhas da pipeline. Sem filtro de host de propósito: o `bag`, worker
+> permanente, ainda não manda log pro coletor. O motivo da falha não
+> depende disso — `detail` leva o rabo do log que o agente devolveu.
 
 ---
 
