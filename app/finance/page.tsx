@@ -113,12 +113,15 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   const cardExpenses = monthExpenses
     .filter(e => e.category === 'card')
     .map(e => {
-      const { paid, displayValue } = computeExpensePaymentState(calcValue(e), paymentsByExpense.get(e._id!));
+      const { paid, displayValue, amountPaid } = computeExpensePaymentState(calcValue(e), paymentsByExpense.get(e._id!));
       return {
         id: e._id!,
         name: e.name,
         value: displayValue,
         baseValue: getExpenseValue(e),
+        // Paga em parte, mas ainda não fechada -- ver comentário em
+        // ExpenseItem/handleSaveValue sobre o que muda no clique de editar.
+        partial: !e.proportional && !paid && amountPaid > 0,
         proportional: e.proportional,
         dueDay: e.dueDay,
         paid,
@@ -130,12 +133,13 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   const cashExpenses = monthExpenses
     .filter(e => e.category === 'cash')
     .map(e => {
-      const { paid, displayValue } = computeExpensePaymentState(calcValue(e), paymentsByExpense.get(e._id!));
+      const { paid, displayValue, amountPaid } = computeExpensePaymentState(calcValue(e), paymentsByExpense.get(e._id!));
       return {
         id: e._id!,
         name: e.name,
         value: displayValue,
         baseValue: getExpenseValue(e),
+        partial: !e.proportional && !paid && amountPaid > 0,
         dueDay: e.dueDay,
         proportional: e.proportional,
         paid,

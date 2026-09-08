@@ -8,7 +8,6 @@ import type {
   RecurringExpense,
   Installment,
   MonthCardInvoice,
-  MonthExpenseOverride,
   MonthPayment,
   InstallmentGroup,
   CardView,

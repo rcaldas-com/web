@@ -13,6 +13,7 @@ import type {
   MonthExpenseOverride,
 } from './types';
 import { getFinanceToday, addMonthsToYearMonth } from './date';
+import { computeExpensePaymentState } from './compute';
 
 const KEYS = {
   profile: 'finance_profile',
@@ -334,15 +335,33 @@ export function updateLocalExpenseOverride(
   const month = months[yearMonth] || ensureMonth(yearMonth);
   const overrides: MonthExpenseOverride[] = month.expenseOverrides || [];
 
+  // Mesma reinterpretação do caminho autenticado (ver updateExpenseValue em
+  // actions.ts): com pagamento parcial em andamento, o número editado é o
+  // RESTANTE que a tela mostra, não o total -- gravar como total apagaria o
+  // que já tinha sido pago.
+  const expensePayments: MonthPayment[] = (month.payments || []).filter(p => p.expenseId === expenseId);
+  const amountPaidSoFar = expensePayments.reduce((sum, p) => sum + p.amountPaid, 0);
+  let overrideValue = value;
+  if (amountPaidSoFar > 0) {
+    const expense = getLocalExpenses().find(e => e._id === expenseId);
+    if (expense && !expense.proportional) {
+      const currentTemplate = getLocalExpenseOverrides(yearMonth).get(expenseId) ?? expense.value;
+      const estadoAtual = computeExpensePaymentState(currentTemplate, expensePayments);
+      if (!estadoAtual.paid) {
+        overrideValue = Math.round((amountPaidSoFar + value) * 100) / 100;
+      }
+    }
+  }
+
   const idx = overrides.findIndex(o => o.expenseId === expenseId);
   // Mesma regra do caminho autenticado: no mes corrente a edicao vale so'
   // pra ele; num mes futuro, dali em diante. Ver MonthExpenseOverride.
   const scope: 'month' | 'forward' = yearMonth === getFinanceToday().yearMonth ? 'month' : 'forward';
   if (idx >= 0) {
-    overrides[idx].value = value;
+    overrides[idx].value = overrideValue;
     overrides[idx].scope = scope;
   } else {
-    overrides.push({ expenseId, value, scope });
+    overrides.push({ expenseId, value: overrideValue, scope });
   }
 
   month.expenseOverrides = overrides;

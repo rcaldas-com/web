@@ -37,6 +37,11 @@ interface ExpenseItem {
   name: string;
   value: number;
   baseValue: number;
+  // Paga em parte (algum pagamento neste mês), mas ainda não fechou. Nesse
+  // estado `value` (o restante) e `baseValue` (o total do mês) são números
+  // DIFERENTES por design -- editar precisa saber qual dos dois é o que
+  // está na tela, senão o clique substitui um número pelo outro sem avisar.
+  partial: boolean;
   dueDay?: number;
   proportional: false | 'daily' | 'weekly';
   paid: boolean;
@@ -726,8 +731,13 @@ function ExpenseChecklist({
             ) : (
               <span
                 className={`font-mono text-sm cursor-pointer hover:text-blue-600 transition-colors ${e.paid ? 'text-green-600' : 'text-zinc-700 dark:text-zinc-200'}`}
-                onClick={() => { setEditVal(e.baseValue.toFixed(2)); setEditingId(e.id); }}
-                title="Clique para alterar valor deste mês"
+                // Pré-preenche com o que ESTÁ na tela (e.value), não sempre
+                // com o total (e.baseValue). Parcial e total são números
+                // diferentes; pré-preencher com o errado faz o clique
+                // substituir um pelo outro sem o usuário perceber -- foi
+                // exatamente isso que apagou um pagamento já feito.
+                onClick={() => { setEditVal((e.partial ? e.value : e.baseValue).toFixed(2)); setEditingId(e.id); }}
+                title={e.partial ? 'Clique para alterar o valor restante' : 'Clique para alterar valor deste mês'}
               >
                 {BRL(e.value)}
               </span>
