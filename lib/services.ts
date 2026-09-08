@@ -66,6 +66,11 @@ export type RepoState = {
   dirtyFiles: string[];
   ahead: number;
   behind: number;
+  // Commit em que o host esta. E' o sinal de convergencia: 'behind' depende
+  // de '@{u}', que so' e' verdade logo apos um fetch, e o inventario nao
+  // faz fetch -- marcava 0 com o host atrasado. O sha nao depende de nada
+  // no host.
+  head?: string;
   seenAt: Date;
 };
 
@@ -226,6 +231,7 @@ export async function getRepoStates(): Promise<(Omit<RepoState, 'seenAt'> & { se
     dirtyFiles: d.dirtyFiles ?? [],
     ahead: d.ahead ?? 0,
     behind: d.behind ?? 0,
+    head: d.head,
     seenAt: d.seenAt.toISOString(),
   }));
 }

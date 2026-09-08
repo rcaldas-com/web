@@ -6,8 +6,8 @@
 // o agente do host de deploy, amanha um controlador de cluster lendo o
 // mesmo repo. Troca-se o executor, nao a UI nem o modelo. Ver CICD.md.
 
-import { getService, listServices, recordPromotion } from './services';
-import { enqueueDeployJobs } from './monitor';
+import { getRepoStates, getService, listServices, recordPromotion } from './services';
+import { enqueueDeployJobs, listDeployTargets } from './monitor';
 
 const GITHUB_API = 'https://api.github.com';
 const REPO = process.env.DEPLOY_REPO || 'rcaldas-com/dev';
@@ -207,6 +207,10 @@ export async function reconcileComposeDrift(): Promise<void> {
     const atual = await gh(`/repos/${REPO}/contents/${encodeURIComponent(COMPOSE_PATH)}?ref=${BRANCH}`);
     if (!atual.res.ok) return;
 
+    // HEAD do repo, nao do arquivo: e' contra ele que o host se compara.
+    const ref = await gh(`/repos/${REPO}/commits/${BRANCH}`);
+    const shaRemoto = ref.res.ok ? String(ref.body.sha || '') : '';
+
     const conteudo = Buffer.from(String(atual.body.content || ''), 'base64').toString('utf8');
     // servico -> tag que o git manda subir. O nome sai do proprio caminho da
     // imagem, que e' como o resto do sistema ja identifica servico.
@@ -218,6 +222,31 @@ export async function reconcileComposeDrift(): Promise<void> {
       if (nome) noGit.set(nome, m[2]);
     }
     if (!noGit.size) return;
+
+    // Antes disto a comparacao era so' de TAG de imagem, e isso deixava
+    // passar tudo que nao fosse promocao: mudar `user:`, porta, volume,
+    // variavel ou acrescentar servico nao mexe em tag nenhuma. Aconteceu de
+    // verdade -- o commit que fez o web rodar com outro uid ficou parado no
+    // git, e eu tinha afirmado que producao convergia "tenha o git mudado
+    // por quem for". So' convergia pra metade dos casos.
+    //
+    // O commit e' o sinal certo: se o host esta noutro commit, ele esta
+    // desatualizado, seja qual for a linha que mudou.
+    const estados = shaRemoto ? await getRepoStates() : [];
+    const alvosDeploy = await listDeployTargets();
+    const atrasados = alvosDeploy.filter((h) => {
+      const st = estados.find((e) => e.host === h);
+      // Sem head reportado (agente velho, host nunca inventariado) nao da
+      // pra afirmar atraso -- e chutar aqui viraria deploy em loop.
+      return st?.head && st.head !== shaRemoto;
+    });
+    if (atrasados.length) {
+      const alvos = await enqueueDeployJobs();
+      console.log(
+        `deriva de commit: ${atrasados.join(', ')} em ${estados.find((e) => atrasados.includes(e.host))?.head?.slice(0, 7)}, repo em ${shaRemoto.slice(0, 7)} | reconciliacao pedida a: ${alvos.join(', ')}`
+      );
+      return;
+    }
 
     const servicos = await listServices();
     const divergentes = servicos.filter((s) => {

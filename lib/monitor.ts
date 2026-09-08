@@ -16,7 +16,7 @@ import redis from './redis';
 // AGENT_BIN mudar -- nao mudar isso foi o motivo do host-info ter ficado
 // invisivel: o codigo novo foi adicionado sem bump, entao nenhum host
 // existente jamais teria motivo pra se atualizar sozinho.
-export const AGENT_VERSION = '2.14.0';
+export const AGENT_VERSION = '2.15.0';
 
 // Ritmo da frota. O agente le nextIntervalSec do heartbeat e reescreve o
 // proprio timer quando muda, entao trocar estes numeros (ou marcar um host
@@ -652,6 +652,21 @@ export async function enqueueRepoHeadsJob(hostName: string, repos: string): Prom
 //
 // So' quem DECLARA a capacidade, mesma regra do resto: pedir a um agente
 // que nao sabe executar produz job morto.
+/**
+ * Hosts que aplicam o repo em producao. Mesma consulta que enqueueDeployJobs
+ * ja fazia; extraida pra que o reconciliador possa perguntar "quem deveria
+ * estar no commit do repo?" sem enfileirar nada.
+ */
+export async function listDeployTargets(): Promise<string[]> {
+  const client = await clientPromise;
+  const db = client.db();
+  const docs = await db
+    .collection<MonitorHost>('monitor_hosts')
+    .find({ 'deployTarget.enabled': true, capabilities: 'deploy' }, { projection: { name: 1 } })
+    .toArray();
+  return docs.map((d) => d.name);
+}
+
 export async function enqueueDeployJobs(): Promise<string[]> {
   const client = await clientPromise;
   const db = client.db();

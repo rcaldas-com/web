@@ -668,8 +668,13 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
           inv_dirty="${'$'}{inv_dirty:-[]}"
           inv_ahead=$(cd "$inv_dir" && ${'$'}inv_git rev-list --count '@{u}'..HEAD 2>/dev/null || echo 0)
           inv_behind=$(cd "$inv_dir" && ${'$'}inv_git rev-list --count HEAD..'@{u}' 2>/dev/null || echo 0)
-          inv_repo=$(jq -nc --argjson dirty "$inv_dirty" --arg a "$inv_ahead" --arg b "$inv_behind" \\
-            '{dirty: $dirty, ahead: ($a | tonumber), behind: ($b | tonumber)}' 2>/dev/null)
+          # HEAD local. 'behind' depende de '@{u}', que so' e' verdade logo apos
+          # um fetch -- e o inventario nao faz fetch, entao marcava 0 mesmo com o
+          # host atrasado. O sha nao depende disso: o servidor ja le o HEAD do
+          # repo pela API do GitHub e compara.
+          inv_head=$(cd "$inv_dir" && ${'$'}inv_git rev-parse HEAD 2>/dev/null || echo "")
+          inv_repo=$(jq -nc --argjson dirty "$inv_dirty" --arg a "$inv_ahead" --arg b "$inv_behind" --arg h "$inv_head" \\
+            '{dirty: $dirty, ahead: ($a | tonumber), behind: ($b | tonumber), head: $h}' 2>/dev/null)
           if [[ -n "$inv_dec" && -n "$inv_run" && -n "$inv_repo" ]]; then
             jstatus="ok"; jmsg="inventario coletado"
             info_result=",{\\"id\\":\\"services-declared\\",\\"type\\":\\"inventory\\",\\"status\\":\\"ok\\",\\"message\\":\\"$(json_escape "$inv_dec")\\"}"
