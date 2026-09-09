@@ -119,8 +119,13 @@ export default function InstallmentsForm({
             {rows.map((row, index) => (
               <div key={index} className="rounded-md border p-3">
                 <input type="hidden" name="installmentId" value={row._id || ''} />
-                <div className="flex flex-wrap items-end gap-2">
-                  <div className="min-w-[180px] flex-[1_1_220px]">
+                {/* Colunas nomeadas (mesmo padrao do CardsForm): abaixo de sm
+                    cada campo empilha em largura cheia, sem disputa de
+                    espaco -- e' o que evita o botao de apagar (o menor dos
+                    5) sobrar sozinho numa linha pra ele, que era o defeito
+                    do flex-wrap com largura fixa por campo. */}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_7rem_4rem_2rem] sm:items-end">
+                  <div>
                     <label className="block text-xs font-medium text-zinc-600">Descrição</label>
                     <input
                       ref={index === rows.length - 1 ? lastDescriptionRef : undefined}
@@ -132,7 +137,7 @@ export default function InstallmentsForm({
                       placeholder="TV, Sofá..."
                     />
                   </div>
-                  <div className="w-28">
+                  <div>
                     <label className="block text-xs font-medium text-zinc-600">Cartão</label>
                     <select
                       name="cardId"
@@ -145,7 +150,7 @@ export default function InstallmentsForm({
                       ))}
                     </select>
                   </div>
-                  <div className="w-28">
+                  <div>
                     <label className="block text-xs font-medium text-zinc-600">Valor/mês</label>
                     <input
                       type="text"
@@ -156,7 +161,7 @@ export default function InstallmentsForm({
                       className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                     />
                   </div>
-                  <div className="w-16">
+                  <div>
                     <label className="block text-xs font-medium text-zinc-600">Parc.</label>
                     <input
                       type="text"
@@ -171,7 +176,7 @@ export default function InstallmentsForm({
                   </div>
                   {rows.length > 1 && (
                     <button type="button" onClick={() => removeRow(index)}
-                      className="h-9 w-8 rounded-md text-red-500 hover:bg-red-50 hover:text-red-700">
+                      className="h-9 w-8 justify-self-start rounded-md text-red-500 hover:bg-red-50 hover:text-red-700 sm:justify-self-center">
                       ✕
                     </button>
                   )}
