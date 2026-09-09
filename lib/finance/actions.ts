@@ -437,7 +437,32 @@ export async function updateExpenseValue(expenseId: string, value: number, yearM
   // atualiza o override e deixa o valor pago como está.
   const payment = expensePayments.length === 1 ? expensePayments[0] : undefined;
 
-  if (payment?.paidToCard) {
+  // Estado da despesa ANTES desta edição -- decide o que o número digitado
+  // significa. Sem pagamento ainda, não há "restante" distinto do total, e
+  // "editar o valor" só pode querer dizer "editar o total" (jaFechada fica
+  // true por vacuidade, cai no comportamento de sempre). Proporcional nunca
+  // tem pagamento de verdade (sem checkbox pra isso -- ver ExpenseChecklist);
+  // um registro legado cairia aqui como "fechada" de propósito, pra não
+  // aplicar a matemática de restante numa taxa diária/semanal.
+  const amountPaidSoFar = expensePayments.reduce((sum, p) => sum + p.amountPaid, 0);
+  let jaFechada = true;
+  if (amountPaidSoFar > 0) {
+    const [expenses, overrides] = await Promise.all([getExpenses(userId), getExpenseOverrides(userId, yearMonth)]);
+    const expense = expenses.find(e => e._id === expenseId);
+    jaFechada = !expense || Boolean(expense.proportional) ||
+      computeExpensePaymentState(overrides.get(expenseId) ?? expense.value, expensePayments).paid;
+  }
+
+  // Correção do pagamento via cartão: só faz sentido numa despesa JÁ
+  // FECHADA -- é "retificar quanto foi de fato cobrado no cartão", não
+  // "quanto ainda falta". Bug real encontrado aqui: isto rodava mesmo com
+  // a despesa ainda parcial (ex.: 129,33 pagos no cartão de uma conta de
+  // 150), e aí o número editado ("falta só 1,42") virava tanto o valor
+  // COBRADO quanto o TOTAL -- 1,42 nos dois, remaining=0, fechada com o
+  // rastro dos 129,33 perdido. Enquanto ainda há restante, cai no ramo de
+  // baixo (igual ao caminho sem cartão): não mexe no pagamento nem na
+  // fatura, só o total-alvo muda.
+  if (payment?.paidToCard && jaFechada) {
     const delta = Math.round((value - payment.amountPaid) * 100) / 100;
     if (delta !== 0) {
       const nextMonth = addMonthsToYearMonth(yearMonth, 1);
@@ -452,31 +477,15 @@ export async function updateExpenseValue(expenseId: string, value: number, yearM
     return;
   }
 
-  // Havia pagamento(s) sem fechar o mês (parcial em andamento, ex.: pago
-  // metade via banco): o número editado aqui é o mesmo que a TELA mostra
-  // -- o RESTANTE, não o total. Reinterpretar como total sobrescrevia o
-  // que já tinha sido pago. Aconteceu de verdade: 129,33 já pagos, editar
-  // pra "1,42" (querendo dizer "falta só 1,42") fechava a despesa como se
-  // o total inteiro fosse 1,42, perdendo o rastro dos 129,33.
+  // Havia pagamento(s) sem fechar o mês (parcial em andamento, banco OU
+  // cartão): o número editado aqui é o mesmo que a TELA mostra -- o
+  // RESTANTE, não o total. Reinterpretar como total sobrescrevia o que já
+  // tinha sido pago.
   //
-  // total_novo = já pago + o que ainda falta (o número editado). Cai fora
-  // quando a despesa já fechou este mês (editar o total ali é outra coisa,
-  // fora do escopo daqui) ou é proporcional (essas nunca têm pagamento --
-  // o override é a taxa diária/semanal, não um total comparável a
-  // "restante").
-  const amountPaidSoFar = expensePayments.reduce((sum, p) => sum + p.amountPaid, 0);
-  let overrideValue = value;
-  if (amountPaidSoFar > 0) {
-    const [expenses, overrides] = await Promise.all([getExpenses(userId), getExpenseOverrides(userId, yearMonth)]);
-    const expense = expenses.find(e => e._id === expenseId);
-    if (expense && !expense.proportional) {
-      const currentTemplate = overrides.get(expenseId) ?? expense.value;
-      const estadoAtual = computeExpensePaymentState(currentTemplate, expensePayments);
-      if (!estadoAtual.paid) {
-        overrideValue = Math.round((amountPaidSoFar + value) * 100) / 100;
-      }
-    }
-  }
+  // total_novo = já pago + o que ainda falta (o número editado).
+  const overrideValue = amountPaidSoFar > 0 && !jaFechada
+    ? Math.round((amountPaidSoFar + value) * 100) / 100
+    : value;
 
   await updateMonthExpenseValue(userId, yearMonth, expenseId, overrideValue);
   revalidatePath('/finance');
