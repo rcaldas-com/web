@@ -236,7 +236,17 @@ function CardSection({
       <div className="flex justify-between items-center gap-3">
         <div>
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{card.name}</h2>
-          <p className="text-xs text-zinc-400 dark:text-zinc-400">Vencimento dia {card.dueDay}</p>
+          <p className="text-xs text-zinc-400 dark:text-zinc-400">
+            Vencimento dia {card.dueDay}
+            {!isGuest && (
+              <>
+                {' · '}
+                <Link href={`/finance/cards/${card._id}`} className="text-blue-600 hover:underline dark:text-blue-400">
+                  ver fatura
+                </Link>
+              </>
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1" aria-label="Ordenar cartão">
