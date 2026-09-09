@@ -635,6 +635,16 @@ export async function addExpensePayment(
     { upsert: true }
   );
 
+  // paidFromBank já chega pronto pro histórico (banco é identificado pelo
+  // NOME em todo o sistema, não por id). paidToCard não -- cartão é
+  // identificado por ObjectId (é o que adjustCardExpenseInMonth precisa pra
+  // achar a fatura certa), então sem resolver o nome aqui o histórico
+  // mostrava o hex de 24 caracteres direto: "Cartão (próx. fatura):
+  // 69d878c0125f2c545444ba8b", sem dizer qual cartão era.
+  const cardName = paidToCard
+    ? ((await db.collection('financeCard').findOne({ _id: new ObjectId(paidToCard) }))?.name as string | undefined) ?? 'Cartão'
+    : undefined;
+
   await recordChange({
     userId,
     entity: 'expense',
@@ -646,7 +656,7 @@ export async function addExpensePayment(
     changes: [
       { field: 'valorPago', label: 'Valor pago', before: null, after: amount, kind: 'money' },
       ...(paidFromBank ? [{ field: 'conta', label: 'Conta', before: null, after: paidFromBank, kind: 'text' as const }] : []),
-      ...(paidToCard ? [{ field: 'cartao', label: 'Cartão (próx. fatura)', before: null, after: paidToCard, kind: 'text' as const }] : []),
+      ...(cardName ? [{ field: 'cartao', label: 'Cartão (próx. fatura)', before: null, after: cardName, kind: 'text' as const }] : []),
     ],
     source: 'user',
   });

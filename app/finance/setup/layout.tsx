@@ -1,3 +1,5 @@
+import SetupTabs from './SetupTabs';
+
 export default async function SetupLayout({
   children,
 }: {
@@ -5,7 +7,8 @@ export default async function SetupLayout({
 }) {
   return (
     <div className="finance-setup max-w-2xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold mb-6 text-zinc-950 dark:text-zinc-50">Configuração Financeira</h1>
+      <h1 className="text-2xl font-bold mb-4 text-zinc-950 dark:text-zinc-50">Configuração Financeira</h1>
+      <SetupTabs />
       {children}
     </div>
   );

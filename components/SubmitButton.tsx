@@ -12,15 +12,21 @@ export default function SubmitButton({
   children,
   className = '',
   onClick,
+  formAction,
 }: {
   children: React.ReactNode;
   className?: string;
   onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  // Formulário com mais de uma ação (ex.: "Salvar" fica no <form action>,
+  // "Concluir" sobrescreve com a própria) -- o atributo nativo já resolve
+  // qual server action roda por botão, sem precisar de dois <form>.
+  formAction?: (formData: FormData) => void | Promise<void>;
 }) {
   const { pending } = useFormStatus();
   return (
     <button
       type="submit"
+      formAction={formAction}
       disabled={pending}
       aria-busy={pending}
       onClick={onClick}

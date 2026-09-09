@@ -2,8 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { saveInstallmentsAndFinish } from '@/lib/finance/actions';
+import { saveInstallmentsList, saveInstallmentsAndFinish } from '@/lib/finance/actions';
 import {
   getLocalCards,
   getLocalInstallments,
@@ -11,6 +10,8 @@ import {
 } from '@/lib/finance/local-storage';
 import { evalExpression } from '@/lib/finance/eval-expression';
 import type { CreditCard, Installment } from '@/lib/finance/types';
+import SubmitButton from '@/components/SubmitButton';
+import { useSavedFlash } from '../useSavedFlash';
 
 interface InstallmentRow {
   _id?: string;
@@ -47,6 +48,7 @@ export default function InstallmentsForm({
   isGuest?: boolean;
 }) {
   const router = useRouter();
+  const [saved, flashSaved] = useSavedFlash();
   const guestCards = isGuest ? getLocalCards() : [];
   const cards = isGuest ? guestCards : serverCards;
   const sourceInstallments = isGuest ? getLocalInstallments() : serverInstallments;
@@ -92,15 +94,16 @@ export default function InstallmentsForm({
     })
     .filter(row => row.cardId && row.description && row.monthlyValue && row.remainingInstallments);
 
-  const handleGuestSubmit = () => {
+  const handleGuestSubmit = (dest: 'stay' | 'finish') => {
     saveLocalInstallments(validRows);
-    router.push('/finance');
+    if (dest === 'finish') { router.push('/finance'); return; }
+    flashSaved();
   };
 
   return (
     <form
-      action={isGuest ? undefined : saveInstallmentsAndFinish}
-      onSubmit={isGuest ? (event) => { event.preventDefault(); handleGuestSubmit(); } : undefined}
+      action={isGuest ? undefined : saveInstallmentsList}
+      onSubmit={isGuest ? (event) => { event.preventDefault(); handleGuestSubmit('stay'); } : undefined}
       className="space-y-6"
     >
       <div className="bg-white rounded-lg border p-6 space-y-4">
@@ -183,15 +186,30 @@ export default function InstallmentsForm({
         )}
       </div>
 
-      <div className="flex justify-between">
-        <Link href="/finance/setup/expenses"
-          className="text-zinc-600 hover:text-zinc-800 px-4 py-2">
-          ← Voltar
-        </Link>
-        <button type="submit"
-          className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-          Concluir ✓
-        </button>
+      <div className="flex items-center justify-end gap-3">
+        {saved && <span className="text-sm text-emerald-600">✓ Salvo</span>}
+        {isGuest ? (
+          <>
+            <button type="button" onClick={() => handleGuestSubmit('finish')}
+              className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
+              Concluir ✓
+            </button>
+            <button type="submit"
+              className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
+              Salvar
+            </button>
+          </>
+        ) : (
+          <>
+            <SubmitButton formAction={saveInstallmentsAndFinish}
+              className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
+              Concluir ✓
+            </SubmitButton>
+            <SubmitButton className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
+              Salvar
+            </SubmitButton>
+          </>
+        )}
       </div>
     </form>
   );

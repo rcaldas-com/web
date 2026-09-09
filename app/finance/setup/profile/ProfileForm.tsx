@@ -2,15 +2,18 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { saveProfileAndContinue, saveProfileAndFinish } from '@/lib/finance/actions';
+import { saveProfile, saveProfileAndFinish } from '@/lib/finance/actions';
 import { saveLocalProfile, saveDraft, loadDraft, clearDraft } from '@/lib/finance/local-storage';
 import { evalExpression } from '@/lib/finance/eval-expression';
 import type { FinanceProfile, BankAccount } from '@/lib/finance/types';
+import SubmitButton from '@/components/SubmitButton';
+import { useSavedFlash } from '../useSavedFlash';
 
 const DRAFT_ID = 'profile';
 
 export default function ProfileForm({ profile, isGuest }: { profile: FinanceProfile | null; isGuest?: boolean }) {
   const router = useRouter();
+  const [saved, flashSaved] = useSavedFlash();
   const draft = isGuest ? loadDraft<{ banks: BankAccount[]; values: Record<string, string> }>(DRAFT_ID) : null;
 
   const [banks, setBanks] = useState<BankAccount[]>(
@@ -34,7 +37,7 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
 
   useEffect(() => () => clearTimeout(saveTimeout.current), []);
 
-  const handleGuestSubmit = (dest: 'continue' | 'finish') => {
+  const handleGuestSubmit = (dest: 'stay' | 'finish') => {
     if (!formRef.current) return;
     const fd = new FormData(formRef.current);
     const payment = evalExpression(fd.get('payment') as string);
@@ -56,15 +59,18 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
       banks: parsedBanks,
     });
     clearDraft(DRAFT_ID);
-    router.push(dest === 'continue' ? '/finance/setup/cards' : '/finance');
+    // Com abas, não existe mais "próxima etapa": Salvar fica na tela
+    // (ajuste pontual); só Concluir volta pro painel.
+    if (dest === 'finish') { router.push('/finance'); return; }
+    flashSaved();
   };
 
   const addBank = () => setBanks([...banks, { name: '', balance: 0 }]);
   const removeBank = (i: number) => setBanks(banks.filter((_, idx) => idx !== i));
 
   return (
-    <form ref={formRef} action={isGuest ? undefined : saveProfileAndContinue} onChange={autoSave}
-      onSubmit={isGuest ? (e) => { e.preventDefault(); handleGuestSubmit('continue'); } : undefined}
+    <form ref={formRef} action={isGuest ? undefined : saveProfile} onChange={autoSave}
+      onSubmit={isGuest ? (e) => { e.preventDefault(); handleGuestSubmit('stay'); } : undefined}
       className="space-y-6">
       <div className="bg-white rounded-lg border p-6 space-y-4">
         <h2 className="text-lg font-semibold">Salário</h2>
@@ -169,7 +175,8 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
         ))}
       </div>
 
-      <div className="flex justify-end gap-3">
+      <div className="flex items-center justify-end gap-3">
+        {saved && <span className="text-sm text-emerald-600">✓ Salvo</span>}
         {isGuest ? (
           <>
             <button type="button" onClick={() => handleGuestSubmit('finish')}
@@ -178,19 +185,18 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
             </button>
             <button type="submit"
               className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-              Próximo →
+              Salvar
             </button>
           </>
         ) : (
           <>
-            <button type="submit" formAction={saveProfileAndFinish}
+            <SubmitButton formAction={saveProfileAndFinish}
               className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
               Concluir ✓
-            </button>
-            <button type="submit"
-              className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-              Próximo →
-            </button>
+            </SubmitButton>
+            <SubmitButton className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
+              Salvar
+            </SubmitButton>
           </>
         )}
       </div>

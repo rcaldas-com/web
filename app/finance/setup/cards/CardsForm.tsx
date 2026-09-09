@@ -2,11 +2,12 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { saveCardsAndContinue, saveCardsAndFinish } from '@/lib/finance/actions';
+import { saveCards, saveCardsAndFinish } from '@/lib/finance/actions';
 import { saveLocalCards, saveDraft, loadDraft, clearDraft } from '@/lib/finance/local-storage';
 import { evalExpression } from '@/lib/finance/eval-expression';
 import type { CreditCard } from '@/lib/finance/types';
+import SubmitButton from '@/components/SubmitButton';
+import { useSavedFlash } from '../useSavedFlash';
 
 const DRAFT_ID = 'cards';
 
@@ -33,6 +34,7 @@ const toCardRow = (card: DraftCardRow): CardRow => ({
 
 export default function CardsForm({ cards, isGuest }: { cards: CreditCard[]; isGuest?: boolean }) {
   const router = useRouter();
+  const [saved, flashSaved] = useSavedFlash();
   const draft = isGuest ? loadDraft<{ rows: DraftCardRow[] }>(DRAFT_ID) : null;
   const [rows, setRows] = useState<CardRow[]>(
     draft?.rows?.map(toCardRow) || (cards.length
@@ -53,7 +55,7 @@ export default function CardsForm({ cards, isGuest }: { cards: CreditCard[]; isG
 
   useEffect(() => () => clearTimeout(saveTimeout.current), []);
 
-  const handleGuestSubmit = (dest: 'continue' | 'finish') => {
+  const handleGuestSubmit = (dest: 'stay' | 'finish') => {
     const validCards = rows
       .filter(r => r.name.trim())
       .map(r => ({
@@ -64,7 +66,8 @@ export default function CardsForm({ cards, isGuest }: { cards: CreditCard[]; isG
       }));
     saveLocalCards(validCards);
     clearDraft(DRAFT_ID);
-    router.push(dest === 'continue' ? '/finance/setup/expenses' : '/finance');
+    if (dest === 'finish') { router.push('/finance'); return; }
+    flashSaved();
   };
 
   const addRow = () => setRows([...rows, { name: '', dueDay: '', invoiceTotal: '' }]);
@@ -74,9 +77,9 @@ export default function CardsForm({ cards, isGuest }: { cards: CreditCard[]; isG
   };
 
   return (
-    <form ref={formRef} action={isGuest ? undefined : saveCardsAndContinue}
+    <form ref={formRef} action={isGuest ? undefined : saveCards}
       onChange={autoSave}
-      onSubmit={isGuest ? (e) => { e.preventDefault(); handleGuestSubmit('continue'); } : undefined}
+      onSubmit={isGuest ? (e) => { e.preventDefault(); handleGuestSubmit('stay'); } : undefined}
       className="space-y-6">
       <div className="bg-white rounded-lg border p-6 space-y-4">
         <div className="flex justify-between items-center">
@@ -128,36 +131,30 @@ export default function CardsForm({ cards, isGuest }: { cards: CreditCard[]; isG
         ))}
       </div>
 
-      <div className="flex justify-between">
-        <Link href="/finance/setup/profile"
-          className="text-zinc-600 hover:text-zinc-800 px-4 py-2">
-          ← Voltar
-        </Link>
-        <div className="flex gap-3">
-          {isGuest ? (
-            <>
-              <button type="button" onClick={() => handleGuestSubmit('finish')}
-                className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
-                Concluir ✓
-              </button>
-              <button type="submit"
-                className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-                Próximo →
-              </button>
-            </>
-          ) : (
-            <>
-              <button type="submit" formAction={saveCardsAndFinish}
-                className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
-                Concluir ✓
-              </button>
-              <button type="submit"
-                className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-                Próximo →
-              </button>
-            </>
-          )}
-        </div>
+      <div className="flex items-center justify-end gap-3">
+        {saved && <span className="text-sm text-emerald-600">✓ Salvo</span>}
+        {isGuest ? (
+          <>
+            <button type="button" onClick={() => handleGuestSubmit('finish')}
+              className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
+              Concluir ✓
+            </button>
+            <button type="submit"
+              className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
+              Salvar
+            </button>
+          </>
+        ) : (
+          <>
+            <SubmitButton formAction={saveCardsAndFinish}
+              className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
+              Concluir ✓
+            </SubmitButton>
+            <SubmitButton className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
+              Salvar
+            </SubmitButton>
+          </>
+        )}
       </div>
     </form>
   );
