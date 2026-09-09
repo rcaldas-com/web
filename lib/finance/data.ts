@@ -621,6 +621,7 @@ export async function addExpensePayment(
   amount: number,
   paidFromBank?: string,
   paidToCard?: string,
+  paidToCardName?: string,
 ): Promise<void> {
   const client = await clientPromise;
   const db = client.db();
@@ -638,11 +639,18 @@ export async function addExpensePayment(
   // paidFromBank já chega pronto pro histórico (banco é identificado pelo
   // NOME em todo o sistema, não por id). paidToCard não -- cartão é
   // identificado por ObjectId (é o que adjustCardExpenseInMonth precisa pra
-  // achar a fatura certa), então sem resolver o nome aqui o histórico
-  // mostrava o hex de 24 caracteres direto: "Cartão (próx. fatura):
+  // achar a fatura certa) -- sem resolver o nome, o histórico mostrava o
+  // hex de 24 caracteres direto: "Cartão (próx. fatura):
   // 69d878c0125f2c545444ba8b", sem dizer qual cartão era.
+  //
+  // paidToCardName chega pronto do chamador (mesmo padrão de paidFromBank
+  // e expenseName): a tela que oferece a escolha do cartão já tem o nome
+  // em mãos pra desenhar o próprio botão, então pedir de volta ao banco
+  // aqui seria uma consulta a mais por pagamento sem necessidade -- o
+  // findOne fica só de rede de segurança pra um chamador futuro que
+  // esqueça de mandar o nome.
   const cardName = paidToCard
-    ? ((await db.collection('financeCard').findOne({ _id: new ObjectId(paidToCard) }))?.name as string | undefined) ?? 'Cartão'
+    ? paidToCardName ?? ((await db.collection('financeCard').findOne({ _id: new ObjectId(paidToCard) }))?.name as string | undefined) ?? 'Cartão'
     : undefined;
 
   await recordChange({

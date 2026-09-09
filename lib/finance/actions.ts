@@ -321,10 +321,10 @@ export async function doRollOver() {
 // restante (computeExpensePaymentState), não esta action.
 export async function recordExpensePayment(
   expenseId: string, expenseName: string, amount: number, yearMonth: string,
-  paidFromBank?: string, paidToCard?: string,
+  paidFromBank?: string, paidToCard?: string, paidToCardName?: string,
 ) {
   const userId = await getUserId();
-  await addExpensePayment(userId, yearMonth, expenseId, expenseName, amount, paidFromBank, paidToCard);
+  await addExpensePayment(userId, yearMonth, expenseId, expenseName, amount, paidFromBank, paidToCard, paidToCardName);
 
   const nextMonth = addMonthsToYearMonth(yearMonth, 1);
   if (paidFromBank) await adjustBankBalance(userId, paidFromBank, -amount);

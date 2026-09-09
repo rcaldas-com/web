@@ -21,7 +21,7 @@ import type { InstallmentGroup, CardView, BankAccount } from '@/lib/finance/type
 const BRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 interface FinanceActions {
-  recordExpensePayment: (id: string, name: string, amount: number, ym: string, bank?: string, cardId?: string) => Promise<void>;
+  recordExpensePayment: (id: string, name: string, amount: number, ym: string, bank?: string, cardId?: string, cardName?: string) => Promise<void>;
   undoExpensePayments: (id: string, name: string, ym: string) => Promise<void>;
   updateInvoice: (cardId: string, amount: number, ym: string) => Promise<void>;
   toggleInvoicePaid: (cardId: string, name: string, total: number, ym: string, bank?: string) => Promise<void>;
@@ -106,6 +106,7 @@ export default function DashboardClient({
 
   const actions: FinanceActions = isGuest
     ? {
+        // cardName so' importa pro historico, e o convidado nao tem um.
         recordExpensePayment: async (id, name, amount, ym, bank, cardId) => { addLocalExpensePayment(ym, id, name, amount, bank, cardId); guestRefresh(); },
         undoExpensePayments: async (id, _name, ym) => { undoLocalExpensePayments(ym, id); guestRefresh(); },
         updateInvoice: async (cardId, amount, ym) => { updateLocalMonthCardInvoice(ym, cardId, amount); guestRefresh(); },
@@ -121,7 +122,7 @@ export default function DashboardClient({
         updateExpenseValue: async (id, value, ym) => { updateLocalExpenseOverride(ym, id, value); guestRefresh(); },
       }
     : {
-        recordExpensePayment: async (id, name, amount, ym, bank, cardId) => { await recordExpensePayment(id, name, amount, ym, bank, cardId); },
+        recordExpensePayment: async (id, name, amount, ym, bank, cardId, cardName) => { await recordExpensePayment(id, name, amount, ym, bank, cardId, cardName); },
         undoExpensePayments: async (id, name, ym) => { await undoExpensePayments(id, name, ym); },
         updateInvoice: async (cardId, amount, ym) => { await updateMonthInvoice(cardId, amount, ym); },
         toggleInvoicePaid: async (cardId, name, total, ym, bank) => { await toggleInvoicePaid(cardId, name, total, ym, bank); },
@@ -463,7 +464,10 @@ function PaymentPicker({
   cards: CardView[];
   amount: string;
   onAmountChange: (v: string) => void;
-  onSelect: (bank?: string, cardId?: string) => void;
+  // cardName vai junto pro caller nao ter que buscar o nome de volta no
+  // banco so pra gravar no historico -- a tela ja tem o nome aqui mesmo,
+  // é ele que aparece no chip.
+  onSelect: (bank?: string, cardId?: string, cardName?: string) => void;
   onDismiss: () => void;
 }) {
   const amountInputRef = useRef<HTMLInputElement>(null);
@@ -494,7 +498,7 @@ function PaymentPicker({
               <PickerChip key={b.name} label={b.name} sub={BRL(b.balance)} onClick={() => onSelect(b.name, undefined)} />
             ))
           : cards.map(c => (
-              <PickerChip key={c._id} label={c.name} sub={`próx: ${BRL(c.nextInvoiceTotal ?? 0)}`} onClick={() => onSelect(undefined, c._id)} />
+              <PickerChip key={c._id} label={c.name} sub={`próx: ${BRL(c.nextInvoiceTotal ?? 0)}`} onClick={() => onSelect(undefined, c._id, c.name)} />
             ))
         }
         <PickerChip label={`Sem ${category === 'cash' ? 'conta' : 'cartão'}`} onClick={() => onSelect(undefined, undefined)} />
@@ -649,11 +653,11 @@ function ExpenseChecklist({
     }
   };
 
-  const handlePick = (e: ExpenseItem, bank?: string, cardId?: string) => {
+  const handlePick = (e: ExpenseItem, bank?: string, cardId?: string, cardName?: string) => {
     const amount = Math.round(evalExpression(pickerAmount) * 100) / 100;
     setPickerId(null);
     if (amount > 0) {
-      startTransition(() => { actions.recordExpensePayment(e.id, e.name, amount, yearMonth, bank, cardId); });
+      startTransition(() => { actions.recordExpensePayment(e.id, e.name, amount, yearMonth, bank, cardId, cardName); });
     }
   };
 
@@ -750,7 +754,7 @@ function ExpenseChecklist({
               cards={cards}
               amount={pickerAmount}
               onAmountChange={setPickerAmount}
-              onSelect={(bank, cardId) => handlePick(e, bank, cardId)}
+              onSelect={(bank, cardId, cardName) => handlePick(e, bank, cardId, cardName)}
               onDismiss={() => setPickerId(null)}
             />
           )}
