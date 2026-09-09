@@ -102,29 +102,27 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
         {rows.map((row, i) => (
           <div key={i} className="border rounded-md p-3 space-y-2">
             <input type="hidden" name="expId" value={row.id} />
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <input
-                  ref={i === rows.length - 1 ? lastNameRef : undefined}
-                  type="text" name="expName"
-                  value={row.name}
-                  onChange={e => updateRow(i, 'name', e.target.value)}
-                  className="block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  placeholder="Nome da despesa"
-                />
-              </div>
-              <div className="w-32">
-                <input
-                  type="text" inputMode="decimal" name="expValue"
-                  value={row.value || ''}
-                  onChange={e => updateRow(i, 'value', e.target.value)}
-                  className="block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  placeholder="Valor"
-                />
-              </div>
+            {/* Mesmo grid nomeado das outras 3 abas -- coluna única abaixo
+                de sm, evita o botão de apagar sobrar sozinho na linha. */}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_2rem] sm:items-center">
+              <input
+                ref={i === rows.length - 1 ? lastNameRef : undefined}
+                type="text" name="expName"
+                value={row.name}
+                onChange={e => updateRow(i, 'name', e.target.value)}
+                className="block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                placeholder="Nome da despesa"
+              />
+              <input
+                type="text" inputMode="decimal" name="expValue"
+                value={row.value || ''}
+                onChange={e => updateRow(i, 'value', e.target.value)}
+                className="block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                placeholder="Valor"
+              />
               {rows.length > 1 && (
                 <button type="button" onClick={() => removeRow(i)}
-                  className="text-red-500 hover:text-red-700">
+                  className="h-9 w-8 justify-self-start rounded-md text-red-500 hover:bg-red-50 hover:text-red-700 sm:justify-self-center">
                   ✕
                 </button>
               )}

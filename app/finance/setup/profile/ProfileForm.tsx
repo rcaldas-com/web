@@ -146,31 +146,37 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
             + Adicionar
           </button>
         </div>
+        {/* Mesmo padrão de linha das outras 3 abas: caixa com borda +
+            grid nomeado, coluna única (empilha em largura cheia) abaixo
+            de sm -- evita o botão de apagar sobrar sozinho numa linha,
+            mesmo defeito já corrigido em Parcelas. */}
         {banks.map((bank, i) => (
-          <div key={i} className="flex gap-3 items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-zinc-700">Banco</label>
-              <input
-                type="text" name="bankName"
-                defaultValue={bank.name}
-                className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                placeholder="BB, ITAU..."
-              />
+          <div key={i} className="rounded-md border p-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2rem] sm:items-end">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">Banco</label>
+                <input
+                  type="text" name="bankName"
+                  defaultValue={bank.name}
+                  className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  placeholder="BB, ITAU..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">Saldo (R$)</label>
+                <input
+                  type="text" inputMode="decimal" name="bankBalance"
+                  defaultValue={bank.balance}
+                  className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                />
+              </div>
+              {banks.length > 1 && (
+                <button type="button" onClick={() => removeBank(i)}
+                  className="h-9 w-8 justify-self-start rounded-md text-red-500 hover:bg-red-50 hover:text-red-700 sm:justify-self-center">
+                  ✕
+                </button>
+              )}
             </div>
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-zinc-700">Saldo (R$)</label>
-              <input
-                type="text" inputMode="decimal" name="bankBalance"
-                defaultValue={bank.balance}
-                className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-            {banks.length > 1 && (
-              <button type="button" onClick={() => removeBank(i)}
-                className="text-red-500 hover:text-red-700 pb-2">
-                ✕
-              </button>
-            )}
           </div>
         ))}
       </div>

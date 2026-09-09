@@ -89,44 +89,49 @@ export default function CardsForm({ cards, isGuest }: { cards: CreditCard[]; isG
             + Adicionar
           </button>
         </div>
+        {/* Mesmo padrão de linha das outras 3 abas: caixa com borda em
+            vez de separador -- consistência entre as 4, não mais visual
+            diferente por aba. */}
         {rows.map((row, i) => (
-          <div key={i} className="grid grid-cols-1 gap-3 border-b pb-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_6rem_8rem_auto] sm:items-end">
+          <div key={i} className="rounded-md border p-3">
             <input type="hidden" name="cardId" value={row._id || ''} />
-            <div>
-              <label className="block text-sm font-medium text-zinc-700">Nome</label>
-              <input
-                type="text" name="cardName"
-                value={row.name}
-                onChange={e => updateRow(i, 'name', e.target.value)}
-                className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                placeholder="BB, ITAU..."
-              />
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_6rem_8rem_2rem] sm:items-end">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">Nome</label>
+                <input
+                  type="text" name="cardName"
+                  value={row.name}
+                  onChange={e => updateRow(i, 'name', e.target.value)}
+                  className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  placeholder="BB, ITAU..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">Vencimento</label>
+                <input
+                  type="text" name="cardDueDay" inputMode="numeric" pattern="[0-9]*" maxLength={2}
+                  value={row.dueDay}
+                  onChange={e => updateRow(i, 'dueDay', e.target.value.replace(/\D/g, ''))}
+                  className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">Fatura atual</label>
+                <input
+                  type="text" name="cardInvoiceTotal" inputMode="decimal"
+                  value={row.invoiceTotal}
+                  onChange={e => updateRow(i, 'invoiceTotal', e.target.value)}
+                  className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  placeholder="0,00"
+                />
+              </div>
+              {rows.length > 1 && (
+                <button type="button" onClick={() => removeRow(i)}
+                  className="h-9 w-8 justify-self-start rounded-md text-red-500 hover:bg-red-50 hover:text-red-700 sm:justify-self-center">
+                  ✕
+                </button>
+              )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700">Vencimento</label>
-              <input
-                type="text" name="cardDueDay" inputMode="numeric" pattern="[0-9]*" maxLength={2}
-                value={row.dueDay}
-                onChange={e => updateRow(i, 'dueDay', e.target.value.replace(/\D/g, ''))}
-                className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700">Fatura atual</label>
-              <input
-                type="text" name="cardInvoiceTotal" inputMode="decimal"
-                value={row.invoiceTotal}
-                onChange={e => updateRow(i, 'invoiceTotal', e.target.value)}
-                className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                placeholder="0,00"
-              />
-            </div>
-            {rows.length > 1 && (
-              <button type="button" onClick={() => removeRow(i)}
-                className="justify-self-start pb-2 text-red-500 hover:text-red-700 sm:justify-self-center">
-                ✕
-              </button>
-            )}
           </div>
         ))}
       </div>
