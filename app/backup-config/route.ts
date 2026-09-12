@@ -1,4 +1,5 @@
 import { getBackupPlan, type BackupPlanEntry } from '@/lib/monitor';
+import { getDataBackupPlan } from '@/lib/services';
 
 const SNAPSHOT_ROOT = process.env.BACKUP_SNAPSHOT_ROOT || '/tank/bkp';
 const BACKUP_USER = process.env.BACKUP_SSH_USER || 'rcaldas';
@@ -138,6 +139,22 @@ function preexecScript(entry: BackupPlanEntry) {
 export async function GET(request: Request) {
   const runner = new URL(request.url).searchParams.get('runner') || 'bag';
   const plano = await getBackupPlan(runner);
+  const planoDados = await getDataBackupPlan();
+
+  // Retencao do offsite: uma politica so' pro repositorio inteiro, e nao
+  // uma por servico. O `restic forget` opera sobre SNAPSHOTS, e cada
+  // snapshot aqui carrega todas as fontes juntas -- nao da' pra expirar o
+  // Mongo de 30 dias atras mantendo o S3 do mesmo snapshot. Entao a
+  // politica efetiva e' a mais LONGA entre os servicos: expirar antes
+  // disso perderia dado que alguem pediu pra guardar.
+  const ret = planoDados.reduce(
+    (acc, s) => ({
+      dia: Math.max(acc.dia, s.retention.dia),
+      semana: Math.max(acc.semana, s.retention.semana),
+      mes: Math.max(acc.mes, s.retention.mes),
+    }),
+    { dia: 7, semana: 4, mes: 12 }
+  );
 
   const partes = plano.map((entry, i) => {
     const delim = `BKPCONF_${i}_EOF`;
@@ -192,6 +209,28 @@ touch ${SSH_KNOWN_HOSTS} && chmod 600 ${SSH_KNOWN_HOSTS}
 
 echo "Escrevendo configs de backup:"
 ${partes.length ? partes.join('\n\n') : 'echo "  (nenhum host com backup habilitado)"'}
+
+# Backup de DADOS (servicos cadastrados no Monitor com backup habilitado).
+# Sem credencial nenhuma aqui de proposito: o runner le' do .env do host de
+# producao na hora. Uma fonte da verdade so' -- trocar de provedor de S3
+# la' passa a valer aqui sem sincronizar nada.
+echo "Escrevendo plano de backup de dados:"
+mkdir -p /etc/rcaldas-backup
+cat <<'BKPDADOS_EOF' > /etc/rcaldas-backup/dados.conf
+# Gerado pelo Monitor -- nao editar a mao.
+# formato: <servico> <metodo>
+${planoDados.length ? planoDados.map((s) => `${s.service} ${s.method}`).join('\n') : '# (nenhum servico com backup de dados habilitado)'}
+BKPDADOS_EOF
+chmod 600 /etc/rcaldas-backup/dados.conf
+${planoDados.length ? planoDados.map((s) => `echo "  ${s.service} (${s.method})"`).join('\n') : 'echo "  (nenhum)"'}
+
+# Retencao do offsite. Uma politica pro repositorio inteiro: o restic
+# expira SNAPSHOTS, e cada snapshot carrega todas as fontes juntas.
+cat <<'BKPRET_EOF' > /etc/rcaldas-backup/retencao.conf
+--keep-daily ${ret.dia} --keep-weekly ${ret.semana} --keep-monthly ${ret.mes}
+BKPRET_EOF
+chmod 600 /etc/rcaldas-backup/retencao.conf
+echo "  retencao offsite: ${ret.dia} diarios, ${ret.semana} semanais, ${ret.mes} mensais"
 
 echo
 echo "Pronto. Teste sem copiar nada com:"

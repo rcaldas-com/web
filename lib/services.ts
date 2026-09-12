@@ -28,6 +28,28 @@ export type ServiceDeployment =
   | { kind: 'systemd'; host: string; unit: string }
   | { kind: 'none' };
 
+// Backup de DADOS do servico -- eixo separado do backup de host.
+//
+// O rsnapshot copia ARQUIVO de um host. Nem Mongo nem S3 sao arquivo: um
+// precisa de dump logico, o outro de sync de bucket. Por isso a config
+// mora aqui, no servico, e nao em monitor_hosts.backup.includes.
+//
+// A retencao e' do OFFSITE (restic), nao do local. Localmente fica so' a
+// copia corrente -- guardar N copias datadas no tank seria pagar duas
+// vezes pelo mesmo historico que o restic ja mantem deduplicado.
+export type ServiceBackup = {
+  enabled: boolean;
+  // O METODO decide o que o runner executa. Nao da' pra inferir do
+  // 'source': tanto um 'upstream' quanto um 'external' podem precisar de
+  // qualquer um dos dois (um Mongo gerenciado por terceiro seria
+  // external + mongodump).
+  method: 'mongodump' | 's3-sync';
+  // Politica passada pro `restic forget`. Sem isto o repositorio nunca
+  // expira nada: medido em 11/09/2026, 25 snapshots acumulados desde o
+  // primeiro, nenhum removido, e o repo em ~400 GiB.
+  retention?: { dia?: number; semana?: number; mes?: number };
+};
+
 export type MonitorService = {
   _id: ObjectId;
   name: string;
@@ -45,6 +67,9 @@ export type MonitorService = {
   logPath?: string;
   url?: string;
   autoPromote?: boolean;
+  // Ausente = servico sem backup de dados (o caso da maioria: o dado deles
+  // ou e' efemero ou ja viaja no backup de arquivo do host).
+  backup?: ServiceBackup;
   // Ultima promocao PEDIDA. Existe porque promover nao coloca nada em
   // producao na hora: escreve a tag no git e enfileira o deploy, e o selo
   // "em producao" so' muda quando o inventario confirma. Sem registrar o
@@ -212,6 +237,47 @@ export async function setServiceEnrichment(
   if (patch.url !== undefined) set.url = patch.url || undefined;
   if (patch.autoPromote !== undefined) set.autoPromote = patch.autoPromote;
   await db.collection<MonitorService>('monitor_services').updateOne({ name }, { $set: set });
+}
+
+export async function setServiceBackup(name: string, backup: ServiceBackup | null) {
+  const client = await clientPromise;
+  const db = client.db();
+  await db
+    .collection<MonitorService>('monitor_services')
+    .updateOne({ name }, { $set: { backup: backup ?? undefined, updatedAt: new Date() } });
+}
+
+// O que o runner precisa saber pra fazer o backup de dados. Devolve so' o
+// essencial e NUNCA credencial: quem executa le' as credenciais do .env do
+// host de producao na hora, o que mantem uma fonte da verdade so' (trocar
+// de provedor de S3 la' passa a valer aqui sem sincronizar nada) e evita
+// que segredo de producao passe pelo Mongo do Monitor ou pelo heartbeat.
+export async function getDataBackupPlan(): Promise<
+  { service: string; method: ServiceBackup['method']; retention: { dia: number; semana: number; mes: number } }[]
+> {
+  const client = await clientPromise;
+  const db = client.db();
+  const svcs = await db
+    .collection<MonitorService>('monitor_services')
+    .find({ 'backup.enabled': true }, { projection: { name: 1, backup: 1 } })
+    .sort({ name: 1 })
+    .toArray();
+
+  return svcs
+    .filter((s) => s.backup?.method)
+    .map((s) => ({
+      service: s.name,
+      method: s.backup!.method,
+      // Default conservador: mantem historico de um ano sem explodir o
+      // repositorio. Vale mais que "sem retencao nenhuma", que e' o que
+      // existia antes -- e o restic deduplica, entao guardar 7 diarios nao
+      // custa 7x o tamanho.
+      retention: {
+        dia: s.backup?.retention?.dia ?? 7,
+        semana: s.backup?.retention?.semana ?? 4,
+        mes: s.backup?.retention?.mes ?? 12,
+      },
+    }));
 }
 
 export async function saveRepoState(state: Omit<RepoState, 'seenAt'>) {

@@ -198,6 +198,100 @@ for conf in /etc/rsnapshot/*.conf; do
   fi
 done
 
+# Backup de DADOS dos servicos cadastrados no Monitor (Mongo, S3).
+#
+# Vem ANTES do restic de proposito: assim o dump entra no offsite no MESMO
+# ciclo, e nao no do dia seguinte. O rsnapshot nao serve aqui -- ele copia
+# ARQUIVO de um host, e nem dump logico de banco nem bucket de S3 sao
+# arquivo em disco de host nenhum.
+#
+# CREDENCIAL NAO MORA AQUI. E' lida do .env do host de producao na hora,
+# pela mesma chave e o mesmo ssh_config que o rsnapshot ja usa. Isso
+# mantem uma fonte da verdade so': trocar de provedor de S3 la' passa a
+# valer aqui sem sincronizar nada, que era o requisito.
+filtro_dados="|~ \\\`rcaldas-backup|mongodump|rclone\\\` != \\\`COMMAND=\\\`"
+if [[ "$INTERVALO" == "dia" ]] && [[ -f "$CONF_DIR/dados.conf" ]]; then
+  raiz=$(cat "$CONF_DIR/snapshot-root" 2>/dev/null || echo /tank/bkp)
+  env_prod=$(ssh -F /etc/rsnapshot/ssh_config us-bkp "cat /var/rcaldas/rcaldas/.env" 2>/dev/null || true)
+
+  if [[ -z "$env_prod" ]]; then
+    log "dados: nao consegui ler o .env de producao -- pulando"
+    add_resultado "dados" "fail" "backup de dados falhou: sem acesso ao .env de producao" "$filtro_dados"
+  else
+    le_env() { printf '%s' "$env_prod" | grep "^$1=" | head -1 | cut -d= -f2- | tr -d '"'; }
+
+    while read -r svc metodo _resto; do
+      [[ -z "$svc" ]] && continue
+      case "$svc" in \\#*) continue ;; esac
+      inicio_d=$(date +%s)
+
+      case "$metodo" in
+        mongodump)
+          # A URI de producao e' mongodb+srv apontando pro nome com
+          # registro SRV, que NAO resolve fora do us. Reescreve pro
+          # endereco direto, que o runner alcanca. Sem --gzip: dado
+          # comprimido muda inteiro a cada byte alterado e destroi a
+          # deduplicacao do restic, que ja comprime por conta propria.
+          uri=$(le_env MONGO_URI | sed -e 's|^mongodb+srv://|mongodb://|' -e 's|@[^/]*/[^?]*|@us.rcaldas.com:8417/|')
+          if [[ -z "$uri" ]]; then
+            log "dados/$svc: MONGO_URI ausente no .env de producao"
+            add_resultado "dados-$svc" "fail" "backup de $svc falhou: MONGO_URI ausente" "$filtro_dados"
+            continue
+          fi
+          destino="$raiz/dados/$svc"
+          mkdir -p "$destino"
+          if docker run --rm --network host -v "$destino:/dump" mongo:7 \\
+               mongodump --uri="$uri" --out=/dump --quiet >> "$LOG" 2>&1; then
+            log "dados/$svc: ok em $(( $(date +%s) - inicio_d ))s"
+            add_resultado "dados-$svc" "ok" "backup de dados de $svc ok" "$filtro_dados"
+          else
+            log "dados/$svc: FALHOU"
+            add_resultado "dados-$svc" "fail" "backup de dados de $svc falhou -- ver $LOG" "$filtro_dados"
+          fi
+          ;;
+
+        s3-sync)
+          # rclone configurado por variavel de ambiente: nao grava arquivo
+          # de config com segredo em disco, e nao passa credencial em
+          # linha de comando (que apareceria no ps de qualquer usuario).
+          #
+          # O "sync" e' espelho fiel: o que sumir na origem some aqui. E' o
+          # comportamento certo pra uma copia, e o historico de quem foi
+          # apagado fica no restic -- que e' justamente por que a retencao
+          # do offsite importa.
+          RCLONE_CONFIG_PROD_TYPE=s3
+          RCLONE_CONFIG_PROD_PROVIDER=Other
+          RCLONE_CONFIG_PROD_ENDPOINT=$(le_env S3_HOST)
+          RCLONE_CONFIG_PROD_ACCESS_KEY_ID=$(le_env S3_KEY)
+          RCLONE_CONFIG_PROD_SECRET_ACCESS_KEY=$(le_env S3_SECRET)
+          export RCLONE_CONFIG_PROD_TYPE RCLONE_CONFIG_PROD_PROVIDER RCLONE_CONFIG_PROD_ENDPOINT
+          export RCLONE_CONFIG_PROD_ACCESS_KEY_ID RCLONE_CONFIG_PROD_SECRET_ACCESS_KEY
+          if [[ -z "$RCLONE_CONFIG_PROD_ENDPOINT" || -z "$RCLONE_CONFIG_PROD_ACCESS_KEY_ID" ]]; then
+            log "dados/$svc: credenciais S3 ausentes no .env de producao"
+            add_resultado "dados-$svc" "fail" "backup de $svc falhou: credenciais S3 ausentes" "$filtro_dados"
+            continue
+          fi
+          destino="$raiz/dados/$svc"
+          mkdir -p "$destino"
+          if rclone sync prod: "$destino" --fast-list >> "$LOG" 2>&1; then
+            log "dados/$svc: ok em $(( $(date +%s) - inicio_d ))s"
+            add_resultado "dados-$svc" "ok" "backup de dados de $svc ok" "$filtro_dados"
+          else
+            log "dados/$svc: FALHOU"
+            add_resultado "dados-$svc" "fail" "backup de dados de $svc falhou -- ver $LOG" "$filtro_dados"
+          fi
+          unset RCLONE_CONFIG_PROD_ACCESS_KEY_ID RCLONE_CONFIG_PROD_SECRET_ACCESS_KEY
+          ;;
+
+        *)
+          log "dados/$svc: metodo desconhecido '$metodo' -- ignorando"
+          ;;
+      esac
+    done < "$CONF_DIR/dados.conf"
+    unset env_prod
+  fi
+fi
+
 # Offsite cifrado: so no intervalo diario, pra nao subir a cada hora.
 filtro_offsite="|~ \\\`restic|rcaldas-backup\\\` != \\\`COMMAND=\\\`"
 if [[ "$INTERVALO" == "dia" ]] && command -v restic >/dev/null 2>&1; then
@@ -233,12 +327,33 @@ if [[ "$INTERVALO" == "dia" ]] && command -v restic >/dev/null 2>&1; then
       h=$(basename "$conf" .conf)
       [[ -d "$raiz/$h/hora.0" ]] && fontes+=("$raiz/$h/hora.0")
     done
+    # Dados dos servicos (Mongo/S3). Nao vem de .conf de rsnapshot porque
+    # nao e' host -- entra como fonte propria.
+    [[ -d "$raiz/dados" ]] && fontes+=("$raiz/dados")
 
     if [[ ${'$'}{#fontes[@]} -eq 0 ]]; then
       log "restic: nada pra enviar ainda (nenhum host com hora.0)"
     elif restic backup --tag diario "${'$'}{fontes[@]}" >> "$LOG" 2>&1; then
       log "restic: enviado pro S3"
       add_resultado "offsite" "ok" "copia offsite enviada" "$filtro_offsite"
+
+      # Retencao. Sem isto o repositorio NUNCA expira nada: medido em
+      # 11/09/2026, 25 snapshots desde o primeiro, zero removidos, repo em
+      # ~400 GiB. O --prune e' o que libera espaco de verdade (o forget
+      # sozinho so' desreferencia o snapshot; os dados so' saem do bucket
+      # quando os chunks orfaos sao removidos).
+      #
+      # Falha aqui NAO derruba o backup: o dado ja subiu, e um forget que
+      # nao rodou custa espaco, nao integridade. Vira aviso, nao critico.
+      if [[ -f "$CONF_DIR/retencao.conf" ]]; then
+        politica=$(cat "$CONF_DIR/retencao.conf")
+        if restic forget $politica --prune >> "$LOG" 2>&1; then
+          log "restic: retencao aplicada ($politica)"
+        else
+          log "restic: retencao FALHOU -- espaco nao foi liberado"
+          add_resultado "offsite-retencao" "warn" "retencao do offsite falhou -- ver $LOG" "$filtro_offsite"
+        fi
+      fi
     else
       log "restic: FALHOU"
       add_resultado "offsite" "fail" "copia offsite falhou -- ver $LOG" "$filtro_offsite"
