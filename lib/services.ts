@@ -44,11 +44,26 @@ export type ServiceBackup = {
   // qualquer um dos dois (um Mongo gerenciado por terceiro seria
   // external + mongodump).
   method: 'mongodump' | 's3-sync';
-  // Politica passada pro `restic forget`. Sem isto o repositorio nunca
-  // expira nada: medido em 11/09/2026, 25 snapshots acumulados desde o
-  // primeiro, nenhum removido, e o repo em ~400 GiB.
+  // Retencao LOCAL, no tank -- os mesmos niveis que os hosts ja tem, e
+  // pelo mesmo mecanismo: o rsnapshot roda o dump como `backup_script` e
+  // versiona a saida com hardlink, exatamente como faz com arquivo de
+  // host. Um dump de Mongo que nao mudou nao ocupa espaco duas vezes.
+  //
+  // Nao ha nivel "hora" aqui de proposito: o menor nivel e' quem executa
+  // o dump de verdade (os de cima so' promovem), e nem bater no Mongo nem
+  // varrer o bucket de 451 objetos de 4 em 4 horas se paga -- o dado
+  // desses dois muda em escala de dia, nao de hora.
   retention?: { dia?: number; semana?: number; mes?: number };
 };
+
+// Retencao do OFFSITE (restic). E' UMA SO' pro repositorio inteiro, e nao
+// por servico -- nao por escolha, por como o restic funciona: o `forget`
+// opera sobre SNAPSHOTS, e cada snapshot carrega todas as fontes juntas.
+// Nao existe expirar o Mongo de 30 dias atras mantendo o S3 do mesmo
+// snapshot. Deixar isso configuravel por servico daria a impressao de um
+// controle que nao existe: quem pedisse 7 dias num servico veria a
+// politica mais longa valendo pra ele tambem.
+export const RETENCAO_OFFSITE = { dia: 14, semana: 8, mes: 12 };
 
 export type MonitorService = {
   _id: ObjectId;
@@ -268,14 +283,14 @@ export async function getDataBackupPlan(): Promise<
     .map((s) => ({
       service: s.name,
       method: s.backup!.method,
-      // Default conservador: mantem historico de um ano sem explodir o
-      // repositorio. Vale mais que "sem retencao nenhuma", que e' o que
-      // existia antes -- e o restic deduplica, entao guardar 7 diarios nao
-      // custa 7x o tamanho.
+      // Mesmos defaults dos hosts. rsnapshot recusa retain 0 em qualquer
+      // nivel ("must be at least 1 or higher") e derruba o ciclo inteiro
+      // daquele .conf, entao o piso e' 1 -- a mesma trava que
+      // getBackupPlan ja aplica pros hosts, pelo mesmo motivo.
       retention: {
-        dia: s.backup?.retention?.dia ?? 7,
-        semana: s.backup?.retention?.semana ?? 4,
-        mes: s.backup?.retention?.mes ?? 12,
+        dia: Math.max(1, s.backup?.retention?.dia ?? 7),
+        semana: Math.max(1, s.backup?.retention?.semana ?? 4),
+        mes: Math.max(1, s.backup?.retention?.mes ?? 12),
       },
     }));
 }

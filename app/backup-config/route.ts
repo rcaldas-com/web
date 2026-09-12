@@ -1,5 +1,6 @@
 import { getBackupPlan, type BackupPlanEntry } from '@/lib/monitor';
-import { getDataBackupPlan } from '@/lib/services';
+import { getDataBackupPlan, RETENCAO_OFFSITE } from '@/lib/services';
+import { servedScript, respostaScript } from '@/lib/served-script';
 
 const SNAPSHOT_ROOT = process.env.BACKUP_SNAPSHOT_ROOT || '/tank/bkp';
 const BACKUP_USER = process.env.BACKUP_SSH_USER || 'rcaldas';
@@ -133,7 +134,13 @@ function preexecScript(entry: BackupPlanEntry) {
     const seguro = mp.replace(/'/g, `'\\''`);
     return `mountpoint -q '${seguro}' || { echo "preexec: '${seguro}' nao esta montado -- abortando backup de ${entry.host}" >&2; exit 1; }`;
   });
-  return `#!/usr/bin/env bash\nset -e\n${checks.join('\n')}\n`;
+  return servedScript('partials/preexec-mountpoint.sh', { CHECKS: checks.join('\n') });
+}
+
+// O bash do dump mora em served-scripts/partials/, arquivo de verdade --
+// mesma regra do resto: js e' js, bash e' bash.
+function scriptDump(_service: string, method: 'mongodump' | 's3-sync') {
+  return servedScript(`partials/dump-${method}.sh`);
 }
 
 export async function GET(request: Request) {
@@ -141,20 +148,49 @@ export async function GET(request: Request) {
   const plano = await getBackupPlan(runner);
   const planoDados = await getDataBackupPlan();
 
-  // Retencao do offsite: uma politica so' pro repositorio inteiro, e nao
-  // uma por servico. O `restic forget` opera sobre SNAPSHOTS, e cada
-  // snapshot aqui carrega todas as fontes juntas -- nao da' pra expirar o
-  // Mongo de 30 dias atras mantendo o S3 do mesmo snapshot. Entao a
-  // politica efetiva e' a mais LONGA entre os servicos: expirar antes
-  // disso perderia dado que alguem pediu pra guardar.
-  const ret = planoDados.reduce(
-    (acc, s) => ({
-      dia: Math.max(acc.dia, s.retention.dia),
-      semana: Math.max(acc.semana, s.retention.semana),
-      mes: Math.max(acc.mes, s.retention.mes),
-    }),
-    { dia: 7, semana: 4, mes: 12 }
-  );
+  // Cada servico com backup vira um .conf de rsnapshot proprio, com o dump
+  // como `backup_script`. E' o mesmo mecanismo dos hosts -- niveis,
+  // rotacao e hardlink -- entao a retencao configurada na tela do servico
+  // vale de verdade, e um dump que nao mudou nao ocupa espaco duas vezes.
+  //
+  // Sem nivel "hora": o menor nivel e' quem executa o script de verdade
+  // (os de cima so' promovem por mv), e nem bater no Mongo nem varrer o
+  // bucket de 4 em 4 horas se paga. O runner ja pula intervalo que o
+  // .conf nao define.
+  const partesDados = planoDados.map((s, i) => {
+    const delim = `BKPDADOS_${i}_EOF`;
+    const script = `/etc/rsnapshot/dados-${s.service}.sh`;
+    const t = '\t';
+    const conf = [
+      'config_version\t1.2',
+      `snapshot_root${t}${SNAPSHOT_ROOT}/dados-${s.service}/`,
+      'cmd_cp\t\t/bin/cp',
+      'cmd_rm\t\t/bin/rm',
+      'cmd_rsync\t/usr/bin/rsync',
+      'cmd_logger\t/usr/bin/logger',
+      `retain${t}dia${t}${s.retention.dia}`,
+      `retain${t}semana${t}${s.retention.semana}`,
+      `retain${t}mes${t}${s.retention.mes}`,
+      'verbose\t\t2',
+      'loglevel\t3',
+      'logfile\t/var/log/rsnapshot.log',
+      `lockfile${t}/var/run/rsnapshot-dados-${s.service}.pid`,
+      // O destino do backup_script e' relativo ao snapshot; o script
+      // escreve no cwd que o rsnapshot prepara.
+      `backup_script${t}${script}${t}./`,
+      '',
+    ].join('\n');
+    return [
+      `echo "  ${s.service} (${s.method}) -- ${s.retention.dia}d/${s.retention.semana}s/${s.retention.mes}m"`,
+      `cat <<'${delim}' > /etc/rsnapshot/dados-${s.service}.conf`,
+      conf,
+      delim,
+      `cat <<'${delim}_SH' > ${script}`,
+      scriptDump(s.service, s.method),
+      `${delim}_SH`,
+      `chmod 700 ${script}`,
+    ].join('\n');
+  });
 
   const partes = plano.map((entry, i) => {
     const delim = `BKPCONF_${i}_EOF`;
@@ -176,71 +212,20 @@ export async function GET(request: Request) {
     return linhas.join('\n');
   });
 
-  const script = `#!/usr/bin/env bash
-set -euo pipefail
-
-# Configs de backup geradas pelo Monitor para o runner "${runner}".
-# Nao editar a mao: rode de novo para pegar as mudancas feitas na UI.
-#   curl -fsSL ${process.env.AUTH_TRUST_HOST || 'https://web.rcaldas.com'}/backup-config | sudo bash
-
-[ "$(id -u)" = 0 ] || { echo "Precisa rodar como root."; exit 1; }
-
-mkdir -p /etc/rsnapshot
-
-# socat e' o que faz o encadeamento de enderecos do ProxyCommand funcionar.
-# Checado, e nao assumido: sem ele TODO backup remoto para de uma vez, e o
-# erro que aparece ("proxy command failed") nao diz o que faltou.
-if ! command -v socat >/dev/null 2>&1; then
-  echo "  instalando socat (necessario pro fallback de endereco)"
-  apt-get update -qq && apt-get install -y -qq socat
-fi
-
-echo "Escrevendo ssh_config do backup:"
-cat <<'BKPSSH_EOF' > ${SSH_CONFIG}
-# Gerado pelo Monitor -- nao editar a mao.
-#
-# Um alias por host, com a ordem de tentativa no ProxyCommand: nome DDNS
-# primeiro (que em IPv6 resolve pro endereco global e, dentro de casa, e'
-# entregue direto na LAN pelo Neighbor Discovery), tunel via relay depois.
-${plano.map(blocoSsh).join('\n')}
-BKPSSH_EOF
-chmod 600 ${SSH_CONFIG}
-touch ${SSH_KNOWN_HOSTS} && chmod 600 ${SSH_KNOWN_HOSTS}
-
-echo "Escrevendo configs de backup:"
-${partes.length ? partes.join('\n\n') : 'echo "  (nenhum host com backup habilitado)"'}
-
-# Backup de DADOS (servicos cadastrados no Monitor com backup habilitado).
-# Sem credencial nenhuma aqui de proposito: o runner le' do .env do host de
-# producao na hora. Uma fonte da verdade so' -- trocar de provedor de S3
-# la' passa a valer aqui sem sincronizar nada.
-echo "Escrevendo plano de backup de dados:"
-mkdir -p /etc/rcaldas-backup
-cat <<'BKPDADOS_EOF' > /etc/rcaldas-backup/dados.conf
-# Gerado pelo Monitor -- nao editar a mao.
-# formato: <servico> <metodo>
-${planoDados.length ? planoDados.map((s) => `${s.service} ${s.method}`).join('\n') : '# (nenhum servico com backup de dados habilitado)'}
-BKPDADOS_EOF
-chmod 600 /etc/rcaldas-backup/dados.conf
-${planoDados.length ? planoDados.map((s) => `echo "  ${s.service} (${s.method})"`).join('\n') : 'echo "  (nenhum)"'}
-
-# Retencao do offsite. Uma politica pro repositorio inteiro: o restic
-# expira SNAPSHOTS, e cada snapshot carrega todas as fontes juntas.
-cat <<'BKPRET_EOF' > /etc/rcaldas-backup/retencao.conf
---keep-daily ${ret.dia} --keep-weekly ${ret.semana} --keep-monthly ${ret.mes}
-BKPRET_EOF
-chmod 600 /etc/rcaldas-backup/retencao.conf
-echo "  retencao offsite: ${ret.dia} diarios, ${ret.semana} semanais, ${ret.mes} mensais"
-
-echo
-echo "Pronto. Teste sem copiar nada com:"
-echo "  rsnapshot -c /etc/rsnapshot/<host>.conf -t hora"
-`;
-
-  return new Response(script, {
-    headers: {
-      'content-type': 'text/x-shellscript; charset=utf-8',
-      'cache-control': 'no-store',
-    },
+  const script = servedScript('backup-config.sh', {
+    APP_URL: process.env.AUTH_TRUST_HOST || 'https://web.rcaldas.com',
+    RUNNER: runner,
+    SSH_CONFIG,
+    SSH_KNOWN_HOSTS,
+    BLOCOS_SSH: plano.map(blocoSsh).join('\n'),
+    PARTES_HOSTS: partes.length ? partes.join('\n\n') : 'echo "  (nenhum host com backup habilitado)"',
+    PARTES_DADOS: partesDados.length
+      ? partesDados.join('\n\n')
+      : 'echo "  (nenhum servico com backup habilitado)"',
+    RET_DIA: String(RETENCAO_OFFSITE.dia),
+    RET_SEMANA: String(RETENCAO_OFFSITE.semana),
+    RET_MES: String(RETENCAO_OFFSITE.mes),
   });
+
+  return respostaScript(script);
 }
