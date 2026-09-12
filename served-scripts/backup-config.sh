@@ -29,6 +29,9 @@ BKPSSH_EOF
 chmod 600 @@SSH_CONFIG@@
 touch @@SSH_KNOWN_HOSTS@@ && chmod 600 @@SSH_KNOWN_HOSTS@@
 
+echo "Limpando config orfa (host/servico que saiu do plano):"
+@@LIMPA_ORFAOS@@
+
 echo "Escrevendo configs de backup:"
 @@PARTES_HOSTS@@
 

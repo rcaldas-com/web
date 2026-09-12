@@ -212,11 +212,20 @@ export async function GET(request: Request) {
     return linhas.join('\n');
   });
 
+  // Nomes validos hoje -- o que NAO estiver nesta lista e' orfao (host ou
+  // servico que saiu do plano) e o limpa-orfaos.sh remove antes de escrever
+  // qualquer coisa nova. Sem isto, desativar um host so' parava de
+  // atualizar o .conf dele; o arquivo continuava fisicamente ali,
+  // referenciando um alias que a proxima geracao do ssh_config ja tinha
+  // removido, e o cron seguia tentando roda-lo pra sempre.
+  const esperados = [...plano.map((e) => e.host), ...planoDados.map((s) => `dados-${s.service}`)];
+
   const script = servedScript('backup-config.sh', {
     APP_URL: process.env.AUTH_TRUST_HOST || 'https://web.rcaldas.com',
     RUNNER: runner,
     SSH_CONFIG,
     SSH_KNOWN_HOSTS,
+    LIMPA_ORFAOS: servedScript('partials/limpa-orfaos.sh', { ESPERADOS: esperados.join('\n') }),
     BLOCOS_SSH: plano.map(blocoSsh).join('\n'),
     PARTES_HOSTS: partes.length ? partes.join('\n\n') : 'echo "  (nenhum host com backup habilitado)"',
     PARTES_DADOS: partesDados.length
