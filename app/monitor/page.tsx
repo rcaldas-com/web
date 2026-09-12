@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { HomeIcon, CircleStackIcon, ShieldCheckIcon, RectangleStackIcon } from '@heroicons/react/24/outline';
 import { requireAdmin } from '@/lib/auth';
 import { getMonitorOverview, findBackupRunner, findHostByRole } from '@/lib/monitor';
+import { listRoutineRuns } from '@/lib/routines';
 import {
   toggleDdnsAction,
   disableTunnelAction,
@@ -41,10 +42,11 @@ const APP_URL = process.env.AUTH_TRUST_HOST || 'https://web.rcaldas.com';
 
 export default async function MonitorPage() {
   await requireAdmin();
-  const [overview, backupRunner, proxyHost] = await Promise.all([
+  const [overview, backupRunner, proxyHost, routines] = await Promise.all([
     getMonitorOverview(),
     findBackupRunner(),
     findHostByRole('proxy'),
+    listRoutineRuns(),
   ]);
 
   return (
@@ -199,6 +201,42 @@ export default async function MonitorPage() {
             </div>
           ))}
         </div>
+
+        {/* Rotina que falha 2x seguidas já abre incidente (aparece lá em
+            cima). Isto aqui é o outro lado: mostrar que ela está VIVA --
+            sem uma linha de "rodou há 2min", uma rotina que simplesmente
+            parou de ser disparada não aparece em lugar nenhum. */}
+        {routines.length > 0 && (
+          <section className="mb-6 rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+              <h2 className="font-semibold text-zinc-950 dark:text-zinc-50">
+                Rotinas <span className="text-zinc-400 dark:text-zinc-500">({routines.length})</span>
+              </h2>
+            </div>
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {routines.map((r) => (
+                <div key={r.name} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm">
+                  <span className={`rounded-full px-2 py-0.5 text-xs ${statusClass(r.ok ? 'ok' : 'down')}`}>
+                    {r.ok ? 'ok' : 'falhou'}
+                  </span>
+                  <span className="font-medium text-zinc-950 dark:text-zinc-50">{r.name}</span>
+                  {r.consecutiveFailures > 1 && (
+                    <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                      ×{r.consecutiveFailures}
+                    </span>
+                  )}
+                  <span className="text-xs text-zinc-400 dark:text-zinc-500">{Math.round(r.durationMs)}ms</span>
+                  {r.message && (
+                    <span className="min-w-0 flex-1 truncate text-xs text-zinc-500 dark:text-zinc-400" title={r.message}>
+                      {r.message}
+                    </span>
+                  )}
+                  <span className="ml-auto text-xs text-zinc-400 dark:text-zinc-500">{formatDate(r.lastRunAt)}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <details className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <summary className="cursor-pointer text-sm font-semibold text-zinc-950 dark:text-zinc-50">

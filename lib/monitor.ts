@@ -7,6 +7,7 @@ import { sendTunnelKeyApprovalEmail, sendIncidentEmail } from './email';
 import { ingestInventory, saveRepoState } from './services';
 import { finishBuild } from './builds';
 import { ingestRepoHeads, requestRepoHeadsThrottled } from './polling';
+import { runRoutinesThrottled } from './routines';
 import { maybeAutoPromote } from './promote';
 import redis from './redis';
 
@@ -434,7 +435,7 @@ async function updateCloudflareDdns(name: string, ipv6: string, cachedRecordId?:
 // Notifica so na TRANSICAO (incidente novo), nunca a cada heartbeat --
 // senao um disco cheio viraria um email por minuto. Enquanto continua
 // aberto, so incrementa o contador.
-async function upsertIncident(
+export async function upsertIncident(
   db: Db,
   params: {
     key: string;
@@ -511,7 +512,7 @@ async function upsertIncident(
 // cheio). Fechar mesmo assim e' necessario: com os alertas desligados o
 // caminho que resolveria (o proximo heartbeat dentro do limite) nao roda
 // mais, e o incidente ficaria aberto pra sempre na tela.
-async function resolveIncident(db: Db, key: string, notify = true) {
+export async function resolveIncident(db: Db, key: string, notify = true) {
   const open = await db.collection<MonitorIncident>('monitor_incidents').find({ key, status: 'open' }).toArray();
   if (!open.length) return;
 
@@ -861,6 +862,14 @@ async function ensureMonitorIndexes(db: Db) {
         { key: { key: 1, status: 1 }, name: 'key_status' },
         { key: { target: 1, openedAt: -1 }, name: 'target_openedAt' },
       ]),
+      // Um documento por rotina, nunca cresce -- por isso sem TTL. O unique
+      // e' cinto de seguranca: a trava no Redis ja serializa a execucao,
+      // entao duas gravacoes concorrentes do mesmo nome nao deveriam
+      // acontecer; se acontecerem, falha alto em vez de duplicar em
+      // silencio e passar a mostrar resultado de uma das duas ao acaso.
+      db.collection('monitor_routines').createIndexes([
+        { key: { name: 1 }, unique: true, name: 'name_unique' },
+      ]),
     ]);
     monitorIndexesEnsured = true;
   } catch (error) {
@@ -1144,6 +1153,7 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
   await checkMonitoringThresholds(db, host, existing, payload.system);
   await sweepOfflineHostsThrottled(db);
   await requestRepoHeadsThrottled();
+  await runRoutinesThrottled();
 
   let infoCollectedAt = existing?.info?.collectedAt;
 
