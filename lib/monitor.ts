@@ -1332,6 +1332,37 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     for (const result of lote) {
       if (result.type !== 'alarm' || !result.id) continue;
       const key = `alarm:${host}:${result.id}`;
+
+      // Alarme de BACKUP identifica o alvo dentro do proprio id
+      // ("backup-<alvo>-<intervalo>"), que pode ser diferente do runner que
+      // reportou (host acima e' sempre quem RODA o cron, ex: bag). Sem
+      // checar o alvo aqui, desativar backup.enabled no Monitor nao tinha
+      // efeito nenhum sobre o alarme: o .conf fisico continua no runner ate
+      // alguem rodar /backup-config de novo, o cron segue tentando a cada
+      // ciclo, e cada tentativa fica livre pra abrir um incidente NOVO
+      // (com email) assim que o anterior fechar por qualquer motivo --
+      // inclusive por resolucao MANUAL na tela do Monitor, que e' exatamente
+      // o que aconteceu com o r64 em 09/09: resolvido as 17:36, e o cron
+      // das 20:00 (o proximo ciclo agendado, 24min depois) reabriu com
+      // email novo, apesar do host ja estar com backup desligado havia
+      // minutos. O "sem mais email depois" que se via a seguir nao era o
+      // anti-flood evitando reincidencia -- era so' o comportamento normal
+      // de so' notificar na abertura, e o incidente aberto por engano
+      // nunca ia fechar sozinho (o r64 nao ia voltar a responder).
+      const alvoBackup = result.id.match(/^backup-(.+)-(hora|dia|semana|mes)$/)?.[1];
+      if (alvoBackup && alvoBackup !== 'offsite') {
+        const hostAlvo = await db
+          .collection<MonitorHost>('monitor_hosts')
+          .findOne({ name: alvoBackup }, { projection: { 'backup.enabled': 1 } });
+        if (hostAlvo?.backup?.enabled === false) {
+          // Fecha o que estiver aberto (silencioso, mesmo espirito do
+          // toggle geral de monitoring) e nunca abre um novo enquanto o
+          // backup deste host continuar desligado.
+          await resolveIncident(db, key, false);
+          continue;
+        }
+      }
+
       if (result.status === 'ok') {
         await resolveIncident(db, key);
       } else {
@@ -1663,6 +1694,23 @@ export async function setBackupConfig(hostName: string, config: MonitorHost['bac
   await db
     .collection<MonitorHost>('monitor_hosts')
     .updateOne({ name: host }, { $set: { backup: config, updatedAt: new Date() } });
+
+  // Fecha na hora, nao so' na proxima falha reportada -- sem isto o
+  // incidente aberto ficava exposto no /monitor ate o cron do runner
+  // rodar de novo (ate 4h), e se o cron reabrisse antes de alguem ver a
+  // tela, saia um email de abertura pra um backup que o proprio admin
+  // acabou de desligar (foi o que aconteceu com o r64: resolvido na tela,
+  // e 24min depois o cron das 20:00 reabriu com email novo). A key nao
+  // carrega o nome do runner (quem executa o cron pode nao ser este
+  // host), entao a busca e' por padrao: qualquer incidente aberto cujo id
+  // seja "backup-<este-host>-<intervalo>".
+  if (config?.enabled === false) {
+    const abertos = await db
+      .collection<MonitorIncident>('monitor_incidents')
+      .find({ status: 'open', key: { $regex: `:backup-${host}-(hora|dia|semana|mes)$` } })
+      .toArray();
+    for (const inc of abertos) await resolveIncident(db, inc.key, false);
+  }
 }
 
 export async function setHostRole(hostName: string, role: MonitorHost['role']) {
