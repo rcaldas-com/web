@@ -176,32 +176,44 @@ Firefox icon's base64 payload can get silently truncated by editing
 tools if handled carelessly — if it ever breaks again, re-extract from
 git history rather than re-typing it.
 
-**`script()`'s bash text lives inside an untagged JS template literal —
-every literal `\` or `${` you write for the served script goes through
-one JS escape pass before it ever reaches the target host.** Bitten
-twice by this in one night:
-- A `sed 's/\\/\\\\/g; ...'` JSON-escaping script had its backslashes
-  silently halved by JS's `\\` → `\` collapse, breaking every heartbeat
-  from every already-installed agent (400 "host is required", nothing in
-  `monitor_hosts`) until caught by actually running the installed script
-  and comparing sed output byte-for-byte against what the source
-  *should* produce.
-- `"${var_dev:-}"` (a bash default-value expansion) broke `next build`
-  outright — TS tried to parse `var_dev:-` as a JS expression inside
-  `${...}`. Existing code already has the fix pattern for this exact
-  case (see `APP_URL="${'$'}{APP_URL:-...}"` etc. throughout
-  `AGENT_BIN`): wrap the literal `$` as `${'$'}` so only that inner
-  `'$'` is real JS, and the following `{...}` passes through untouched.
-When adding *any* bash line with `\` or `${` here or in `app/init/route.ts`,
-double-check it survives the JS pass — don't just eyeball it, actually
-diff the served output against what you intend (`printf '%b'` locally
-approximates the `\\`-collapse rule closely enough to catch it before a
-build or a deploy does).
+**O bash servido mora em `web/served-scripts/*.sh` — arquivo de verdade,
+não string dentro de JS.** Escreva bash lá como bash: crase, `${VAR}`,
+`\n`, aspas, tudo literal. O route só lê o arquivo e substitui marcadores
+`@@NOME@@` (ver `lib/served-script.ts`).
 
-**Second trap in the same file: `/install` serves TWO scripts with
-separate variable scopes.** The outer installer, and the agent it writes
-via `cat > "$AGENT_BIN" <<'EOF'` (quoted heredoc — nothing expands at
-install time). Variables defined inside the agent (`LOG`, `VERSION`,
+Isso foi mudado em 12/09/2026 e **não é preferência de estilo — é conserto
+de uma classe de bug que quebrou o build sete vezes.** Antes, o bash vivia
+num template literal, e toda crase, `${` ou `\` passava por uma passada de
+escape do JS antes de virar o script. Os três acidentes recorrentes:
+- crase em comentário (`o \`set -e\` mata o script`) encerra o literal e
+  quebra o `next build` inteiro — cinco das sete vezes foram essa;
+- `sed 's/\\/\\\\/g'` teve as barras silenciosamente pela metade,
+  quebrando o heartbeat de **toda** a frota (400 "host is required") até
+  alguém comparar a saída do sed byte a byte com o que o fonte pretendia;
+- `"${var:-}"` do bash lido como interpolação de JS, quebrando o build.
+
+Nenhum desses aparece lendo o código — só no build ou, pior, em runtime
+num host remoto. Com arquivo `.sh` o problema deixa de existir na origem:
+o shellcheck funciona, dá pra rodar o arquivo pra testar, e o editor
+destaca a sintaxe.
+
+Regras que sobraram:
+- Marcador é `@@NOME@@` em UPPER_SNAKE. `servedScript()` **lança** se
+  sobrar marcador sem valor, em vez de servir `@@COISA@@` pro host.
+- `scripts/check-served-scripts.sh` valida os `.sh` (bash -n, shellcheck,
+  e se todo marcador tem valor no route). Rode antes de commitar.
+- `next.config.mjs` tem `outputFileTracingIncludes` pros `.sh`: o tracing
+  do standalone só segue import de JS e não enxerga arquivo lido em
+  runtime. Sem isso o build passa e a rota quebra em produção com ENOENT.
+- Ao migrar/editar em bloco, prove que o servido não mudou: renderize o
+  antes e o depois com os mesmos valores e faça `diff`. Foi assim que as
+  três rotas foram migradas (993, 644 e 407 linhas, todas idênticas).
+
+**Armadilha que CONTINUA valendo (não tem a ver com o escaping acima, e
+sobreviveu à migração): `served-scripts/install.sh` contém DOIS scripts
+com escopos de variável separados.** The outer installer, and the agent it
+writes via `cat > "$AGENT_BIN" <<'EOF'` (quoted heredoc — nothing expands
+at install time). Variables defined inside the agent (`LOG`, `VERSION`,
 `LOG_FORWARD_PORT`, …) do **not** exist in the installer. Both scripts
 run under `set -euo pipefail`, so referencing one from the other is a
 *fatal* unbound-variable error, and because `cat > file <<EOF` truncates

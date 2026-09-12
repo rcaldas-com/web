@@ -18,6 +18,13 @@
 //     tesseract.js do DigitaR carrega worker dinamico e quebraria
 const nextConfig = {
     output: "standalone",
+    // Os scripts bash servidos (/init, /install, ...) sao arquivos .sh de
+    // verdade lidos em runtime -- ver lib/served-script.ts pro motivo. O
+    // tracing do standalone so' segue import de JS, entao nao os enxerga:
+    // sem isto o build passa e a rota quebra em producao com ENOENT.
+    outputFileTracingIncludes: {
+        '/**': ['./served-scripts/**'],
+    },
     serverExternalPackages: ['tesseract.js', 'pdf-to-img', 'pdfjs-dist'],
     experimental: {
         serverActions: {
