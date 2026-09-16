@@ -10,9 +10,16 @@
 # ele deixar de existir.
 set -u
 
-# @@ESPERADOS@@ e' a lista de basenames validos hoje, um por linha (sem
+# A lista abaixo tem os basenames validos hoje, um por linha (sem
 # ".conf"): nome de host do plano de arquivo + "dados-<servico>" do plano
 # de dados. Qualquer outro <nome>.conf em /etc/rsnapshot/ e' orfao.
+#
+# O marcador so' aparece UMA vez no arquivo de proposito: a substituicao e'
+# por texto literal (servedScript() nao sabe o que e' comentario), e o
+# valor tem varias linhas -- repetir o marcador dentro de um comentario de
+# uma linha faz as linhas seguintes do valor "vazarem" pra fora do
+# comentario e virarem bash de verdade. Foi exatamente isso que quebrou
+# esta primeira versao: "us", "dados-mongodb" etc executados como comando.
 esperados="@@ESPERADOS@@"
 
 for conf in /etc/rsnapshot/*.conf; do
