@@ -43,7 +43,7 @@ export type ServiceBackup = {
   // 'source': tanto um 'upstream' quanto um 'external' podem precisar de
   // qualquer um dos dois (um Mongo gerenciado por terceiro seria
   // external + mongodump).
-  method: 'mongodump' | 's3-sync';
+  method: 'mongodump' | 's3-sync' | 'mysqldump';
   // Retencao LOCAL, no tank -- os mesmos niveis que os hosts ja tem, e
   // pelo mesmo mecanismo: o rsnapshot roda o dump como `backup_script` e
   // versiona a saida com hardlink, exatamente como faz com arquivo de

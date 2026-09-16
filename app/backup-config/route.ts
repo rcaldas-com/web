@@ -139,7 +139,7 @@ function preexecScript(entry: BackupPlanEntry) {
 
 // O bash do dump mora em served-scripts/partials/, arquivo de verdade --
 // mesma regra do resto: js e' js, bash e' bash.
-function scriptDump(_service: string, method: 'mongodump' | 's3-sync') {
+function scriptDump(_service: string, method: import('@/lib/services').ServiceBackup['method']) {
   return servedScript(`partials/dump-${method}.sh`);
 }
 
