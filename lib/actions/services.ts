@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireAdmin } from '@/lib/auth';
-import { getService, setServiceEnrichment, type ServiceSource } from '@/lib/services';
+import { getService, setServiceEnrichment, setServiceBackup, type ServiceSource } from '@/lib/services';
+import { findBackupRunner, enqueueJob } from '@/lib/monitor';
 import { latestSuccessfulBuild } from '@/lib/builds';
 import { promoteImage } from '@/lib/promote';
 
@@ -31,6 +32,51 @@ function parseSource(formData: FormData): ServiceSource | undefined {
     default:
       return undefined;
   }
+}
+
+// Mesma trava que ja existe pro backup de HOST (getBackupPlan em
+// lib/monitor.ts): rsnapshot recusa retain 0 em qualquer nivel ("must be
+// at least 1 or higher") e derruba o .conf inteiro daquele servico. O piso
+// aqui evita que um campo vazio ou "0" digitado por engano vire um .conf
+// que nunca roda.
+function intOuPadrao(valor: FormDataEntryValue | null, padrao: number, minimo = 1): number {
+  const n = Number(valor);
+  return Number.isFinite(n) && n >= minimo ? Math.trunc(n) : padrao;
+}
+
+export async function setServiceBackupAction(formData: FormData) {
+  await requireAdmin();
+  const name = String(formData.get('name') || '');
+  if (!name) return;
+
+  const svc = await getService(name);
+  // O METODO nunca vem do formulario -- ele decide qual script de dump
+  // roda (mongodump/mysqldump/s3-sync), e trocar isso sem trocar o
+  // servico de verdade por baixo so' produziria um .conf que chama o
+  // script errado. So' o cadastro (via mongosh hoje) define o metodo; a
+  // tela edita apenas o que faz sentido mudar sem mexer em codigo:
+  // ligar/desligar e a retencao.
+  if (!svc?.backup?.method) return;
+
+  await setServiceBackup(name, {
+    enabled: formData.get('backupEnabled') === 'on',
+    method: svc.backup.method,
+    retention: {
+      dia: intOuPadrao(formData.get('retDia'), svc.backup.retention?.dia ?? 7),
+      semana: intOuPadrao(formData.get('retSemana'), svc.backup.retention?.semana ?? 4),
+      mes: intOuPadrao(formData.get('retMes'), svc.backup.retention?.mes ?? 12),
+    },
+  });
+
+  // O runner e' um host com agente como qualquer outro: em vez de alguem
+  // rodar backup-config na mao, enfileira o job e ele mesmo regera a
+  // config no proximo heartbeat. Mesmo padrao do toggle de backup de host
+  // (setBackupConfigAction em lib/actions/monitor.ts).
+  const runner = await findBackupRunner();
+  if (runner) await enqueueJob(runner, 'backup-config');
+
+  revalidatePath('/monitor/servicos');
+  revalidatePath(`/monitor/servicos/${name}`);
 }
 
 export async function setServiceAction(formData: FormData) {

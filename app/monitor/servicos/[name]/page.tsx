@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAdmin } from '@/lib/auth';
 import { getService } from '@/lib/services';
-import { setServiceAction } from '@/lib/actions/services';
+import { setServiceAction, setServiceBackupAction } from '@/lib/actions/services';
 import { triggerBuildAction, promoteBuildAction } from '@/lib/actions/builds';
 import { listBuilds, hasRunningBuild } from '@/lib/builds';
 import { pickBuildWorker } from '@/lib/monitor';
@@ -92,6 +92,13 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
           {field('Projeto', dep?.kind === 'compose' ? dep.project : undefined)}
           {field('Inventariado', formatDate(svc.observed?.seenAt))}
           {field('Log', svc.logPath)}
+          {svc.backup?.method &&
+            field(
+              'Backup',
+              svc.backup.enabled
+                ? `${svc.backup.method} · ${svc.backup.retention?.dia ?? 7}d / ${svc.backup.retention?.semana ?? 4}s / ${svc.backup.retention?.mes ?? 12}m`
+                : `desligado (${svc.backup.method})`
+            )}
         </section>
 
         {svc.drift && (
@@ -182,6 +189,78 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
             </SubmitButton>
           </form>
         </section>
+
+        {/* So aparece pra quem tem METODO de dump cadastrado -- mongodump,
+            mysqldump, s3-sync. Esse campo nao vem do formulario de
+            proposito: ele decide qual script roda no runner, e trocar sem
+            trocar o servico de verdade por baixo so' geraria um .conf
+            chamando o script errado. So' o cadastro define o metodo; aqui
+            se liga/desliga e se ajusta a retencao. */}
+        {svc.backup?.method && (
+          <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <h2 className="mb-1 font-semibold text-zinc-950 dark:text-zinc-50">Backup de dados</h2>
+            <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+              Dump via <code>{svc.backup.method}</code>, versionado pelo rsnapshot no host que roda o backup (niveis
+              e retencao aqui embaixo) e enviado cifrado ao offsite no ciclo diario. Mudou aqui? O proximo{' '}
+              <code>backup-config</code> no runner aplica sozinho -- salvar ja enfileira o job.
+            </p>
+            <form action={setServiceBackupAction} className="flex flex-col gap-3 text-sm">
+              <input type="hidden" name="name" value={svc.name} />
+
+              <label className="flex w-fit items-center gap-2">
+                <input
+                  type="checkbox"
+                  name="backupEnabled"
+                  defaultChecked={svc.backup.enabled}
+                  className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
+                />
+                <span className="text-sm text-zinc-700 dark:text-zinc-300">Backup ligado</span>
+              </label>
+
+              <div className="grid grid-cols-3 gap-3 sm:w-80">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">Diarios</span>
+                  <input
+                    type="number"
+                    name="retDia"
+                    min={1}
+                    defaultValue={svc.backup.retention?.dia ?? 7}
+                    className={input}
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">Semanais</span>
+                  <input
+                    type="number"
+                    name="retSemana"
+                    min={1}
+                    defaultValue={svc.backup.retention?.semana ?? 4}
+                    className={input}
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">Mensais</span>
+                  <input
+                    type="number"
+                    name="retMes"
+                    min={1}
+                    defaultValue={svc.backup.retention?.mes ?? 12}
+                    className={input}
+                  />
+                </label>
+              </div>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500">
+                Retencao LOCAL (no tank do runner) -- niveis e hardlink, igual ao backup de host. O offsite (restic)
+                usa uma politica so' pro repositorio inteiro, independente disto: ele guarda snapshots com todas as
+                fontes juntas, entao nao da' pra expirar so' um servico por vez.
+              </p>
+
+              <SubmitButton className="w-fit rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
+                salvar
+              </SubmitButton>
+            </form>
+          </section>
+        )}
 
         {temPipeline && src?.kind === 'build' && (
           <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
