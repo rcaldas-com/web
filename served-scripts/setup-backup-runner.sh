@@ -241,6 +241,7 @@ if [[ "$INTERVALO" == "dia" ]] && command -v restic >/dev/null 2>&1; then
           break
         fi
       done
+    done
 
     if [[ ${#fontes[@]} -eq 0 ]]; then
       log "restic: nada pra enviar ainda (nenhum host com hora.0)"
