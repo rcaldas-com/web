@@ -250,9 +250,9 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
                 </label>
               </div>
               <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                Retencao LOCAL (no tank do runner) -- niveis e hardlink, igual ao backup de host. O offsite (restic)
-                usa uma politica so' pro repositorio inteiro, independente disto: ele guarda snapshots com todas as
-                fontes juntas, entao nao da' pra expirar so' um servico por vez.
+                Retenção local (no tank do runner) — níveis e hardlink, igual ao backup de host. O offsite (restic)
+                usa uma política só para o repositório inteiro, independente disto: ele guarda snapshots com todas
+                as fontes juntas, então não dá para expirar um serviço só por vez.
               </p>
 
               <SubmitButton className="w-fit rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
