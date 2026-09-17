@@ -20,5 +20,17 @@ uri=$(printf '%s' "$env_prod" | grep '^MONGO_URI=' | head -1 | cut -d= -f2- | tr
 # Sem --gzip de proposito: dado comprimido muda inteiro a cada byte
 # alterado, o que destroi tanto o hardlink do rsnapshot quanto a
 # deduplicacao do restic. O restic ja comprime por conta propria.
-docker run --rm --network host -v "$PWD:/dump" mongo:7 \
-  mongodump --uri="$uri" --out=/dump --quiet
+#
+# --entrypoint mongodump e' obrigatorio, nao estilo: a imagem oficial do
+# mongo tem um docker-entrypoint.sh (CMD padrao "mongod") que TROCA de
+# usuario internamente pro uid do mongodb antes de exec no comando --
+# mesmo passando --user root, mesmo o comando sendo mongodump e nao mongod.
+# Sem bypassar esse entrypoint, o mongodump roda como um uid sem permissao
+# de escrever no bind mount, e falha com "mkdir /dump/rcaldas: permission
+# denied" -- confirmado isolando cada camada (touch e mkdir manual dentro
+# do container funcionam com --user root; o MESMO mongodump, chamado via
+# CMD do entrypoint padrao, nao). --entrypoint pula o docker-entrypoint.sh
+# inteiro e chama o binario direto, como o processo root que o docker run
+# realmente criou.
+docker run --rm --network host --entrypoint mongodump -v "$PWD:/dump" mongo:7 \
+  --uri="$uri" --out=/dump --quiet
