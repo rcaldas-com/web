@@ -203,7 +203,43 @@ if [[ "$INTERVALO" == "dia" ]] && command -v restic >/dev/null 2>&1; then
   if [[ -f "$CONF_DIR/s3.env" && -f "$CONF_DIR/restic-pass" ]]; then
     set -a; . "$CONF_DIR/s3.env"; set +a
     export RESTIC_PASSWORD_FILE="$CONF_DIR/restic-pass"
-    restic snapshots >/dev/null 2>&1 || restic init >> "$LOG" 2>&1 || true
+    # Sonda de ESCRITA com teto de 2 min, antes de mexer em qualquer coisa.
+    #
+    # Existe por causa de uma noite real: o Wasabi passou a recusar escrita
+    # ("poor account standing") e o restic ficou ~30 min repetindo o
+    # PutObject do lock com espera crescente -- segurando o flock do
+    # runner, e o ciclo hora das 04:00 esperando por causa disso. Quem
+    # decide quanto insistir e' o restic, nao a gente; com a sonda, o pior
+    # caso de um provedor fora do ar cai pra 2 min.
+    #
+    # "snapshots" serve de sonda porque cria o lock (uma escrita): um teste
+    # so' de leitura passaria com o provedor recusando escrita, que e' o
+    # caso que importa. O codigo 10 e' do restic 0.17+ e significa
+    # "repositorio nao existe" -- o unico caso em que init e' a resposta
+    # certa. O jeito antigo rodava init em QUALQUER falha, e por isso o
+    # log trazia "repository master key and config already initialized"
+    # como se fosse um segundo erro.
+    offsite_pronto=sim
+    sonda_err=$(mktemp)
+    timeout 120 restic snapshots --latest 1 >/dev/null 2>"$sonda_err"
+    rc_sonda=$?
+    if [[ $rc_sonda -eq 10 ]]; then
+      timeout 120 restic init >> "$LOG" 2>&1 && rc_sonda=0 || rc_sonda=$?
+    fi
+    if [[ $rc_sonda -ne 0 ]]; then
+      offsite_pronto=nao
+      tail -3 "$sonda_err" >> "$LOG"
+      if grep -qi "poor account standing\|billing" "$sonda_err"; then
+        motivo_off="provedor recusou a escrita (conta ou cobranca)"
+      elif [[ $rc_sonda -eq 124 ]]; then
+        motivo_off="provedor nao respondeu em 2 min"
+      else
+        motivo_off="provedor inacessivel (restic rc=$rc_sonda)"
+      fi
+      log "restic: FALHOU ($motivo_off)"
+      add_resultado "offsite" "fail" "copia offsite falhou: $motivo_off" "$filtro_offsite"
+    fi
+    rm -f "$sonda_err"
 
     # Fontes vem de /etc/rsnapshot/*.conf -- a MESMA lista usada no loop
     # do rsnapshot acima -- nunca de um glob solto em SNAPSHOT_ROOT. Um
@@ -243,7 +279,9 @@ if [[ "$INTERVALO" == "dia" ]] && command -v restic >/dev/null 2>&1; then
       done
     done
 
-    if [[ ${#fontes[@]} -eq 0 ]]; then
+    if [[ "$offsite_pronto" != sim ]]; then
+      : # a sonda acima ja registrou o motivo e reportou o alarme
+    elif [[ ${#fontes[@]} -eq 0 ]]; then
       log "restic: nada pra enviar ainda (nenhum host com hora.0)"
     elif restic backup --tag diario "${fontes[@]}" >> "$LOG" 2>&1; then
       log "restic: enviado pro S3"
