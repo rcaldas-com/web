@@ -1,8 +1,9 @@
 import { Db } from 'mongodb';
+import clientPromise from './mongodb';
 import redis from './redis';
 import { listServices } from './services';
-import { hasRunningBuild, lastAttemptedSha, startBuild } from './builds';
-import { enqueueBuildJob, enqueueRepoHeadsJob, pickBuildWorker } from './monitor';
+import { hasRunningBuild, lastAttemptedSha, startBuild, sweepStaleBuilds } from './builds';
+import { enqueueBuildJob, enqueueRepoHeadsJob, pickBuildWorker, upsertIncident } from './monitor';
 import { reconcileComposeDrift } from './promote';
 
 // Intervalo entre leituras do HEAD remoto. Era o maior termo isolado da
@@ -25,6 +26,30 @@ export async function requestRepoHeadsThrottled(): Promise<void> {
   try {
     const gotLock = await redis.set(POLL_LOCK, '1', 'EX', POLL_LOCK_TTL, 'NX');
     if (!gotLock) return;
+
+    // Na mesma janela: fecha build travado em 'running' (worker que
+    // sumiu no meio) antes de decidir o que reconstruir -- senao
+    // hasRunningBuild ficaria bloqueando o servico pra sempre. Ver
+    // sweepStaleBuilds em lib/builds.ts.
+    const travados = await sweepStaleBuilds();
+    if (travados.length) {
+      const client = await clientPromise;
+      const db = client.db();
+      for (const t of travados) {
+        // Mesma key/emailSubject do caminho de falha normal (lib/monitor.ts,
+        // no fechamento de job) de proposito: pro Gmail agrupar os dois e
+        // pra reincidencia (build cai de novo) somar no MESMO incidente em
+        // vez de abrir um segundo. Sem isto, essa classe de falha ficava
+        // muda -- so' um console.warn que ninguem le sem procurar.
+        await upsertIncident(db, {
+          key: `build:${t.service}`,
+          target: t.service,
+          severity: 'warning',
+          summary: `build de ${t.service} travado ha ${t.minutos}min sem retorno do worker '${t.worker}' -- marcado como falha automatica`,
+          emailSubject: `build de ${t.service} falhou`,
+        });
+      }
+    }
 
     // Na mesma janela: producao converge pro git tenha ele mudado por quem
     // for, nao so' por promocao. Vai ANTES do worker porque nao depende de

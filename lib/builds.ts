@@ -21,10 +21,28 @@ export type MonitorBuild = {
   startedAt: Date;
   finishedAt?: Date;
   durationMs?: number;
+  // Marcado por sweepStaleBuilds quando fecha um 'running' por idade, nunca
+  // pelo worker. Existe pra finishBuild saber aceitar o resultado real se
+  // ele chegar depois -- ver os dois comentarios la.
+  staleTimeout?: boolean;
 };
 
 const DIA = 24 * 60 * 60;
 let indexesEnsured = false;
+
+// Teto de idade pra um build em 'running'. Bem acima do normal de
+// proposito (builds deste projeto levam ~110s) -- e' so' pra pegar o caso
+// do worker que morreu/suspendeu no meio e nunca mais respondeu, nao pra
+// apertar builds legitimos que so' estao demorando. Achado num incidente
+// real: o worker (notebook) suspendeu durante um build do wallet e o
+// registro ficou 'running' por ~22min ate a maquina acordar sozinha: se
+// nao tivesse acordado, ficaria travado pra sempre, sem timeout e sem
+// retry (ver sweepStaleBuilds).
+const STALE_RUNNING_MS = 20 * 60 * 1000;
+
+function staleCutoff(): Date {
+  return new Date(Date.now() - STALE_RUNNING_MS);
+}
 
 async function ensureIndexes(db: Db) {
   if (indexesEnsured) return;
@@ -67,6 +85,16 @@ export async function startBuild(params: {
  * Casado por jobId e nao por servico: dois builds do mesmo servico podem
  * coexistir (um travado, outro novo), e fechar "o mais recente" fecharia o
  * errado. O jobId e' o unico identificador que atravessa o ciclo inteiro.
+ *
+ * Casa tambem um doc que sweepStaleBuilds ja fechou como 'fail' por idade
+ * (staleTimeout: true) -- de proposito: e' exatamente o caso do incidente
+ * que originou esse sweep. O worker (notebook) suspendeu, o build ficou
+ * 'running' alem do teto e foi marcado como falha automatica, mas depois
+ * a maquina acordou sozinha e o build TERMINOU DE VERDADE, com sucesso.
+ * Sem esta segunda condicao, esse resultado real chegaria tarde demais e
+ * seria descartado (nenhum doc 'running' pra casar), perdendo silenciosamente
+ * um build que na verdade deu certo -- e a promocao automatica que depende
+ * do retorno desta funcao nunca aconteceria.
  */
 export async function finishBuild(
   jobId: string,
@@ -75,7 +103,7 @@ export async function finishBuild(
   const client = await clientPromise;
   const db = client.db();
   const col = db.collection<MonitorBuild>('monitor_builds');
-  const doc = await col.findOne({ jobId, status: 'running' });
+  const doc = await col.findOne({ jobId, $or: [{ status: 'running' }, { staleTimeout: true }] });
   if (!doc) return null;
   const now = new Date();
   await col.updateOne(
@@ -90,6 +118,7 @@ export async function finishBuild(
         finishedAt: now,
         durationMs: now.getTime() - doc.startedAt.getTime(),
       },
+      $unset: { staleTimeout: '' },
     }
   );
 
@@ -165,8 +194,85 @@ export async function latestSuccessfulBuild(service: string): Promise<{ tag: str
   return doc?.tag ? { tag: doc.tag, sha: doc.sha } : null;
 }
 
-export async function hasRunningBuild(service: string): Promise<boolean> {
+/**
+ * O build 'running' deste servico, se houver -- ignorando um que ja
+ * passou do teto de idade (ver STALE_RUNNING_MS). E' a fonte da verdade
+ * pra "esta bloqueado agora?": nao depende do sweep ja ter rodado, entao
+ * o bloqueio se autolimpa mesmo se o proximo heartbeat demorar.
+ */
+export async function currentRunningBuild(
+  service: string
+): Promise<{ startedAt: Date; worker: string } | null> {
   const client = await clientPromise;
   const db = client.db();
-  return (await db.collection<MonitorBuild>('monitor_builds').countDocuments({ service, status: 'running' })) > 0;
+  const doc = await db
+    .collection<MonitorBuild>('monitor_builds')
+    .findOne(
+      { service, status: 'running', startedAt: { $gt: staleCutoff() } },
+      { sort: { startedAt: -1 }, projection: { startedAt: 1, worker: 1 } }
+    );
+  return doc ? { startedAt: doc.startedAt, worker: doc.worker } : null;
+}
+
+export async function hasRunningBuild(service: string): Promise<boolean> {
+  return (await currentRunningBuild(service)) !== null;
+}
+
+/**
+ * Fecha, como falha, todo build que ficou em 'running' alem do teto de
+ * idade -- o caso do worker que sumiu no meio (suspensao, crash, rede) e
+ * nunca mandou o resultado de volta. Sem isso o registro fica 'running'
+ * pra sempre: hasRunningBuild ja ignora esses pra efeito de bloqueio
+ * (currentRunningBuild acima), mas sem fechar o doc (a) a tela de builds
+ * mostra um 'running' mentiroso indefinidamente e (b) lastAttemptedSha
+ * nunca chega a formar opiniao sobre esse sha porque o worker nunca preencheu
+ * `sha` -- o que ja e' o comportamento certo: sem sha gravado, o proximo
+ * poll trata como se nunca tivesse tentado e reenfileira sozinho, desta
+ * vez com pickBuildWorker() podendo escolher outro worker vivo.
+ *
+ * Marca staleTimeout: true (nunca so' status: 'fail') pra finishBuild saber
+ * aceitar o resultado real se o worker acordar e reportar depois -- ver o
+ * comentario la, e' o caso exato do incidente que motivou este sweep.
+ *
+ * Pendurada no mesmo polling throttled de build (ver requestRepoHeadsThrottled
+ * em lib/polling.ts) -- mesmo padrao de sweepOfflineHosts em lib/monitor.ts:
+ * pega carona no heartbeat, sem processo dedicado.
+ */
+// Devolve o que fechou, pra quem chama poder abrir incidente -- essa
+// funcao fica em builds.ts e nao sabe o que incidente significa (mesma
+// separacao de responsabilidade que finishBuild ja tem com maybeAutoPromote
+// em lib/monitor.ts).
+export async function sweepStaleBuilds(): Promise<{ service: string; worker: string; minutos: number }[]> {
+  const client = await clientPromise;
+  const db = client.db();
+  const col = db.collection<MonitorBuild>('monitor_builds');
+  const stale = await col
+    .find({ status: 'running', startedAt: { $lte: staleCutoff() } })
+    .project<{ _id: ObjectId; service: string; worker: string; startedAt: Date }>({
+      service: 1,
+      worker: 1,
+      startedAt: 1,
+    })
+    .toArray();
+
+  const fechados: { service: string; worker: string; minutos: number }[] = [];
+  for (const doc of stale) {
+    const now = new Date();
+    const minutos = Math.round((now.getTime() - doc.startedAt.getTime()) / 60000);
+    await col.updateOne(
+      { _id: doc._id, status: 'running' },
+      {
+        $set: {
+          status: 'fail',
+          staleTimeout: true,
+          message: `build travado: sem retorno do worker '${doc.worker}' por ${minutos}min (worker provavelmente caiu ou suspendeu) -- marcado como falha automaticamente`,
+          finishedAt: now,
+          durationMs: now.getTime() - doc.startedAt.getTime(),
+        },
+      }
+    );
+    console.warn(`build travado marcado como falha: ${doc.service} em ${doc.worker} (rodando ha ${minutos}min)`);
+    fechados.push({ service: doc.service, worker: doc.worker, minutos });
+  }
+  return fechados;
 }

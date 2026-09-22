@@ -3,11 +3,12 @@ import { notFound } from 'next/navigation';
 import { requireAdmin } from '@/lib/auth';
 import { getService } from '@/lib/services';
 import { setServiceAction, setServiceBackupAction } from '@/lib/actions/services';
-import { triggerBuildAction, promoteBuildAction } from '@/lib/actions/builds';
+import { promoteBuildAction } from '@/lib/actions/builds';
 import { listBuilds, hasRunningBuild } from '@/lib/builds';
 import { pickBuildWorker } from '@/lib/monitor';
 import { promoteConfigurado } from '@/lib/promote';
 import SubmitButton from '@/components/SubmitButton';
+import BuildTriggerForm from '@/components/BuildTriggerForm';
 import Spinner from '@/components/Spinner';
 
 function formatDate(value?: string) {
@@ -266,14 +267,7 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
           <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <h2 className="font-semibold text-zinc-950 dark:text-zinc-50">Builds</h2>
-              <form action={triggerBuildAction} className="flex items-center gap-3">
-                <input type="hidden" name="service" value={svc.name} />
-                <SubmitButton
-                  className="rounded-full bg-zinc-900 px-3 py-1 text-xs text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-                >
-                  {emAndamento ? 'build em andamento...' : 'buildar agora'}
-                </SubmitButton>
-              </form>
+              <BuildTriggerForm service={svc.name} emAndamento={emAndamento} />
             </div>
 
             {!promoverDisponivel && (
