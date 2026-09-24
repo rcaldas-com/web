@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAdmin } from '@/lib/auth';
+import { requireAdminPage } from '@/lib/auth';
 import { getService } from '@/lib/services';
 import { setServiceAction, setServiceBackupAction } from '@/lib/actions/services';
 import { promoteBuildAction } from '@/lib/actions/builds';
@@ -34,8 +34,8 @@ const input =
   'w-full rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950';
 
 export default async function ServicoPage({ params }: { params: Promise<{ name: string }> }) {
-  await requireAdmin();
   const { name } = await params;
+  await requireAdminPage(`/monitor/servicos/${name}`);
   const svc = await getService(name);
   if (!svc) notFound();
 

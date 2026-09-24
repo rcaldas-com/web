@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireAdmin } from '@/lib/auth';
+import { requireAdminPage } from '@/lib/auth';
 import { listServices, getRepoStates } from '@/lib/services';
 
 function formatDate(value?: string) {
@@ -19,7 +19,7 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 export default async function ServicosPage() {
-  await requireAdmin();
+  await requireAdminPage('/monitor/servicos');
   const [services, repoStates] = await Promise.all([listServices(), getRepoStates()]);
 
   const comDeriva = services.filter((s) => s.drift);

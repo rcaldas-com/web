@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { HomeIcon, CircleStackIcon, ShieldCheckIcon, RectangleStackIcon } from '@heroicons/react/24/outline';
-import { requireAdmin } from '@/lib/auth';
+import { requireAdminPage } from '@/lib/auth';
 import { getMonitorOverview, findBackupRunner, findHostByRole } from '@/lib/monitor';
 import { listRoutineRuns } from '@/lib/routines';
 import {
@@ -41,7 +41,7 @@ function statusClass(status?: string) {
 const APP_URL = process.env.AUTH_TRUST_HOST || 'https://web.rcaldas.com';
 
 export default async function MonitorPage() {
-  await requireAdmin();
+  await requireAdminPage('/monitor');
   const [overview, backupRunner, proxyHost, routines] = await Promise.all([
     getMonitorOverview(),
     findBackupRunner(),

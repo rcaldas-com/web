@@ -1,5 +1,6 @@
 import { cache } from 'react';
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { getUserById } from './data';
 import { signSessionToken, verifySessionToken } from './session';
 import { UserRole, UserSession } from './definitions';
@@ -113,6 +114,34 @@ export async function requireAdmin(): Promise<UserSession> {
     throw new AuthError('Admin access required');
   }
   return user;
+}
+
+/**
+ * requireAdmin() para uma page.tsx: nunca deixa o AuthError estourar pro
+ * error boundary genérico do Next ("Application error", só um digest sem
+ * pista nenhuma) -- foi assim que apareceu um crash real no PWA do
+ * /monitor, causado por uma sessão de impersonação ("ver como") presa no
+ * storage isolado daquele PWA, apontando pra um usuário não-admin.
+ *
+ * NÃO manda toda falha pro /login, de propósito: sessão realmente ausente
+ * ('Authentication required') vai pra lá com segurança, mas uma sessão
+ * VÁLIDA sem papel de admin ('Admin access required' -- o caso da
+ * impersonação presa) faria o middleware ver sessão válida em /login e
+ * devolver direto pro mesmo callbackUrl, given que ele não sabe de papel
+ * nenhum, só de sessão existir -- looping pra sempre entre /login e a
+ * page. /dashboard sempre resolve pra essa sessão (só exige requireAuth)
+ * e já reflete o papel atual escondendo o que não se aplica.
+ */
+export async function requireAdminPage(callbackUrl: string): Promise<UserSession> {
+  try {
+    return await requireAdmin();
+  } catch (error) {
+    if (!(error instanceof AuthError)) throw error;
+    if (error.message === 'Authentication required') {
+      redirect(`/login?callbackUrl=${callbackUrl}`);
+    }
+    redirect('/dashboard');
+  }
 }
 
 export async function requireRole(role: UserRole): Promise<UserSession> {

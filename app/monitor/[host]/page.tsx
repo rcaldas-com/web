@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAdmin } from '@/lib/auth';
+import { requireAdminPage } from '@/lib/auth';
 import { getMonitorHost, getFirewallPlan, renderNftablesSuggestion, renderRouterDropins } from '@/lib/monitor';
 import {
   toggleDdnsAction,
@@ -49,8 +49,8 @@ function field(label: string, value: React.ReactNode) {
 }
 
 export default async function MonitorHostPage({ params }: { params: Promise<{ host: string }> }) {
-  await requireAdmin();
   const { host: hostParam } = await params;
+  await requireAdminPage(`/monitor/${hostParam}`);
   const host = await getMonitorHost(hostParam);
   if (!host) notFound();
   const firewallPlan = await getFirewallPlan(hostParam);
