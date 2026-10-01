@@ -7,7 +7,6 @@ import {
   upsertProfile,
   upsertCard,
   deleteCard as deleteCardData,
-  updateCardInvoice,
   updateCardOrder,
   saveExpenses,
   addInstallment,
@@ -124,11 +123,6 @@ export async function removeCard(cardId: string) {
   revalidatePath('/finance');
 }
 
-export async function updateInvoice(cardId: string, amount: number) {
-  await getUserId();
-  await updateCardInvoice(cardId, amount);
-  revalidatePath('/finance');
-}
 
 export async function reorderCards(cardIds: string[]) {
   const userId = await getUserId();

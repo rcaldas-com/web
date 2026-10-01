@@ -33,7 +33,7 @@ export default function CardsGuest() {
     const monthData = getLocalMonthData(nextYearMonth);
     const invoices = monthData?.cardInvoices?.length
       ? monthData.cardInvoices
-      : initMonthCardInvoices(cards, installments, 1);
+      : initMonthCardInvoices(cards, installments, 1, nextYearMonth);
 
     setState({
       cards,

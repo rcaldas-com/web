@@ -58,7 +58,11 @@ export function buildCardViews(
       .filter(i => i.cardId === card._id && i.remainingInstallments > monthOffset);
     const installmentsTotal = cardInstallments.reduce((sum, i) => sum + i.monthlyValue, 0);
     const monthInvoice = invoiceMap.get(card._id!);
-    const invoiceTotal = monthInvoice ? monthInvoice.invoiceTotal : card.invoiceTotal;
+    // Sem fatura do mês, cai nas parcelas -- não no valor de cadastro do
+    // cartão. Hoje todo chamador passa monthInvoices cobrindo todos os
+    // cartões, então este ramo não roda; ficava como armadilha pra quem
+    // chamasse sem ele e recebesse um número de meses atrás sem perceber.
+    const invoiceTotal = monthInvoice ? monthInvoice.invoiceTotal : installmentsTotal;
     const paid = monthInvoice ? monthInvoice.paid : false;
 
     return {
@@ -152,16 +156,22 @@ export function initMonthCardInvoices(
   cards: CreditCard[],
   installments: Installment[],
   monthOffset: number,
+  // Mesmo tratamento do caminho autenticado (getOrInitMonthCardInvoices): o
+  // valor de cadastro do cartão só vale no mês em que foi informado. Sem
+  // yearMonth, nenhum cadastro vale -- que é o certo, porque um número sem
+  // mês associado não descreve fatura de mês nenhum.
+  yearMonth?: string,
 ): MonthCardInvoice[] {
   return cards.map(card => {
     const cardInsts = installments.filter(i => i.cardId === card._id);
     const activeInsts = cardInsts.filter(i => i.remainingInstallments > monthOffset);
     const installmentsTotal = activeInsts.reduce((sum, i) => sum + i.monthlyValue, 0);
+    const bootstrapDesteMes = Boolean(card.invoiceTotalMonth) && card.invoiceTotalMonth === yearMonth;
 
     return {
       cardId: card._id!,
       cardName: card.name,
-      invoiceTotal: monthOffset === 0 ? card.invoiceTotal : installmentsTotal,
+      invoiceTotal: bootstrapDesteMes ? card.invoiceTotal : installmentsTotal,
       paid: false,
     };
   });

@@ -71,7 +71,7 @@ export default function FinanceGuest() {
   // Card invoices: use month-specific if saved, otherwise init
   const monthCardInvoices: MonthCardInvoice[] = monthData?.cardInvoices?.length
     ? monthData.cardInvoices
-    : initMonthCardInvoices(cards, installments, offset);
+    : initMonthCardInvoices(cards, installments, offset, yearMonth);
 
   const getExpenseValue = (e: typeof expenses[0]) => expenseOverrides.get(e._id!) ?? e.value;
   const calcValue = (e: typeof expenses[0]) => {
@@ -160,7 +160,7 @@ export default function FinanceGuest() {
     const curMonthData = getLocalMonthData(currentYearMonth);
     const currentExpenses = filterExpensesForMonth(expenses, currentYearMonth);
     const curPaymentsByExpense = groupPaymentsByExpense(curMonthData?.payments);
-    const curCardInvoices = initMonthCardInvoices(cards, installments, 0);
+    const curCardInvoices = initMonthCardInvoices(cards, installments, 0, currentYearMonth);
     const curCardViews = buildCardViews(cards, installments, curCardInvoices, 0);
     const curDays = daysInYearMonth(currentYearMonth);
     const curPropDays = curDays - today.day + 1;
@@ -217,7 +217,7 @@ export default function FinanceGuest() {
       const monthData = getLocalMonthData(ym);
       const invoices: MonthCardInvoice[] = monthData?.cardInvoices?.length
         ? monthData.cardInvoices
-        : initMonthCardInvoices(cards, installments, offset);
+        : initMonthCardInvoices(cards, installments, offset, ym);
       return buildCardViews(cards, installments, invoices, offset)
         .filter(c => !c.paid)
         .reduce((sum, c) => sum + c.invoiceTotal, 0);

@@ -210,8 +210,12 @@ export async function upsertCard(userId: string, card: { _id?: string; name: str
   const db = client.db();
   if (card._id) {
     const before = await db.collection('financeCard').findOne({ _id: new ObjectId(card._id) });
+    // invoiceTotal NÃO é regravado aqui, de propósito: ele descreve a fatura
+    // que o cartão já tinha no mês em que foi cadastrado, não um campo
+    // editável pra sempre. Quem muda a fatura de um mês é a tela do mês
+    // (dashboard / cartões), que grava em financeMonth.cardInvoices.
+    // Regravar daqui carimbaria um número velho como se fosse do mês atual.
     const $set: Record<string, unknown> = { name: card.name, dueDay: card.dueDay };
-    if (card.invoiceTotal != null) $set.invoiceTotal = card.invoiceTotal;
     if (card.sortOrder != null) $set.sortOrder = card.sortOrder;
     await db.collection('financeCard').updateOne(
       { _id: new ObjectId(card._id) },
@@ -234,7 +238,14 @@ export async function upsertCard(userId: string, card: { _id?: string; name: str
     return card._id;
   } else {
     const result = await db.collection('financeCard').insertOne({
-      userId, name: card.name, dueDay: card.dueDay, invoiceTotal: card.invoiceTotal ?? 0, sortOrder: card.sortOrder ?? 0,
+      userId,
+      name: card.name,
+      dueDay: card.dueDay,
+      invoiceTotal: card.invoiceTotal ?? 0,
+      // Carimba o mês a que esse valor se refere. Sem o carimbo ele valeria
+      // pra sempre, reaparecendo todo dia 1º como fatura fantasma.
+      invoiceTotalMonth: getFinanceToday().yearMonth,
+      sortOrder: card.sortOrder ?? 0,
     });
     await recordChange({
       userId,
@@ -286,27 +297,6 @@ export async function deleteCard(cardId: string) {
   }
 }
 
-export async function updateCardInvoice(cardId: string, invoiceTotal: number) {
-  const client = await clientPromise;
-  const db = client.db();
-  const before = await db.collection('financeCard').findOne({ _id: new ObjectId(cardId) });
-  await db.collection('financeCard').updateOne(
-    { _id: new ObjectId(cardId) },
-    { $set: { invoiceTotal } }
-  );
-  if (before) {
-    await recordChange({
-      userId: before.userId as string,
-      entity: 'card',
-      entityId: cardId,
-      entityLabel: (before.name as string) || 'Cartão',
-      scope: 'fatura',
-      action: 'update',
-      changes: diffFields(before, { invoiceTotal }, [{ field: 'invoiceTotal', label: 'Fatura', kind: 'money' }]),
-      source: 'user',
-    });
-  }
-}
 
 // ==================== Recurring Expenses ====================
 
@@ -832,7 +822,17 @@ export async function getOrInitMonthCardInvoices(
     const cardInsts = installments.filter(i => i.cardId === card._id);
     const activeInsts = cardInsts.filter(i => i.remainingInstallments > monthOffset);
     const installmentsTotal = activeInsts.reduce((sum, i) => sum + i.monthlyValue, 0);
-    const computedTotal = monthOffset === 0 ? card.invoiceTotal : installmentsTotal;
+    // O valor de cadastro do cartão só vale no mês em que foi informado.
+    // Antes a condição era `monthOffset === 0` -- ou seja, valia em QUALQUER
+    // mês que fosse o corrente. Resultado: todo dia 1º, antes de alguém
+    // tocar na fatura do mês novo, o número do cadastro reaparecia como se
+    // fosse compra. Foi o que fez MP (151,43) e Renner (198,36) mostrarem
+    // fatura em outubro sem ter parcela nem compra nenhuma.
+    //
+    // A comparação exige carimbo presente: `undefined === undefined` seria
+    // verdadeiro e traria o bug de volta pra cartão sem carimbo.
+    const bootstrapDesteMes = Boolean(card.invoiceTotalMonth) && card.invoiceTotalMonth === yearMonth;
+    const computedTotal = bootstrapDesteMes ? card.invoiceTotal : installmentsTotal;
     return {
       cardId: card._id!,
       cardName: card.name,

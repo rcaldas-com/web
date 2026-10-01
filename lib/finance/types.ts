@@ -24,7 +24,16 @@ export interface CreditCard {
   userId: string;
   name: string;        // BB, ITAU, MP, Renner, NB
   dueDay: number;      // dia vencimento fatura
-  invoiceTotal: number; // valor atual da fatura (atualizado manualmente)
+  // Fatura que o cartão já tinha quando foi cadastrado -- só serve de ponto
+  // de partida no mês da criação. Depois disso, quem manda é a fatura do
+  // mês (financeMonth.cardInvoices) ou a soma das parcelas.
+  invoiceTotal: number;
+  // De QUAL mês aquele valor fala ("2026-10"). Sem isto, o número ficava
+  // valendo pra sempre: todo dia 1º, antes de alguém tocar na fatura do mês
+  // novo, ele reaparecia como se fosse uma compra -- cartão sem parcela
+  // nenhuma mostrando fatura do nada. Ausente = cadastro antigo, não vale
+  // pra mês nenhum (que é o certo: aquele número não descreve mais nada).
+  invoiceTotalMonth?: string;
   sortOrder?: number;  // ordem preferida na tela de cartões e selects
 }
 
