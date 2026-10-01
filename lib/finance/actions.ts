@@ -17,6 +17,7 @@ import {
   rollOverMonth,
   addExpensePayment,
   removeAllExpensePayments,
+  removeLastExpensePayment,
   updateMonthCardInvoice,
   toggleMonthCardInvoicePaid,
   updateMonthExpenseValue,
@@ -142,6 +143,7 @@ export async function saveExpensesList(formData: FormData) {
   const categories = formData.getAll('expCategory') as string[];
   const proportionals = formData.getAll('expProportional') as string[];
   const dueDays = formData.getAll('expDueDay') as string[];
+  const defaultPayments = formData.getAll('expDefaultPayment') as string[];
 
   const expenses: (Omit<RecurringExpense, '_id' | 'userId'> & { _id?: string })[] = names
     .map((name, i) => ({
@@ -151,6 +153,10 @@ export async function saveExpensesList(formData: FormData) {
       category: (categories[i] === 'card' ? 'card' : 'cash') as 'card' | 'cash',
       proportional: (['daily', 'weekly'].includes(proportionals[i]) ? proportionals[i] : false) as false | 'daily' | 'weekly',
       dueDay: parseInt(dueDays[i]) || undefined,
+      // Vazio/zero = sem padrão (abre com o restante). null e não undefined:
+      // saveExpenses faz $set com o objeto, e undefined não apagaria um
+      // padrão antigo quando o campo é esvaziado.
+      defaultPayment: (defaultPayments[i] ? evalExpression(defaultPayments[i]) : 0) || null,
       order: i,
     }))
     .filter(e => e.name);
@@ -342,6 +348,17 @@ export async function undoExpensePayments(expenseId: string, expenseName: string
     if (p.paidToCard) await adjustCardExpenseInMonth(userId, nextMonth, p.paidToCard, -p.amountPaid);
   }
 
+  revalidatePath('/finance');
+}
+
+// Desfaz só o lançamento mais recente (ver removeLastExpensePayment).
+export async function undoLastExpensePayment(expenseId: string, expenseName: string, yearMonth: string) {
+  const userId = await getUserId();
+  const p = await removeLastExpensePayment(userId, yearMonth, expenseId, expenseName);
+  if (p) {
+    if (p.paidFromBank) await adjustBankBalance(userId, p.paidFromBank, p.amountPaid);
+    if (p.paidToCard) await adjustCardExpenseInMonth(userId, addMonthsToYearMonth(yearMonth, 1), p.paidToCard, -p.amountPaid);
+  }
   revalidatePath('/finance');
 }
 

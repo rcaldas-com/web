@@ -1,13 +1,14 @@
 'use client';
 
-import { createContext, useContext, useRef, useState, useTransition } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import ExpressionOperatorPad, { insertExpressionToken } from './ExpressionOperatorPad';
 import MoneyInput from './MoneyInput';
-import { recordExpensePayment, undoExpensePayments, updateMonthInvoice, toggleInvoicePaid, updateBankBalance, updateExpenseValue } from '@/lib/finance/actions';
+import { recordExpensePayment, undoExpensePayments, undoLastExpensePayment, updateMonthInvoice, toggleInvoicePaid, updateBankBalance, updateExpenseValue } from '@/lib/finance/actions';
 import {
   addLocalExpensePayment,
   undoLocalExpensePayments,
+  undoLastLocalExpensePayment,
   updateLocalMonthCardInvoice,
   toggleLocalCardInvoicePaid,
   updateLocalExpenseOverride,
@@ -17,12 +18,14 @@ import {
 import { evalExpression } from '@/lib/finance/eval-expression';
 import { monthLabelPtBr } from '@/lib/finance/date';
 import type { InstallmentGroup, CardView, BankAccount } from '@/lib/finance/types';
+import type { PaymentHint } from '@/lib/finance/compute';
 
 const BRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 interface FinanceActions {
   recordExpensePayment: (id: string, name: string, amount: number, ym: string, bank?: string, cardId?: string, cardName?: string) => Promise<void>;
   undoExpensePayments: (id: string, name: string, ym: string) => Promise<void>;
+  undoLastExpensePayment: (id: string, name: string, ym: string) => Promise<void>;
   updateInvoice: (cardId: string, amount: number, ym: string) => Promise<void>;
   toggleInvoicePaid: (cardId: string, name: string, total: number, ym: string, bank?: string) => Promise<void>;
   updateBankBalance: (fd: FormData) => Promise<void>;
@@ -42,6 +45,11 @@ interface ExpenseItem {
   // DIFERENTES por design -- editar precisa saber qual dos dois é o que
   // está na tela, senão o clique substitui um número pelo outro sem avisar.
   partial: boolean;
+  amountPaid: number;
+  // Valor com que o picker abre no lugar do restante (configuração).
+  defaultPayment?: number;
+  // Último lançamento (sugestão "último: X" e "desfazer último") e contagem.
+  hint: PaymentHint;
   dueDay?: number;
   proportional: false | 'daily' | 'weekly';
   paid: boolean;
@@ -109,6 +117,7 @@ export default function DashboardClient({
         // cardName so' importa pro historico, e o convidado nao tem um.
         recordExpensePayment: async (id, name, amount, ym, bank, cardId) => { addLocalExpensePayment(ym, id, name, amount, bank, cardId); guestRefresh(); },
         undoExpensePayments: async (id, _name, ym) => { undoLocalExpensePayments(ym, id); guestRefresh(); },
+        undoLastExpensePayment: async (id, _name, ym) => { undoLastLocalExpensePayment(ym, id); guestRefresh(); },
         updateInvoice: async (cardId, amount, ym) => { updateLocalMonthCardInvoice(ym, cardId, amount); guestRefresh(); },
         toggleInvoicePaid: async (cardId, name, total, ym, bank) => { toggleLocalCardInvoicePaid(ym, cardId, name, total, bank); guestRefresh(); },
         updateBankBalance: async (fd) => {
@@ -124,6 +133,7 @@ export default function DashboardClient({
     : {
         recordExpensePayment: async (id, name, amount, ym, bank, cardId, cardName) => { await recordExpensePayment(id, name, amount, ym, bank, cardId, cardName); },
         undoExpensePayments: async (id, name, ym) => { await undoExpensePayments(id, name, ym); },
+        undoLastExpensePayment: async (id, name, ym) => { await undoLastExpensePayment(id, name, ym); },
         updateInvoice: async (cardId, amount, ym) => { await updateMonthInvoice(cardId, amount, ym); },
         toggleInvoicePaid: async (cardId, name, total, ym, bank) => { await toggleInvoicePaid(cardId, name, total, ym, bank); },
         updateBankBalance: async (fd) => { await updateBankBalance(fd); },
@@ -457,13 +467,17 @@ function PickerChip({ label, sub, onClick }: { label: string; sub?: string; onCl
 }
 
 function PaymentPicker({
-  category, banks, cards, amount, onAmountChange, onSelect, onDismiss,
+  category, banks, cards, amount, onAmountChange, onSelect, onDismiss, lastAmount,
 }: {
   category: 'card' | 'cash';
   banks: BankAccount[];
   cards: CardView[];
   amount: string;
   onAmountChange: (v: string) => void;
+  // Só PREENCHE o campo ao tocar -- não paga nada. A escolha do cartão/
+  // conta continua sendo a confirmação, então um toque errado aqui não
+  // registra nada.
+  lastAmount?: number;
   // cardName vai junto pro caller nao ter que buscar o nome de volta no
   // banco so pra gravar no historico -- a tela ja tem o nome aqui mesmo,
   // é ele que aparece no chip.
@@ -479,7 +493,7 @@ function PaymentPicker({
         </p>
         <button onClick={onDismiss} className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 px-1">✕</button>
       </div>
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex flex-wrap items-center gap-2 mb-2">
         <span className="text-xs text-zinc-500 dark:text-zinc-400">Valor</span>
         <MoneyInput
           ref={amountInputRef}
@@ -491,6 +505,17 @@ function PaymentPicker({
           className="w-24 text-right rounded border-zinc-300 text-sm px-1 py-0.5 font-mono focus:border-blue-500 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
         />
         <ExpressionOperatorPad onInsert={token => insertExpressionToken(amountInputRef.current, amount, onAmountChange, token)} />
+        {/* Só aparece quando difere do que já está no campo -- senão é
+            ruído ocupando espaço no picker. */}
+        {lastAmount != null && Math.abs(lastAmount - evalExpression(amount)) > 0.005 && (
+          <button
+            type="button"
+            onClick={() => { onAmountChange(lastAmount.toFixed(2)); amountInputRef.current?.focus(); }}
+            className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+          >
+            último: {BRL(lastAmount)}
+          </button>
+        )}
       </div>
       <div className="flex flex-wrap gap-2">
         {category === 'cash'
@@ -639,17 +664,39 @@ function ExpenseChecklist({
   const editInputRef = useRef<HTMLInputElement>(null);
   const [pickerId, setPickerId] = useState<string | null>(null);
   const [pickerAmount, setPickerAmount] = useState('');
+  // Despesa já paga: clicar no checkbox abre este menu em vez de desfazer
+  // tudo direto (pagar mais / desfazer último / desfazer tudo).
+  const [menuId, setMenuId] = useState<string | null>(null);
+  // ↶ temporário logo após um lançamento -- única forma de desfazer um
+  // parcial enquanto a despesa ainda não fechou. Some em 8s de propósito:
+  // ficar sempre visível na lista viraria alvo de clique acidental.
+  const [undoId, setUndoId] = useState<string | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(undoTimer.current), []);
   const paidCount = expenses.filter(e => e.paid).length;
   const total = expenses.reduce((s, e) => s + e.value, 0);
   const paidTotal = expenses.filter(e => e.paid).reduce((s, e) => s + e.value, 0);
   const pendingTotal = total - paidTotal;
 
+  // Valor de abertura: padrão cadastrado > restante. NÃO o último pago --
+  // uma despesa paga parcialmente uma vez (Linode 129,33) abriria com o
+  // parcial no mês seguinte em vez dos 150 cheios. O último fica só como
+  // sugestão tocável dentro do picker.
+  // "Pagar mais" numa despesa já fechada não tem restante (é 0), então
+  // cai no último pago como melhor chute.
+  const openPicker = (e: ExpenseItem) => {
+    const inicial = e.defaultPayment ?? (e.paid ? e.hint.lastAmount : e.value);
+    setMenuId(null);
+    setPickerId(e.id);
+    setPickerAmount(inicial ? inicial.toFixed(2) : '');
+  };
+
   const handleToggle = (e: ExpenseItem) => {
     if (e.paid) {
-      startTransition(() => { actions.undoExpensePayments(e.id, e.name, yearMonth); });
+      setPickerId(null);
+      setMenuId(menuId === e.id ? null : e.id);
     } else {
-      setPickerId(e.id);
-      setPickerAmount(e.value.toFixed(2)); // pré-preenche com o restante
+      openPicker(e);
     }
   };
 
@@ -658,7 +705,22 @@ function ExpenseChecklist({
     setPickerId(null);
     if (amount > 0) {
       startTransition(() => { actions.recordExpensePayment(e.id, e.name, amount, yearMonth, bank, cardId, cardName); });
+      clearTimeout(undoTimer.current);
+      setUndoId(e.id);
+      undoTimer.current = setTimeout(() => setUndoId(null), 8000);
     }
+  };
+
+  const handleUndoLast = (e: ExpenseItem) => {
+    clearTimeout(undoTimer.current);
+    setUndoId(null);
+    setMenuId(null);
+    startTransition(() => { actions.undoLastExpensePayment(e.id, e.name, yearMonth); });
+  };
+
+  const handleUndoAll = (e: ExpenseItem) => {
+    setMenuId(null);
+    startTransition(() => { actions.undoExpensePayments(e.id, e.name, yearMonth); });
   };
 
   const handleSaveValue = (e: ExpenseItem) => {
@@ -714,6 +776,16 @@ function ExpenseChecklist({
                 <span className="text-xs text-zinc-400 ml-1">dia {e.dueDay}</span>
               )}
             </span>
+            {undoId === e.id && e.hint.lastUndoable && (
+              <button
+                type="button"
+                onClick={() => handleUndoLast(e)}
+                title={`Desfazer o lançamento de ${e.hint.lastAmount != null ? BRL(e.hint.lastAmount) : ''}`}
+                className="rounded px-1.5 text-sm text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              >
+                ↶
+              </button>
+            )}
             {editingId === e.id ? (
               <span className="inline-flex flex-col items-end gap-0.5" onClick={ev => ev.stopPropagation()}>
                 <span className="inline-flex items-center gap-1">
@@ -747,7 +819,28 @@ function ExpenseChecklist({
               </span>
             )}
           </div>
-          {pickerId === e.id && !e.paid && (
+          {menuId === e.id && e.paid && (
+            <div className="mx-2 mb-1 flex flex-wrap items-center gap-2 rounded-md border border-zinc-200 bg-zinc-100 px-3 py-2.5 text-xs dark:border-zinc-700 dark:bg-zinc-800/80">
+              <span className="text-zinc-500 dark:text-zinc-400">
+                {BRL(e.amountPaid)} em {e.hint.count} {e.hint.count === 1 ? 'pagamento' : 'pagamentos'}
+              </span>
+              <span className="ml-auto flex flex-wrap gap-2">
+                {/* Passar do previsto é gasto real (transporte além do
+                    estimado): sem isto a única saída era desfazer tudo. */}
+                <PickerChip label="+ Pagar mais" onClick={() => openPicker(e)} />
+                {e.hint.lastUndoable && e.hint.count > 1 && (
+                  <PickerChip
+                    label="↶ Desfazer último"
+                    sub={`${e.hint.lastAmount != null ? BRL(e.hint.lastAmount) : ''}${e.hint.lastSource ? ` ${e.hint.lastSource}` : ''}`}
+                    onClick={() => handleUndoLast(e)}
+                  />
+                )}
+                <PickerChip label={e.hint.count > 1 ? `Desfazer tudo (${e.hint.count})` : 'Desfazer'} onClick={() => handleUndoAll(e)} />
+                <button onClick={() => setMenuId(null)} className="px-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">✕</button>
+              </span>
+            </div>
+          )}
+          {pickerId === e.id && (
             <PaymentPicker
               category={e.category}
               banks={banks}
@@ -756,6 +849,7 @@ function ExpenseChecklist({
               onAmountChange={setPickerAmount}
               onSelect={(bank, cardId, cardName) => handlePick(e, bank, cardId, cardName)}
               onDismiss={() => setPickerId(null)}
+              lastAmount={e.hint.lastAmount}
             />
           )}
           </div>

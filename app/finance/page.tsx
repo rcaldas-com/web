@@ -9,7 +9,7 @@ import {
   getOrInitMonthCardInvoices,
   getExpenseOverrides,
 } from '@/lib/finance/data';
-import { filterExpensesForMonth, groupInstallments, buildCardViews, calculateMonthBalance, groupPaymentsByExpense, computeExpensePaymentState } from '@/lib/finance/compute';
+import { filterExpensesForMonth, groupInstallments, buildCardViews, calculateMonthBalance, groupPaymentsByExpense, computeExpensePaymentState, buildPaymentHint } from '@/lib/finance/compute';
 import { addMonthsToYearMonth, daysInYearMonth, getFinanceToday, yearMonthIndex } from '@/lib/finance/date';
 import DashboardClient from './DashboardClient';
 import FinanceGuest from './FinanceGuest';
@@ -50,8 +50,14 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   // Proportional: remaining days for current month, full month otherwise
   const proportionalDays = isCurrentMonth ? daysInMonth - dayOfMonth + 1 : daysInMonth;
 
-  const monthData = await getMonthData(userId, yearMonth);
+  const [monthData, prevMonthData] = await Promise.all([
+    getMonthData(userId, yearMonth),
+    // Só pra sugestão "último valor" no primeiro pagamento do mês.
+    getMonthData(userId, addMonthsToYearMonth(yearMonth, -1)),
+  ]);
   const paymentsByExpense = groupPaymentsByExpense(monthData?.payments);
+  const prevPaymentsByExpense = groupPaymentsByExpense(prevMonthData?.payments);
+  const cardNames = new Map(cards.map(c => [c._id!, c.name]));
 
   // Month-specific expense value overrides (uses most recent override <= this month)
   const expenseOverrides = await getExpenseOverrides(userId, yearMonth);
@@ -122,6 +128,9 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         // Paga em parte, mas ainda não fechada -- ver comentário em
         // ExpenseItem/handleSaveValue sobre o que muda no clique de editar.
         partial: !e.proportional && !paid && amountPaid > 0,
+        amountPaid,
+        defaultPayment: e.defaultPayment || undefined,
+        hint: buildPaymentHint(paymentsByExpense.get(e._id!), prevPaymentsByExpense.get(e._id!), cardNames),
         proportional: e.proportional,
         dueDay: e.dueDay,
         paid,
@@ -140,6 +149,9 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         value: displayValue,
         baseValue: getExpenseValue(e),
         partial: !e.proportional && !paid && amountPaid > 0,
+        amountPaid,
+        defaultPayment: e.defaultPayment || undefined,
+        hint: buildPaymentHint(paymentsByExpense.get(e._id!), prevPaymentsByExpense.get(e._id!), cardNames),
         dueDay: e.dueDay,
         proportional: e.proportional,
         paid,

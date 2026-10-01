@@ -19,6 +19,7 @@ import {
   initMonthCardInvoices,
   groupPaymentsByExpense,
   computeExpensePaymentState,
+  buildPaymentHint,
 } from '@/lib/finance/compute';
 import DashboardClient from './DashboardClient';
 import type { MonthCardInvoice } from '@/lib/finance/types';
@@ -65,6 +66,8 @@ export default function FinanceGuest() {
 
   const monthData = getLocalMonthData(yearMonth);
   const paymentsByExpense = groupPaymentsByExpense(monthData?.payments);
+  const prevPaymentsByExpense = groupPaymentsByExpense(getLocalMonthData(addMonthsToYearMonth(yearMonth, -1))?.payments);
+  const cardNames = new Map(cards.map(c => [c._id!, c.name]));
   const expenseOverrides = getLocalExpenseOverrides(yearMonth);
   const monthExpenses = filterExpensesForMonth(expenses, yearMonth);
 
@@ -114,6 +117,9 @@ export default function FinanceGuest() {
         // Paga em parte, mas ainda não fechada -- ver comentário em
         // ExpenseItem/handleSaveValue sobre o que muda no clique de editar.
         partial: !e.proportional && !paid && amountPaid > 0,
+        amountPaid,
+        defaultPayment: e.defaultPayment || undefined,
+        hint: buildPaymentHint(paymentsByExpense.get(e._id!), prevPaymentsByExpense.get(e._id!), cardNames),
         proportional: e.proportional,
         dueDay: e.dueDay,
         paid,
@@ -132,6 +138,9 @@ export default function FinanceGuest() {
         value: displayValue,
         baseValue: getExpenseValue(e),
         partial: !e.proportional && !paid && amountPaid > 0,
+        amountPaid,
+        defaultPayment: e.defaultPayment || undefined,
+        hint: buildPaymentHint(paymentsByExpense.get(e._id!), prevPaymentsByExpense.get(e._id!), cardNames),
         proportional: e.proportional,
         dueDay: e.dueDay,
         paid,

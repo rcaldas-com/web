@@ -320,6 +320,7 @@ const EXPENSE_FIELD_SPECS = [
   { field: 'category', label: 'Categoria', kind: 'text' as const },
   { field: 'proportional', label: 'Proporcional', kind: 'text' as const },
   { field: 'dueDay', label: 'Vencimento', kind: 'number' as const },
+  { field: 'defaultPayment', label: 'Valor padrão', kind: 'money' as const },
 ];
 
 export async function saveExpenses(userId: string, expenses: (Omit<RecurringExpense, '_id' | 'userId'> & { _id?: string })[]) {
@@ -696,6 +697,52 @@ export async function removeAllExpensePayments(
     changes: [
       { field: 'pago', label: 'Pago', before: true, after: false, kind: 'bool' },
       { field: 'valorPago', label: 'Valor pago (revertido)', before: totalReverted, after: 0, kind: 'money' },
+    ],
+    source: 'user',
+  });
+  return removed;
+}
+
+// Desfaz só o lançamento mais recente da despesa no mês -- o par do
+// removeAll acima, pra despesa paga aos pedaços (transporte 2x/dia): um
+// lançamento errado não pode obrigar a desfazer o mês inteiro. "Mais
+// recente" = último na ordem do array, que é a ordem de inserção
+// (addExpensePayment só faz push). Devolve o removido pro caller reverter
+// banco/fatura dele.
+export async function removeLastExpensePayment(
+  userId: string,
+  yearMonth: string,
+  expenseId: string,
+  expenseName: string,
+): Promise<MonthPayment | null> {
+  const client = await clientPromise;
+  const db = client.db();
+  const doc = await db.collection('financeMonth').findOne({ userId, yearMonth });
+  const payments: MonthPayment[] = doc?.payments || [];
+
+  let idx = -1;
+  for (let i = payments.length - 1; i >= 0; i--) {
+    if (payments[i].expenseId === expenseId) { idx = i; break; }
+  }
+  if (idx < 0) return null;
+  const [removed] = payments.splice(idx, 1);
+
+  await db.collection('financeMonth').updateOne(
+    { userId, yearMonth },
+    { $set: { payments, userId, yearMonth } },
+    { upsert: true }
+  );
+
+  await recordChange({
+    userId,
+    entity: 'expense',
+    entityId: expenseId,
+    entityLabel: expenseName,
+    scope: 'pagamento',
+    yearMonth,
+    action: 'update',
+    changes: [
+      { field: 'valorPago', label: 'Último pagamento (desfeito)', before: removed.amountPaid, after: null, kind: 'money' },
     ],
     source: 'user',
   });

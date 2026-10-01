@@ -96,6 +96,34 @@ export function groupPaymentsByExpense(payments?: MonthPayment[]): Map<string, M
   return map;
 }
 
+// O que o picker e o menu de despesa paga precisam saber dos lançamentos:
+// o último (pra sugestão "último: 7,70" e pro "desfazer último") e quantos
+// houve no mês. O último olha o mês exibido e, se ainda não houve nenhum,
+// o anterior -- senão o primeiro transporte do mês nunca teria sugestão.
+// Só o do mês exibido pode ser desfeito (lastUndoable): desfazer mexe no
+// mês em que o lançamento está, e o do mês anterior já fechou.
+export type PaymentHint = {
+  lastAmount?: number;
+  lastSource?: string;
+  lastUndoable: boolean;
+  count: number;
+};
+
+export function buildPaymentHint(
+  current: MonthPayment[] | undefined,
+  previous: MonthPayment[] | undefined,
+  cardNames: Map<string, string>,
+): PaymentHint {
+  const doMes = current?.length ? current[current.length - 1] : undefined;
+  const last = doMes ?? (previous?.length ? previous[previous.length - 1] : undefined);
+  return {
+    lastAmount: last?.amountPaid,
+    lastSource: last ? (last.paidFromBank ?? (last.paidToCard ? cardNames.get(last.paidToCard) : undefined)) : undefined,
+    lastUndoable: Boolean(doMes),
+    count: current?.length ?? 0,
+  };
+}
+
 // Tolerância de arredondamento (meio centavo) pra não deixar erro de ponto
 // flutuante marcar uma despesa como "quase paga" incorretamente.
 const PAID_EPSILON = 0.005;

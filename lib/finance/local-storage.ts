@@ -272,6 +272,28 @@ export function undoLocalExpensePayments(yearMonth: string, expenseId: string) {
   }
 }
 
+// Par do undoLocalExpensePayments: desfaz só o lançamento mais recente.
+// Mesma regra do caminho autenticado (removeLastExpensePayment).
+export function undoLastLocalExpensePayment(yearMonth: string, expenseId: string) {
+  const months = getMonths();
+  const month = months[yearMonth] || ensureMonth(yearMonth);
+  const payments: MonthPayment[] = month.payments || [];
+
+  let idx = -1;
+  for (let i = payments.length - 1; i >= 0; i--) {
+    if (payments[i].expenseId === expenseId) { idx = i; break; }
+  }
+  if (idx < 0) return;
+  const [p] = payments.splice(idx, 1);
+
+  month.payments = payments;
+  months[yearMonth] = month;
+  setMonths(months);
+
+  if (p.paidFromBank) adjustLocalBankBalance(p.paidFromBank, p.amountPaid);
+  if (p.paidToCard) adjustLocalCardInvoice(addMonthsToYearMonth(yearMonth, 1), p.paidToCard, -p.amountPaid);
+}
+
 export function updateLocalMonthCardInvoice(
   yearMonth: string,
   cardId: string,

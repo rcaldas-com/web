@@ -45,6 +45,11 @@ export interface RecurringExpense {
   category: 'card' | 'cash'; // card=impacta próximo mês, cash=impacta mês atual
   proportional: false | 'daily' | 'weekly'; // false=fixo, 'daily'=value×dias, 'weekly'=value×(dias/7)
   dueDay?: number;           // dia vencimento
+  // Valor com que o picker de pagamento abre, no lugar do restante. Pra
+  // despesa paga aos pedaços sempre no mesmo valor (transporte 7,70 duas
+  // vezes por dia): abrir já com 7,70 tira o "digitar" do caminho e deixa
+  // só a escolha do cartão/conta, que continua sendo a confirmação.
+  defaultPayment?: number | null;  // null = removido explicitamente
   order: number;
   activeFrom?: string;       // YYYY-MM inclusivo; sem valor = ativa desde sempre
   activeUntil?: string;      // YYYY-MM inclusivo; sem valor = recorrente ativa

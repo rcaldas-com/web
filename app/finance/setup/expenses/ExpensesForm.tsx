@@ -17,6 +17,7 @@ interface ExpenseRow {
   category: 'card' | 'cash';
   proportional: false | 'daily' | 'weekly';
   dueDay?: number;
+  defaultPayment?: number | string;
 }
 
 export default function ExpensesForm({ expenses, isGuest }: { expenses: RecurringExpense[]; isGuest?: boolean }) {
@@ -28,12 +29,12 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
     draft?.rows || (isGuest && localExpenses.length
       ? localExpenses.map(e => ({
           id: e._id || '', name: e.name, value: e.value, category: e.category,
-          proportional: e.proportional || false, dueDay: e.dueDay,
+          proportional: e.proportional || false, dueDay: e.dueDay, defaultPayment: e.defaultPayment ?? undefined,
         }))
       : expenses.length
         ? expenses.map(e => ({
             id: e._id || '', name: e.name, value: e.value, category: e.category,
-            proportional: e.proportional || false, dueDay: e.dueDay,
+            proportional: e.proportional || false, dueDay: e.dueDay, defaultPayment: e.defaultPayment ?? undefined,
           }))
         : [{ id: '', name: '', value: 0, category: 'cash', proportional: false }])
   );
@@ -60,6 +61,7 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
         category: r.category,
         proportional: r.proportional,
         dueDay: r.dueDay ? Number(r.dueDay) : undefined,
+        defaultPayment: Number(String(r.defaultPayment ?? '').replace(',', '.')) || undefined,
         order: i,
       }));
     saveLocalExpenses(validExpenses);
@@ -127,7 +129,7 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
                 </button>
               )}
             </div>
-            <div className="flex gap-4 items-center text-sm">
+            <div className="flex flex-wrap gap-x-4 gap-y-2 items-center text-sm">
               <select
                 name="expCategory"
                 value={row.category}
@@ -160,6 +162,23 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
                 </div>
               ) : (
                 <input type="hidden" name="expDueDay" value="" />
+              )}
+              {/* Proporcional não tem pagamento (sem checkbox no painel),
+                  então padrão não se aplica -- mas o hidden fica pra manter
+                  o alinhamento posicional do getAll() no servidor. */}
+              {!row.proportional ? (
+                <div className="flex items-center gap-1" title="Valor com que o pagamento abre, no lugar do restante. Vazio = restante.">
+                  <span>Padrão:</span>
+                  <input
+                    type="text" inputMode="decimal" name="expDefaultPayment"
+                    value={row.defaultPayment ?? ''}
+                    onChange={e => updateRow(i, 'defaultPayment', e.target.value)}
+                    className="w-20 rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    placeholder="-"
+                  />
+                </div>
+              ) : (
+                <input type="hidden" name="expDefaultPayment" value="" />
               )}
             </div>
           </div>
