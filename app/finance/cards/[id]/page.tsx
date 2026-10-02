@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { getSessionUserId } from '@/lib/auth';
-import { getCards, getInstallments, getMonthData } from '@/lib/finance/data';
+import { getCards, getInstallments, getMonthData, getOrInitMonthCardInvoices } from '@/lib/finance/data';
 import { addMonthsToYearMonth, getFinanceToday, monthLabelPtBr } from '@/lib/finance/date';
 
 const BRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -24,8 +24,15 @@ type Entrada = {
 // do banco -- que lista do lançamento mais novo pro mais antigo, parcelas
 // incluídas. O resumo em /finance/cards só mostra "parcelas" (soma) e
 // "extras" (soma); aqui é o que compõe cada uma dessas somas.
-export default async function CardInvoicePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CardInvoicePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ fatura?: string }>;
+}) {
   const { id } = await params;
+  const { fatura } = await searchParams;
   const userId = await getSessionUserId();
   // Convidado não tem essa página: o dado vive só no navegador (localStorage),
   // sem nada pra este Server Component ler.
@@ -35,17 +42,33 @@ export default async function CardInvoicePage({ params }: { params: Promise<{ id
   const card = cards.find((c) => c._id === id);
   if (!card) notFound();
 
-  // A fatura mostrada em /finance/cards é sempre a do PRÓXIMO mês (a que
-  // ainda vai fechar). O que a compõe: parcelas com fôlego pra sobreviver
-  // mais um mês (mesmo offset=1 que buildCardViews usa), e os pagamentos
-  // feitos NESTE mês direto no cartão (paidToCard) -- é assim que eles
-  // entram na fatura seguinte (ver adjustCardExpenseInMonth).
-  const nextYearMonth = addMonthsToYearMonth(getFinanceToday().yearMonth, 1);
+  // Duas faturas navegáveis:
+  //   aberta  (offset 1) -- vence no mês que vem, ainda recebendo lançamento
+  //   fechada (offset 0) -- vence neste mês, a que se compara com o banco
+  // A fatura do mês M se compõe de: parcelas com fôlego até M (mesmo filtro
+  // `remainingInstallments > offset` do buildCardViews) + pagamentos feitos
+  // em M-1 direto no cartão -- é assim que eles entram na fatura seguinte
+  // (ver adjustCardExpenseInMonth).
+  //
+  // Meses anteriores ao corrente NÃO são oferecidos: a virada do mês APAGA
+  // a parcela que terminou (rollOverMonth), então setembro já perdeu as que
+  // acabaram nele. Mostrar seria uma fatura incompleta com cara de certa.
+  const offset = fatura === 'fechada' ? 0 : 1;
   const currentYearMonth = getFinanceToday().yearMonth;
+  const invoiceYearMonth = addMonthsToYearMonth(currentYearMonth, offset);
+  const paymentsYearMonth = addMonthsToYearMonth(invoiceYearMonth, -1);
 
-  const monthData = await getMonthData(userId, currentYearMonth);
+  const [monthData, invoices] = await Promise.all([
+    getMonthData(userId, paymentsYearMonth),
+    getOrInitMonthCardInvoices(userId, invoiceYearMonth, cards, installments, offset),
+  ]);
   const directPayments = (monthData?.payments ?? []).filter((p) => p.paidToCard === id);
-  const activeInstallments = installments.filter((i) => i.cardId === id && i.remainingInstallments > 1);
+  const activeInstallments = installments.filter((i) => i.cardId === id && i.remainingInstallments > offset);
+  // O que o app tem registrado pra essa fatura (pode ter sido editado à
+  // mão, ou ter ajuste que não veio de pagamento). Se não bater com a soma
+  // das linhas, a diferença aparece -- é exatamente o que se procura ao
+  // comparar com o banco.
+  const registrada = invoices.find((inv) => inv.cardId === id);
 
   // Parcela não tem uma "data deste mês" -- é recorrente, o valor que muda
   // é quantas ainda faltam. A data de compra original (createdAt) é o que
@@ -57,7 +80,7 @@ export default async function CardInvoicePage({ params }: { params: Promise<{ id
       description: i.description,
       amount: i.monthlyValue,
       kind: 'parcela' as const,
-      detail: `faltam ${i.remainingInstallments - 1}`,
+      detail: `faltam ${i.remainingInstallments - offset}`,
     })),
     ...directPayments.map((p) => ({
       date: p.paidAt,
@@ -69,6 +92,24 @@ export default async function CardInvoicePage({ params }: { params: Promise<{ id
 
   const totalParcelas = activeInstallments.reduce((s, i) => s + i.monthlyValue, 0);
   const totalDireto = directPayments.reduce((s, p) => s + p.amountPaid, 0);
+  const totalLinhas = totalParcelas + totalDireto;
+  const diferenca = registrada ? Math.round((registrada.invoiceTotal - totalLinhas) * 100) / 100 : 0;
+
+  const aba = (valor: 'fechada' | 'aberta', ym: string) => {
+    const ativa = (valor === 'fechada') === (offset === 0);
+    return (
+      <Link
+        href={`/finance/cards/${id}?fatura=${valor}`}
+        className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${
+          ativa
+            ? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
+            : 'border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
+        }`}
+      >
+        {valor === 'fechada' ? 'Fechada' : 'Aberta'} · vence {monthLabelPtBr(ym)}
+      </Link>
+    );
+  };
 
   return (
     <div className="max-w-[1100px] mx-auto bg-white min-h-screen flex flex-col border-l border-r border-zinc-200 dark:border-zinc-700 dark:bg-zinc-900">
@@ -79,14 +120,33 @@ export default async function CardInvoicePage({ params }: { params: Promise<{ id
               ← Cartões
             </Link>
             <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
-              {card.name} <span className="text-zinc-400 font-normal">· fatura {monthLabelPtBr(nextYearMonth)}</span>
+              {card.name}{' '}
+              <span className="text-zinc-400 font-normal">· fatura {monthLabelPtBr(invoiceYearMonth)}</span>
+              {registrada?.paid && (
+                <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 align-middle text-xs font-normal text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                  paga
+                </span>
+              )}
             </h1>
           </div>
           <div className="text-right">
             <p className="text-xs text-zinc-500 dark:text-zinc-400">Total</p>
-            <p className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{BRL(totalParcelas + totalDireto)}</p>
+            <p className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{BRL(totalLinhas)}</p>
           </div>
         </div>
+
+        <nav className="flex gap-2 border-b border-zinc-200 dark:border-zinc-800">
+          {aba('fechada', currentYearMonth)}
+          {aba('aberta', addMonthsToYearMonth(currentYearMonth, 1))}
+        </nav>
+
+        {Math.abs(diferenca) > 0.005 && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+            O app tem {BRL(registrada!.invoiceTotal)} registrado pra esta fatura -- {BRL(Math.abs(diferenca))}{' '}
+            {diferenca > 0 ? 'a mais' : 'a menos'} que a soma das linhas abaixo. Costuma ser valor editado à mão ou
+            lançamento que não passou por pagamento de despesa.
+          </p>
+        )}
 
         <p className="text-xs text-zinc-400 dark:text-zinc-500">
           Ordem do lançamento mais novo pro mais antigo, igual ao extrato do banco -- pra comparar linha a linha.
