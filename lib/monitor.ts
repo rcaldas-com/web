@@ -17,7 +17,7 @@ import redis from './redis';
 // AGENT_BIN mudar -- nao mudar isso foi o motivo do host-info ter ficado
 // invisivel: o codigo novo foi adicionado sem bump, entao nenhum host
 // existente jamais teria motivo pra se atualizar sozinho.
-export const AGENT_VERSION = '2.15.0';
+export const AGENT_VERSION = '2.16.0';
 
 // Ritmo da frota. O agente le nextIntervalSec do heartbeat e reescreve o
 // proprio timer quando muda, entao trocar estes numeros (ou marcar um host
@@ -214,6 +214,10 @@ export type MonitorHost = {
   // build quando esta fechado, sem ninguem lembrar de desmarcar.
   buildWorker?: {
     enabled?: boolean;
+    // Vivo + preferido ganha de qualquer outro, independente da fila. E' o
+    // `bag`: fixo, cabo, uplink estavel. O `tp` (notebook, wifi residencial)
+    // fica so' de reserva -- push de imagem por ele ja morreu no meio.
+    preferred?: boolean;
   };
   // Quando o inventario foi PEDIDO, nao quando chegou. Reagendar pelo
   // pedido evita martelar um host onde o job falha sempre -- que foi como
@@ -702,19 +706,14 @@ export async function enqueueDeployJobs(): Promise<string[]> {
 // 'sent' pra nao entregar de novo no ciclo seguinte enquanto executa.
 
 
-export async function setBuildWorker(hostName: string, enabled: boolean) {
+export async function setBuildWorker(hostName: string, enabled: boolean, preferred = false) {
   const host = normalizeHostName(hostName);
   const client = await clientPromise;
   const db = client.db();
   await db
     .collection<MonitorHost>('monitor_hosts')
-    .updateOne({ name: host }, { $set: { buildWorker: { enabled }, updatedAt: new Date() } });
+    .updateOne({ name: host }, { $set: { buildWorker: { enabled, preferred }, updatedAt: new Date() } });
 }
-
-// Quanto tempo sem heartbeat pra considerar um worker indisponivel. Mais
-// curto que o alerta de host caido (5min) de proposito: aqui errar so
-// significa mandar o build pro outro worker, nao acordar ninguem.
-
 
 // Quanto tempo sem heartbeat pra considerar um worker indisponivel. Mais
 // curto que o alerta de host caido (5min) de proposito: aqui errar so
@@ -737,29 +736,10 @@ const WORKER_ALIVE_WINDOW_MS = 3 * 60 * 1000;
  * O filtro 3 e' a licao do host-info: pedir a um agente que nao conhece o
  * tipo produz `tipo desconhecido` e job morto. Capacidade e' auto-descritiva.
  *
- * Desempate por menos jobs pendentes -- distribui carga sem precisar de
- * estado compartilhado nem lock entre workers.
- */
-
-
-/**
- * Escolhe onde rodar o proximo build.
- *
- * Tres filtros, nesta ordem:
- *   1. marcado como buildWorker
- *   2. VIVO -- heartbeat nos ultimos 3 minutos
- *   3. DECLARA a capacidade 'build'
- *
- * O filtro 2 e' o fallback de verdade: e' o que deixa o `tp` (notebook)
- * ficar marcado permanentemente e simplesmente nao receber trabalho quando
- * esta fechado. Sem ele o job iria pra fila de um host desligado e ficaria
- * la ate o requeue de 10min, atrasando o build sem motivo.
- *
- * O filtro 3 e' a licao do host-info: pedir a um agente que nao conhece o
- * tipo produz `tipo desconhecido` e job morto. Capacidade e' auto-descritiva.
- *
- * Desempate por menos jobs pendentes -- distribui carga sem precisar de
- * estado compartilhado nem lock entre workers.
+ * Preferido vivo vence sempre. Entre iguais, desempate por menos jobs
+ * pendentes -- distribui carga sem precisar de estado compartilhado nem
+ * lock entre workers. A fila sozinha nao bastava: os jobs de repo-heads
+ * do `bag` deixavam ele com 1-2 pendentes e o build caia no `tp`.
  */
 export async function pickBuildWorker(): Promise<string | null> {
   const client = await clientPromise;
@@ -772,15 +752,18 @@ export async function pickBuildWorker(): Promise<string | null> {
         lastSeen: { $gt: new Date(Date.now() - WORKER_ALIVE_WINDOW_MS) },
         capabilities: 'build',
       },
-      { projection: { name: 1 } }
+      { projection: { name: 1, buildWorker: 1 } }
     )
     .toArray();
   if (!vivos.length) return null;
   if (vivos.length === 1) return vivos[0].name;
+  const preferidos = vivos.filter((h) => h.buildWorker?.preferred);
+  if (preferidos.length === 1) return preferidos[0].name;
+  const candidatos = preferidos.length ? preferidos : vivos;
 
   const jobs = db.collection<AgentJob>('monitor_agent_jobs');
   const cargas = await Promise.all(
-    vivos.map(async (h) => ({
+    candidatos.map(async (h) => ({
       name: h.name,
       pendentes: await jobs.countDocuments({ host: h.name, status: { $in: ['pending', 'sent'] } }),
     }))

@@ -840,7 +840,10 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
             # timeout de upload deixaria o commit sem imagem ate alguem
             # clicar. Ja aconteceu: push do web pelo tp, "net/http: timeout
             # awaiting response headers", em internet residencial.
-            elif ! { docker push "$b_image:$b_tag" >> "$LOG" 2>&1 ||                      { sleep 5; docker push "$b_image:$b_tag" >> "$LOG" 2>&1; }; }; then
+            # 60s entre as tentativas, nao 5: no uplink residencial o
+            # travamento (upload de blob parado ate o HAProxy cortar) dura
+            # minutos, e 5s depois a segunda tentativa caia no mesmo buraco.
+            elif ! { docker push "$b_image:$b_tag" >> "$LOG" 2>&1 ||                      { sleep 60; docker push "$b_image:$b_tag" >> "$LOG" 2>&1; }; }; then
               jmsg="push falhou 2x: $(tail -3 "$LOG" | tr '\n' ' ' | tail -c 300)"
             else
               jstatus="ok"; jmsg="$b_image:$b_tag"

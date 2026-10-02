@@ -268,6 +268,10 @@ export default async function MonitorHostPage({ params }: { params: Promise<{ ho
               <input type="checkbox" name="enabled" defaultChecked={host.buildWorker?.enabled} />
               <span className="text-zinc-700 dark:text-zinc-300">Pode construir imagens</span>
             </label>
+            <label className="flex items-center gap-2" title="Online, recebe o build antes de qualquer outro worker">
+              <input type="checkbox" name="preferred" defaultChecked={host.buildWorker?.preferred} />
+              <span className="text-zinc-700 dark:text-zinc-300">Preferido</span>
+            </label>
             <SubmitButton className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
               salvar
             </SubmitButton>

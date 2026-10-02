@@ -36,7 +36,7 @@ export async function setBuildWorkerAction(formData: FormData) {
   await requireAdmin();
   const host = String(formData.get('host') || '');
   if (!host) return;
-  await setBuildWorker(host, formData.get('enabled') === 'on');
+  await setBuildWorker(host, formData.get('enabled') === 'on', formData.get('preferred') === 'on');
   revalidatePath('/monitor');
   revalidatePath(`/monitor/${host}`);
 }
