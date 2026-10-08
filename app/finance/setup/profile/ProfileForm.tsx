@@ -9,6 +9,7 @@ import { DEFAULT_FOOD_VOUCHER_COVERAGE, parseFoodVoucherCoverage } from '@/lib/f
 import type { FinanceProfile, BankAccount } from '@/lib/finance/types';
 import SubmitButton from '@/components/SubmitButton';
 import { useSavedFlash } from '../useSavedFlash';
+import { keepFormValues } from '../keepFormValues';
 
 const DRAFT_ID = 'profile';
 
@@ -73,6 +74,7 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
 
   return (
     <form ref={formRef} action={isGuest ? undefined : saveProfile} onChange={autoSave}
+      onReset={keepFormValues}
       onSubmit={isGuest ? (e) => { e.preventDefault(); handleGuestSubmit('stay'); } : undefined}
       className="space-y-6">
       <div className="bg-white rounded-lg border p-6 space-y-4">

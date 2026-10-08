@@ -12,6 +12,7 @@ import { evalExpression } from '@/lib/finance/eval-expression';
 import type { CreditCard, Installment } from '@/lib/finance/types';
 import SubmitButton from '@/components/SubmitButton';
 import { useSavedFlash } from '../useSavedFlash';
+import { keepFormValues } from '../keepFormValues';
 
 interface InstallmentRow {
   _id?: string;
@@ -103,6 +104,7 @@ export default function InstallmentsForm({
   return (
     <form
       action={isGuest ? undefined : saveInstallmentsList}
+      onReset={keepFormValues}
       onSubmit={isGuest ? (event) => { event.preventDefault(); handleGuestSubmit('stay'); } : undefined}
       className="space-y-6"
     >

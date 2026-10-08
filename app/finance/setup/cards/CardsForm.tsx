@@ -8,6 +8,7 @@ import { evalExpression } from '@/lib/finance/eval-expression';
 import type { CreditCard } from '@/lib/finance/types';
 import SubmitButton from '@/components/SubmitButton';
 import { useSavedFlash } from '../useSavedFlash';
+import { keepFormValues } from '../keepFormValues';
 
 const DRAFT_ID = 'cards';
 
@@ -79,6 +80,7 @@ export default function CardsForm({ cards, isGuest }: { cards: CreditCard[]; isG
   return (
     <form ref={formRef} action={isGuest ? undefined : saveCards}
       onChange={autoSave}
+      onReset={keepFormValues}
       onSubmit={isGuest ? (e) => { e.preventDefault(); handleGuestSubmit('stay'); } : undefined}
       className="space-y-6">
       <div className="bg-white rounded-lg border p-6 space-y-4">
