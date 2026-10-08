@@ -7,9 +7,10 @@ import { saveLocalProfile, saveDraft, loadDraft, clearDraft } from '@/lib/financ
 import { evalExpression } from '@/lib/finance/eval-expression';
 import { DEFAULT_FOOD_VOUCHER_COVERAGE, parseFoodVoucherCoverage } from '@/lib/finance/compute';
 import type { FinanceProfile, BankAccount } from '@/lib/finance/types';
-import SubmitButton from '@/components/SubmitButton';
 import { useSavedFlash } from '../useSavedFlash';
 import { keepFormValues } from '../keepFormValues';
+import { useFormDirty } from '../useFormDirty';
+import SetupActions from '../SetupActions';
 
 const DRAFT_ID = 'profile';
 
@@ -24,6 +25,7 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
 
   // Debounced auto-save for guest
   const formRef = useRef<HTMLFormElement>(null);
+  const { dirty, check, markSaved } = useFormDirty(formRef);
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const autoSave = useCallback(() => {
@@ -73,7 +75,8 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
   const removeBank = (i: number) => setBanks(banks.filter((_, idx) => idx !== i));
 
   return (
-    <form ref={formRef} action={isGuest ? undefined : saveProfile} onChange={autoSave}
+    <form ref={formRef} action={isGuest ? undefined : async (fd) => { await saveProfile(fd); markSaved(); flashSaved(); }} onChange={autoSave}
+      onInput={check}
       onReset={keepFormValues}
       onSubmit={isGuest ? (e) => { e.preventDefault(); handleGuestSubmit('stay'); } : undefined}
       className="space-y-6">
@@ -197,31 +200,13 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
         ))}
       </div>
 
-      <div className="flex items-center justify-end gap-3">
-        {saved && <span className="text-sm text-emerald-600">✓ Salvo</span>}
-        {isGuest ? (
-          <>
-            <button type="button" onClick={() => handleGuestSubmit('finish')}
-              className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
-              Concluir ✓
-            </button>
-            <button type="submit"
-              className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-              Salvar
-            </button>
-          </>
-        ) : (
-          <>
-            <SubmitButton formAction={saveProfileAndFinish}
-              className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
-              Concluir ✓
-            </SubmitButton>
-            <SubmitButton className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-              Salvar
-            </SubmitButton>
-          </>
-        )}
-      </div>
+      <SetupActions
+        isGuest={isGuest}
+        dirty={dirty}
+        saved={saved}
+        finishAction={saveProfileAndFinish}
+        onGuestFinish={() => handleGuestSubmit('finish')}
+      />
     </form>
   );
 }

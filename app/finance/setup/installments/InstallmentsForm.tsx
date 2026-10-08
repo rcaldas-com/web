@@ -10,9 +10,10 @@ import {
 } from '@/lib/finance/local-storage';
 import { evalExpression } from '@/lib/finance/eval-expression';
 import type { CreditCard, Installment } from '@/lib/finance/types';
-import SubmitButton from '@/components/SubmitButton';
 import { useSavedFlash } from '../useSavedFlash';
 import { keepFormValues } from '../keepFormValues';
+import { useFormDirty } from '../useFormDirty';
+import SetupActions from '../SetupActions';
 
 interface InstallmentRow {
   _id?: string;
@@ -50,6 +51,8 @@ export default function InstallmentsForm({
 }) {
   const router = useRouter();
   const [saved, flashSaved] = useSavedFlash();
+  const formRef = useRef<HTMLFormElement>(null);
+  const { dirty, check, markSaved } = useFormDirty(formRef);
   const guestCards = isGuest ? getLocalCards() : [];
   const cards = isGuest ? guestCards : serverCards;
   const sourceInstallments = isGuest ? getLocalInstallments() : serverInstallments;
@@ -103,7 +106,9 @@ export default function InstallmentsForm({
 
   return (
     <form
-      action={isGuest ? undefined : saveInstallmentsList}
+      ref={formRef}
+      action={isGuest ? undefined : async (fd) => { await saveInstallmentsList(fd); markSaved(); flashSaved(); }}
+      onInput={check}
       onReset={keepFormValues}
       onSubmit={isGuest ? (event) => { event.preventDefault(); handleGuestSubmit('stay'); } : undefined}
       className="space-y-6"
@@ -193,31 +198,13 @@ export default function InstallmentsForm({
         )}
       </div>
 
-      <div className="flex items-center justify-end gap-3">
-        {saved && <span className="text-sm text-emerald-600">✓ Salvo</span>}
-        {isGuest ? (
-          <>
-            <button type="button" onClick={() => handleGuestSubmit('finish')}
-              className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
-              Concluir ✓
-            </button>
-            <button type="submit"
-              className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-              Salvar
-            </button>
-          </>
-        ) : (
-          <>
-            <SubmitButton formAction={saveInstallmentsAndFinish}
-              className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
-              Concluir ✓
-            </SubmitButton>
-            <SubmitButton className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-              Salvar
-            </SubmitButton>
-          </>
-        )}
-      </div>
+      <SetupActions
+        isGuest={isGuest}
+        dirty={dirty}
+        saved={saved}
+        finishAction={saveInstallmentsAndFinish}
+        onGuestFinish={() => handleGuestSubmit('finish')}
+      />
     </form>
   );
 }

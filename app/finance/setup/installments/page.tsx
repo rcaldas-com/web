@@ -9,7 +9,8 @@ export default async function InstallmentsSetupPage() {
 
   return (
     <>
-      <InstallmentsForm cards={cards} installments={installments} isGuest={!userId} />
+      {/* key pelos ids: mesma razão do CardsForm. */}
+      <InstallmentsForm key={installments.map(i => i._id).join(',')} cards={cards} installments={installments} isGuest={!userId} />
     </>
   );
 }

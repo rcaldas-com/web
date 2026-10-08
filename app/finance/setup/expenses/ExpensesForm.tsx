@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation';
 import { saveExpensesList, saveExpensesAndFinish } from '@/lib/finance/actions';
 import { saveLocalExpenses, saveDraft, loadDraft, clearDraft, getLocalExpenses } from '@/lib/finance/local-storage';
 import type { RecurringExpense } from '@/lib/finance/types';
-import SubmitButton from '@/components/SubmitButton';
 import { useSavedFlash } from '../useSavedFlash';
 import { keepFormValues } from '../keepFormValues';
+import { useFormDirty } from '../useFormDirty';
+import SetupActions from '../SetupActions';
 
 const DRAFT_ID = 'expenses';
 
@@ -25,6 +26,8 @@ interface ExpenseRow {
 export default function ExpensesForm({ expenses, isGuest }: { expenses: RecurringExpense[]; isGuest?: boolean }) {
   const router = useRouter();
   const [saved, flashSaved] = useSavedFlash();
+  const formRef = useRef<HTMLFormElement>(null);
+  const { dirty, check, markSaved } = useFormDirty(formRef);
   const draft = isGuest ? loadDraft<{ rows: ExpenseRow[] }>(DRAFT_ID) : null;
   const localExpenses = isGuest && !draft ? getLocalExpenses() : [];
   const [rows, setRows] = useState<ExpenseRow[]>(
@@ -94,8 +97,9 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
   });
 
   return (
-    <form action={isGuest ? undefined : saveExpensesList}
+    <form ref={formRef} action={isGuest ? undefined : async (fd) => { await saveExpensesList(fd); markSaved(); flashSaved(); }}
       onChange={autoSave}
+      onInput={check}
       onReset={keepFormValues}
       onSubmit={isGuest ? (e) => { e.preventDefault(); handleGuestSubmit('stay'); } : undefined}
       className="space-y-6">
@@ -207,31 +211,13 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
         </button>
       </div>
 
-      <div className="flex items-center justify-end gap-3">
-        {saved && <span className="text-sm text-emerald-600">✓ Salvo</span>}
-        {isGuest ? (
-          <>
-            <button type="button" onClick={() => handleGuestSubmit('finish')}
-              className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
-              Concluir ✓
-            </button>
-            <button type="submit"
-              className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-              Salvar
-            </button>
-          </>
-        ) : (
-          <>
-            <SubmitButton formAction={saveExpensesAndFinish}
-              className="text-zinc-600 hover:text-zinc-800 px-4 py-2 border rounded-md hover:bg-zinc-50 transition">
-              Concluir ✓
-            </SubmitButton>
-            <SubmitButton className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-              Salvar
-            </SubmitButton>
-          </>
-        )}
-      </div>
+      <SetupActions
+        isGuest={isGuest}
+        dirty={dirty}
+        saved={saved}
+        finishAction={saveExpensesAndFinish}
+        onGuestFinish={() => handleGuestSubmit('finish')}
+      />
     </form>
   );
 }

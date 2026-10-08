@@ -8,7 +8,9 @@ export default async function ExpensesSetupPage() {
 
   return (
     <>
-      <ExpensesForm expenses={expenses} isGuest={!userId} />
+      {/* key pelos ids: mesma razão do CardsForm -- sem o _id novo, o
+          próximo Salvar dava baixa na despesa recém-criada e criava outra. */}
+      <ExpensesForm key={expenses.map(e => e._id).join(',')} expenses={expenses} isGuest={!userId} />
     </>
   );
 }

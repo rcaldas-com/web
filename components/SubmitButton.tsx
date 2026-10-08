@@ -13,6 +13,7 @@ export default function SubmitButton({
   className = '',
   onClick,
   formAction,
+  disabled = false,
 }: {
   children: React.ReactNode;
   className?: string;
@@ -21,16 +22,19 @@ export default function SubmitButton({
   // "Concluir" sobrescreve com a própria) -- o atributo nativo já resolve
   // qual server action roda por botão, sem precisar de dois <form>.
   formAction?: (formData: FormData) => void | Promise<void>;
+  // Desabilitado por motivo do chamador (ex.: nada a salvar), alem do
+  // pending que o proprio botao ja trata.
+  disabled?: boolean;
 }) {
   const { pending } = useFormStatus();
   return (
     <button
       type="submit"
       formAction={formAction}
-      disabled={pending}
+      disabled={pending || disabled}
       aria-busy={pending}
       onClick={onClick}
-      className={`inline-flex items-center justify-center gap-1.5 disabled:cursor-wait disabled:opacity-70 ${className}`}
+      className={`inline-flex items-center justify-center gap-1.5 ${pending ? 'disabled:cursor-wait disabled:opacity-70' : 'disabled:cursor-not-allowed disabled:opacity-50'} ${className}`}
     >
       {pending && <Spinner />}
       {children}

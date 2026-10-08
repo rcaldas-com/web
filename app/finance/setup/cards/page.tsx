@@ -8,7 +8,10 @@ export default async function CardsSetupPage() {
 
   return (
     <>
-      <CardsForm cards={cards} isGuest={!userId} />
+      {/* key pelos ids: depois de salvar um cartão novo, o form remonta com
+          o _id que o servidor deu. Sem isso a linha seguia sem id e o
+          próximo Salvar criava o cartão DE NOVO (duplicado). */}
+      <CardsForm key={cards.map(c => c._id).join(',')} cards={cards} isGuest={!userId} />
     </>
   );
 }
