@@ -68,6 +68,8 @@ interface Props {
     salary: { payment: number; advance: number; paymentDay: number; advanceDay: number };
     foodVoucher: number;
     foodVoucherMonthly?: number;
+    // Quanto do VR entrou no saldo (teto de cobertura das refeições).
+    foodVoucherUsable: number;
     banks: BankAccount[];
   };
   cardExpenses: ExpenseItem[];
@@ -245,7 +247,7 @@ export default function DashboardClient({
       </div>
 
       {/* Saldos bancários - editáveis */}
-      <BankBalancesSection banks={profile.banks} foodVoucher={profile.foodVoucher} />
+      <BankBalancesSection banks={profile.banks} foodVoucher={profile.foodVoucher} foodVoucherUsable={profile.foodVoucherUsable} />
 
       {/* Despesas do mês - todas juntas, ordenadas por vencimento */}
       <ExpenseChecklist
@@ -347,7 +349,7 @@ export default function DashboardClient({
   );
 }
 
-function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foodVoucher: number }) {
+function BankBalancesSection({ banks, foodVoucher, foodVoucherUsable }: { banks: BankAccount[]; foodVoucher: number; foodVoucherUsable: number }) {
   const actions = useActions();
   const [isPending, startTransition] = useTransition();
   const bankInputRef = useRef<HTMLInputElement>(null);
@@ -446,6 +448,11 @@ function BankBalancesSection({ banks, foodVoucher }: { banks: BankAccount[]; foo
               title="Clique para atualizar saldo VR/VA"
             >
               {BRL(foodVoucher)}
+            </p>
+          )}
+          {!editingVR && foodVoucherUsable < foodVoucher - 0.005 && (
+            <p className="text-xs text-zinc-400 dark:text-zinc-500" title="Só essa parte entra no saldo: cobertura das despesas marcadas VR">
+              conta {BRL(foodVoucherUsable)}
             </p>
           )}
         </div>

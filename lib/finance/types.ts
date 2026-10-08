@@ -9,6 +9,10 @@ export interface FinanceProfile {
   };
   foodVoucher: number;          // VR+VA saldo atual (editável no dashboard)
   foodVoucherMonthly?: number;  // VR+VA crédito mensal cheio (usado em projeções)
+  // Quanto (%) das despesas marcadas "aceita VR" o vale de fato cobre --
+  // nem todo lugar aceita, o resto vai pro cartão. O VR só entra no saldo
+  // até esse teto (ver usableFoodVoucher). Ausente = 80.
+  foodVoucherCoverage?: number;
   banks: BankAccount[];
   createdAt: Date;
   updatedAt: Date;
@@ -50,6 +54,9 @@ export interface RecurringExpense {
   // vezes por dia): abrir já com 7,70 tira o "digitar" do caminho e deixa
   // só a escolha do cartão/conta, que continua sendo a confirmação.
   defaultPayment?: number | null;  // null = removido explicitamente
+  // Pode ser paga com VR (Café, Almoço, Janta). É o que limita quanto do
+  // saldo do vale conta como dinheiro: sobra de VR não paga aluguel.
+  mealVoucher?: boolean | null;
   order: number;
   activeFrom?: string;       // YYYY-MM inclusivo; sem valor = ativa desde sempre
   activeUntil?: string;      // YYYY-MM inclusivo; sem valor = recorrente ativa

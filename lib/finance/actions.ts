@@ -33,7 +33,7 @@ import {
 } from './data';
 import type { RecurringExpense } from './types';
 import { evalExpression } from './eval-expression';
-import { computeExpensePaymentState } from './compute';
+import { computeExpensePaymentState, parseFoodVoucherCoverage } from './compute';
 import { addMonthsToYearMonth, getFinanceToday, yearMonthIndex } from './date';
 import { recordChange, diffFields } from './journal';
 
@@ -54,6 +54,7 @@ export async function saveProfile(formData: FormData) {
   const advanceDay = parseInt(formData.get('advanceDay') as string) || 15;
   const foodVoucher = evalExpression(formData.get('foodVoucher') as string);
   const foodVoucherMonthly = evalExpression(formData.get('foodVoucherMonthly') as string) || foodVoucher;
+  const foodVoucherCoverage = parseFoodVoucherCoverage(formData.get('foodVoucherCoverage'));
 
   // Parse banks array from form
   const bankNames = formData.getAll('bankName') as string[];
@@ -66,6 +67,7 @@ export async function saveProfile(formData: FormData) {
     salary: { payment, advance, paymentDay, advanceDay },
     foodVoucher,
     foodVoucherMonthly,
+    foodVoucherCoverage,
     banks,
   });
 
@@ -144,6 +146,9 @@ export async function saveExpensesList(formData: FormData) {
   const proportionals = formData.getAll('expProportional') as string[];
   const dueDays = formData.getAll('expDueDay') as string[];
   const defaultPayments = formData.getAll('expDefaultPayment') as string[];
+  // Hidden ("1"/"") e não checkbox: checkbox desmarcado não vai no form e
+  // desalinharia o getAll() posicional das outras colunas.
+  const mealVouchers = formData.getAll('expMealVoucher') as string[];
 
   const expenses: (Omit<RecurringExpense, '_id' | 'userId'> & { _id?: string })[] = names
     .map((name, i) => ({
@@ -157,6 +162,9 @@ export async function saveExpensesList(formData: FormData) {
       // saveExpenses faz $set com o objeto, e undefined não apagaria um
       // padrão antigo quando o campo é esvaziado.
       defaultPayment: (defaultPayments[i] ? evalExpression(defaultPayments[i]) : 0) || null,
+      // null (não false) quando desmarcada: igual ao "nunca marcada" pro
+      // journal, senão o primeiro Salvar registra "Aceita VR" em toda despesa.
+      mealVoucher: mealVouchers[i] === '1' ? true : null,
       order: i,
     }))
     .filter(e => e.name);

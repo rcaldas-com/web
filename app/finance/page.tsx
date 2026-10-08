@@ -9,7 +9,7 @@ import {
   getOrInitMonthCardInvoices,
   getExpenseOverrides,
 } from '@/lib/finance/data';
-import { filterExpensesForMonth, groupInstallments, buildCardViews, calculateMonthBalance, groupPaymentsByExpense, computeExpensePaymentState, buildPaymentHint } from '@/lib/finance/compute';
+import { filterExpensesForMonth, groupInstallments, buildCardViews, calculateMonthBalance, groupPaymentsByExpense, computeExpensePaymentState, buildPaymentHint, mealExpensesTotal, usableFoodVoucher } from '@/lib/finance/compute';
 import { addMonthsToYearMonth, daysInYearMonth, getFinanceToday, yearMonthIndex } from '@/lib/finance/date';
 import DashboardClient from './DashboardClient';
 import FinanceGuest from './FinanceGuest';
@@ -160,7 +160,28 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     })
     .sort(sortByDueDay);
 
-  const bankTotal = profile.banks.reduce((sum, b) => sum + b.balance, 0) + profile.foodVoucher;
+  // Estado do mês CORRENTE, seja qual for o mês exibido: saldo de banco e
+  // de VR são de hoje, e o quanto do VR conta depende do que falta hoje.
+  const curMonthData = await getMonthData(userId, currentYearMonth);
+  const currentExpenses = filterExpensesForMonth(expenses, currentYearMonth);
+  const curPaymentsByExpense = groupPaymentsByExpense(curMonthData?.payments);
+  const curOverrides = await getExpenseOverrides(userId, currentYearMonth);
+  const curDays = daysInYearMonth(currentYearMonth);
+  const curPropDays = curDays - today.day + 1;
+  const calcVal = (e: typeof expenses[0], d: number, overrides?: Map<string, number>) => {
+    const baseValue = overrides?.get(e._id!) ?? e.value;
+    if (e.proportional === 'daily') return baseValue * d;
+    if (e.proportional === 'weekly') return baseValue * (d / 7);
+    return baseValue;
+  };
+  const curRemaining = (e: typeof expenses[0]) => {
+    const { paid, remaining } = computeExpensePaymentState(calcVal(e, curPropDays, curOverrides), curPaymentsByExpense.get(e._id!));
+    return paid ? 0 : remaining;
+  };
+
+  // VR só conta até 80% do que falta das refeições (ver usableFoodVoucher).
+  const foodVoucherUsable = usableFoodVoucher(profile.foodVoucher, profile, mealExpensesTotal(currentExpenses, curRemaining));
+  const bankTotal = profile.banks.reduce((sum, b) => sum + b.balance, 0) + foodVoucherUsable;
 
   // Compute available balance
   let availableBalance: number;
@@ -179,36 +200,18 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     // generated in the previous month that are not yet reflected in a closed invoice.
 
     // 1. Current month available — must match client-side hero (uses cardViews, not monthCardInvoices)
-    const curMonthData = await getMonthData(userId, currentYearMonth);
-    const currentExpenses = filterExpensesForMonth(expenses, currentYearMonth);
-    const curPaymentsByExpense = groupPaymentsByExpense(curMonthData?.payments);
     const curCardInvoices = await getOrInitMonthCardInvoices(userId, currentYearMonth, cards, installments, 0);
     // buildCardViews includes ALL cards (falls back to card.invoiceTotal for missing entries)
     const curCardViews = buildCardViews(cards, installments, curCardInvoices, 0);
 
-    const curDays = daysInYearMonth(currentYearMonth);
-    const curPropDays = curDays - today.day + 1;
-    const calcVal = (e: typeof expenses[0], d: number, overrides?: Map<string, number>) => {
-      const baseValue = overrides?.get(e._id!) ?? e.value;
-      if (e.proportional === 'daily') return baseValue * d;
-      if (e.proportional === 'weekly') return baseValue * (d / 7);
-      return baseValue;
-    };
 
     // Current month unpaid cash (proportional remaining days) — usa o
     // restante (não o valor cheio) pra não contar de novo o que um
     // pagamento parcial já debitou de banco/cartão de verdade.
-    const curOverrides = await getExpenseOverrides(userId, currentYearMonth);
     const curUnpaidCash = currentExpenses.filter(e => e.category === 'cash')
-      .reduce((s, e) => {
-        const { paid, remaining } = computeExpensePaymentState(calcVal(e, curPropDays, curOverrides), curPaymentsByExpense.get(e._id!));
-        return s + (paid ? 0 : remaining);
-      }, 0);
+      .reduce((s, e) => s + curRemaining(e), 0);
     const curUnpaidCard = currentExpenses.filter(e => e.category === 'card')
-      .reduce((s, e) => {
-        const { paid, remaining } = computeExpensePaymentState(calcVal(e, curPropDays, curOverrides), curPaymentsByExpense.get(e._id!));
-        return s + (paid ? 0 : remaining);
-      }, 0);
+      .reduce((s, e) => s + curRemaining(e), 0);
     // Use cardViews (all 5 cards) — same as client-side DashboardClient
     const curUnpaidInvoices = curCardViews.filter(c => !c.paid)
       .reduce((s, c) => s + c.invoiceTotal, 0);
@@ -244,6 +247,15 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         .reduce((sum, e) => sum + calcVal(e, monthDays, overrides), 0);
     };
 
+    // Recarga do mês projetado, limitada pelas refeições daquele mês inteiro.
+    const vrForMonth = async (offset: number) => {
+      const ym = yearMonthFromOffset(offset);
+      const overrides = await getExpenseOverrides(userId, ym);
+      const monthDays = daysForOffset(offset);
+      const meals = mealExpensesTotal(filterExpensesForMonth(expenses, ym), e => calcVal(e, monthDays, overrides));
+      return usableFoodVoucher(vrMonthly, profile, meals);
+    };
+
     const invoiceTotalForMonth = async (offset: number) => {
       const ym = yearMonthFromOffset(offset);
       const invoices = await getOrInitMonthCardInvoices(userId, ym, cards, installments, offset);
@@ -258,7 +270,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       const cashForMonth = await categoryTotalForMonth('cash', i);
       const invoicesForMonth = await invoiceTotalForMonth(i);
       const cardFromPreviousMonth = i === 1 ? curUnpaidCard : await categoryTotalForMonth('card', i - 1);
-      availableBalance += salaryForMonth + vrMonthly - cashForMonth - invoicesForMonth - cardFromPreviousMonth;
+      availableBalance += salaryForMonth + await vrForMonth(i) - cashForMonth - invoicesForMonth - cardFromPreviousMonth;
     }
   }
 
@@ -278,6 +290,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         salary: profile.salary,
         foodVoucher: profile.foodVoucher,
         foodVoucherMonthly: profile.foodVoucherMonthly,
+        foodVoucherUsable,
         banks: profile.banks,
       }}
       cardExpenses={cardExpenses}

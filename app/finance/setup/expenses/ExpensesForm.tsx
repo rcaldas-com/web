@@ -18,6 +18,7 @@ interface ExpenseRow {
   proportional: false | 'daily' | 'weekly';
   dueDay?: number;
   defaultPayment?: number | string;
+  mealVoucher?: boolean | null;
 }
 
 export default function ExpensesForm({ expenses, isGuest }: { expenses: RecurringExpense[]; isGuest?: boolean }) {
@@ -30,11 +31,13 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
       ? localExpenses.map(e => ({
           id: e._id || '', name: e.name, value: e.value, category: e.category,
           proportional: e.proportional || false, dueDay: e.dueDay, defaultPayment: e.defaultPayment ?? undefined,
+          mealVoucher: e.mealVoucher,
         }))
       : expenses.length
         ? expenses.map(e => ({
             id: e._id || '', name: e.name, value: e.value, category: e.category,
             proportional: e.proportional || false, dueDay: e.dueDay, defaultPayment: e.defaultPayment ?? undefined,
+            mealVoucher: e.mealVoucher,
           }))
         : [{ id: '', name: '', value: 0, category: 'cash', proportional: false }])
   );
@@ -62,6 +65,7 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
         proportional: r.proportional,
         dueDay: r.dueDay ? Number(r.dueDay) : undefined,
         defaultPayment: Number(String(r.defaultPayment ?? '').replace(',', '.')) || undefined,
+        mealVoucher: Boolean(r.mealVoucher),
         order: i,
       }));
     saveLocalExpenses(validExpenses);
@@ -180,6 +184,18 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
               ) : (
                 <input type="hidden" name="expDefaultPayment" value="" />
               )}
+              {/* Hidden carrega o valor (checkbox desmarcado não vai no form
+                  e desalinharia o getAll() posicional no servidor). */}
+              <input type="hidden" name="expMealVoucher" value={row.mealVoucher ? '1' : ''} />
+              <label className="flex items-center gap-1" title="Pode ser paga com VR -- limita quanto do saldo do vale conta como dinheiro">
+                <input
+                  type="checkbox"
+                  checked={Boolean(row.mealVoucher)}
+                  onChange={e => updateRow(i, 'mealVoucher', e.target.checked)}
+                  className="rounded border-zinc-300"
+                />
+                <span>VR</span>
+              </label>
             </div>
           </div>
         ))}

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { saveProfile, saveProfileAndFinish } from '@/lib/finance/actions';
 import { saveLocalProfile, saveDraft, loadDraft, clearDraft } from '@/lib/finance/local-storage';
 import { evalExpression } from '@/lib/finance/eval-expression';
+import { DEFAULT_FOOD_VOUCHER_COVERAGE, parseFoodVoucherCoverage } from '@/lib/finance/compute';
 import type { FinanceProfile, BankAccount } from '@/lib/finance/types';
 import SubmitButton from '@/components/SubmitButton';
 import { useSavedFlash } from '../useSavedFlash';
@@ -46,6 +47,7 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
     const advanceDay = parseInt(fd.get('advanceDay') as string) || 15;
     const foodVoucher = evalExpression(fd.get('foodVoucher') as string);
     const foodVoucherMonthly = evalExpression(fd.get('foodVoucherMonthly') as string) || foodVoucher;
+    const foodVoucherCoverage = parseFoodVoucherCoverage(fd.get('foodVoucherCoverage'));
     const bankNames = fd.getAll('bankName') as string[];
     const bankBalances = fd.getAll('bankBalance') as string[];
     const parsedBanks = bankNames
@@ -56,6 +58,7 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
       salary: { payment, advance, paymentDay, advanceDay },
       foodVoucher,
       foodVoucherMonthly,
+      foodVoucherCoverage,
       banks: parsedBanks,
     });
     clearDraft(DRAFT_ID);
@@ -134,6 +137,17 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
               placeholder="1300.00"
             />
             <p className="text-xs text-zinc-400 mt-1">Saldo restante neste mês</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-zinc-700">Cobertura nas refeições (%)</label>
+            <input
+              type="text" inputMode="decimal" name="foodVoucherCoverage"
+              defaultValue={profile?.foodVoucherCoverage ?? DEFAULT_FOOD_VOUCHER_COVERAGE}
+              className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            />
+            <p className="text-xs text-zinc-400 mt-1">
+              O VR conta no saldo só até esse % do que falta das despesas marcadas &quot;VR&quot;
+            </p>
           </div>
         </div>
       </div>

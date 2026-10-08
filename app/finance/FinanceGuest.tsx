@@ -19,6 +19,8 @@ import {
   initMonthCardInvoices,
   groupPaymentsByExpense,
   computeExpensePaymentState,
+  mealExpensesTotal,
+  usableFoodVoucher,
   buildPaymentHint,
 } from '@/lib/finance/compute';
 import DashboardClient from './DashboardClient';
@@ -149,7 +151,26 @@ export default function FinanceGuest() {
     })
     .sort(sortByDueDay);
 
-  const bankTotal = profile.banks.reduce((sum, b) => sum + b.balance, 0) + profile.foodVoucher;
+  // Mesmo tratamento do caminho autenticado (page.tsx): estado do mês
+  // corrente, e VR limitado a 80% do que falta das refeições.
+  const curMonthData = getLocalMonthData(currentYearMonth);
+  const currentExpenses = filterExpensesForMonth(expenses, currentYearMonth);
+  const curPaymentsByExpense = groupPaymentsByExpense(curMonthData?.payments);
+  const curOverrides = getLocalExpenseOverrides(currentYearMonth);
+  const curDays = daysInYearMonth(currentYearMonth);
+  const curPropDays = curDays - today.day + 1;
+  const calcVal = (e: typeof expenses[0], d: number, overrides?: Map<string, number>) => {
+    const baseValue = overrides?.get(e._id!) ?? e.value;
+    if (e.proportional === 'daily') return baseValue * d;
+    if (e.proportional === 'weekly') return baseValue * (d / 7);
+    return baseValue;
+  };
+  const curRemaining = (e: typeof expenses[0]) => {
+    const { paid, remaining } = computeExpensePaymentState(calcVal(e, curPropDays, curOverrides), curPaymentsByExpense.get(e._id!));
+    return paid ? 0 : remaining;
+  };
+  const foodVoucherUsable = usableFoodVoucher(profile.foodVoucher, profile, mealExpensesTotal(currentExpenses, curRemaining));
+  const bankTotal = profile.banks.reduce((sum, b) => sum + b.balance, 0) + foodVoucherUsable;
 
   // Available balance
   let availableBalance: number;
@@ -166,27 +187,11 @@ export default function FinanceGuest() {
     // Future months: project cash availability from current available balance.
     // Cash impact comes from invoices due in each projected month plus card expenses
     // generated in the previous month that are not yet reflected in a closed invoice.
-    const curMonthData = getLocalMonthData(currentYearMonth);
-    const currentExpenses = filterExpensesForMonth(expenses, currentYearMonth);
-    const curPaymentsByExpense = groupPaymentsByExpense(curMonthData?.payments);
     const curCardInvoices = initMonthCardInvoices(cards, installments, 0, currentYearMonth);
     const curCardViews = buildCardViews(cards, installments, curCardInvoices, 0);
-    const curDays = daysInYearMonth(currentYearMonth);
-    const curPropDays = curDays - today.day + 1;
 
-    const calcVal = (e: typeof expenses[0], d: number, overrides?: Map<string, number>) => {
-      const baseValue = overrides?.get(e._id!) ?? e.value;
-      if (e.proportional === 'daily') return baseValue * d;
-      if (e.proportional === 'weekly') return baseValue * (d / 7);
-      return baseValue;
-    };
-
-    const curOverrides = getLocalExpenseOverrides(currentYearMonth);
     const curUnpaidCash = currentExpenses.filter(e => e.category === 'cash')
-      .reduce((s, e) => {
-        const { paid, remaining } = computeExpensePaymentState(calcVal(e, curPropDays, curOverrides), curPaymentsByExpense.get(e._id!));
-        return s + (paid ? 0 : remaining);
-      }, 0);
+      .reduce((s, e) => s + curRemaining(e), 0);
     const curUnpaidInvoices = curCardViews.filter(c => !c.paid)
       .reduce((s, c) => s + c.invoiceTotal, 0);
 
@@ -194,10 +199,7 @@ export default function FinanceGuest() {
     const curAvailable = bankTotal - curUnpaidCash - curUnpaidInvoices - curAdvanceDeducted;
 
     const curUnpaidCard = currentExpenses.filter(e => e.category === 'card')
-      .reduce((s, e) => {
-        const { paid, remaining } = computeExpensePaymentState(calcVal(e, curPropDays, curOverrides), curPaymentsByExpense.get(e._id!));
-        return s + (paid ? 0 : remaining);
-      }, 0);
+      .reduce((s, e) => s + curRemaining(e), 0);
 
     const { payment, advance } = profile.salary;
     const vrMonthly = profile.foodVoucherMonthly ?? profile.foodVoucher;
@@ -221,6 +223,14 @@ export default function FinanceGuest() {
         .reduce((sum, e) => sum + calcVal(e, monthDays, overrides), 0);
     };
 
+    const vrForMonth = (offset: number) => {
+      const ym = yearMonthFromOffset(offset);
+      const overrides = getLocalExpenseOverrides(ym);
+      const monthDays = daysForOffset(offset);
+      const meals = mealExpensesTotal(filterExpensesForMonth(expenses, ym), e => calcVal(e, monthDays, overrides));
+      return usableFoodVoucher(vrMonthly, profile, meals);
+    };
+
     const invoiceTotalForMonth = (offset: number) => {
       const ym = yearMonthFromOffset(offset);
       const monthData = getLocalMonthData(ym);
@@ -238,7 +248,7 @@ export default function FinanceGuest() {
       const cashForMonth = categoryTotalForMonth('cash', i);
       const invoicesForMonth = invoiceTotalForMonth(i);
       const cardFromPreviousMonth = i === 1 ? curUnpaidCard : categoryTotalForMonth('card', i - 1);
-      availableBalance += salaryForMonth + vrMonthly - cashForMonth - invoicesForMonth - cardFromPreviousMonth;
+      availableBalance += salaryForMonth + vrForMonth(i) - cashForMonth - invoicesForMonth - cardFromPreviousMonth;
     }
   }
 
@@ -255,6 +265,7 @@ export default function FinanceGuest() {
         salary: profile.salary,
         foodVoucher: profile.foodVoucher,
         foodVoucherMonthly: profile.foodVoucherMonthly,
+        foodVoucherUsable,
         banks: profile.banks,
       }}
       cardExpenses={cardExpenses}

@@ -135,6 +135,7 @@ export async function upsertProfile(userId: string, data: Omit<FinanceProfile, '
     ...diffFields(before ?? null, data as unknown as Record<string, unknown>, [
       { field: 'foodVoucher', label: 'Vale (VR/VA)', kind: 'money' },
       { field: 'foodVoucherMonthly', label: 'Vale mensal cheio', kind: 'money' },
+      { field: 'foodVoucherCoverage', label: 'Cobertura do VR (%)', kind: 'number' },
     ]),
   ];
   const beforeBanks = new Map(
@@ -321,6 +322,7 @@ const EXPENSE_FIELD_SPECS = [
   { field: 'proportional', label: 'Proporcional', kind: 'text' as const },
   { field: 'dueDay', label: 'Vencimento', kind: 'number' as const },
   { field: 'defaultPayment', label: 'Valor padrão', kind: 'money' as const },
+  { field: 'mealVoucher', label: 'Aceita VR', kind: 'bool' as const },
 ];
 
 export async function saveExpenses(userId: string, expenses: (Omit<RecurringExpense, '_id' | 'userId'> & { _id?: string })[]) {

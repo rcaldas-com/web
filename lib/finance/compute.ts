@@ -141,6 +141,47 @@ export function computeExpensePaymentState(templateValue: number, payments?: Mon
   return { amountPaid, remaining, paid, displayValue: paid ? amountPaid : remaining };
 }
 
+// O VR só paga refeição, e nem todo lugar onde se come aceita. Contar o
+// saldo inteiro do vale como dinheiro deixa o saldo irreal: a sobra não
+// paga nenhuma outra despesa. Então ele entra só até `cobertura` (80%)
+// do que ainda falta das despesas marcadas "aceita VR" -- os outros 20%
+// continuam sendo despesa comum, saindo de banco/cartão.
+//
+// Como as refeições são proporcionais aos dias que faltam, o teto cai
+// sozinho ao longo do mês: é a conta que antes se fazia à mão, editando o
+// saldo do VR pra ~80% da soma das alimentações.
+export const DEFAULT_FOOD_VOUCHER_COVERAGE = 80;
+
+// Soma das despesas marcadas "aceita VR", ou null se nenhuma está marcada
+// -- aí o VR conta inteiro, como sempre contou (quem não usa a marca não
+// vê diferença nenhuma).
+export function mealExpensesTotal(
+  expenses: RecurringExpense[],
+  valueOf: (e: RecurringExpense) => number,
+): number | null {
+  const meals = expenses.filter(e => e.mealVoucher);
+  if (!meals.length) return null;
+  return meals.reduce((sum, e) => sum + valueOf(e), 0);
+}
+
+// Campo do perfil: vazio/inválido = padrão (80), limitado a 0..100.
+export function parseFoodVoucherCoverage(raw: unknown): number {
+  const n = parseFloat(String(raw ?? '').replace(',', '.'));
+  if (!Number.isFinite(n)) return DEFAULT_FOOD_VOUCHER_COVERAGE;
+  return Math.min(100, Math.max(0, n));
+}
+
+export function usableFoodVoucher(
+  amount: number,
+  profile: Pick<FinanceProfile, 'foodVoucherCoverage'>,
+  mealTotal: number | null,
+): number {
+  if (mealTotal === null) return amount;
+  const pct = (profile.foodVoucherCoverage ?? DEFAULT_FOOD_VOUCHER_COVERAGE) / 100;
+  const cap = Math.round(Math.max(0, mealTotal) * pct * 100) / 100;
+  return Math.max(0, Math.min(amount, cap));
+}
+
 export function calculateMonthBalance(
   profile: FinanceProfile,
   expenses: RecurringExpense[],
@@ -149,7 +190,6 @@ export function calculateMonthBalance(
   expenseOverrides?: Map<string, number>,
 ) {
   const totalSalary = profile.salary.payment + profile.salary.advance;
-  const vr = profile.foodVoucherMonthly ?? profile.foodVoucher;
 
   const calcExpenseValue = (e: RecurringExpense) => {
     const baseValue = expenseOverrides?.get(e._id!) ?? e.value;
@@ -157,6 +197,12 @@ export function calculateMonthBalance(
     if (e.proportional === 'weekly') return baseValue * (daysInMonth / 7);
     return baseValue;
   };
+
+  const vr = usableFoodVoucher(
+    profile.foodVoucherMonthly ?? profile.foodVoucher,
+    profile,
+    mealExpensesTotal(expenses, calcExpenseValue),
+  );
 
   const cardExpensesTotal = expenses
     .filter(e => e.category === 'card')
