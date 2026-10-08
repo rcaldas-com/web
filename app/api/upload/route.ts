@@ -13,6 +13,7 @@ import {
   UPLOADS_SUBDIR,
   MAX_UPLOAD_BYTES,
   ensureUploadDirs,
+  checkUploadDirWritable,
   checkFreeSpace,
   generateStorageFilename,
   createUploadLink,
@@ -68,6 +69,18 @@ export async function POST(request: Request) {
   // nada na pratica (live/upload ja existe), mas deixa de depender disso.
   await ensureUploadDirs();
 
+  // Antes de ler um byte sequer do corpo: se o diretorio nao aceita
+  // escrita (dono errado, remontado read-only, etc.), falhar agora custa
+  // um stat(); falhar so' depois custa o upload inteiro ter atravessado a
+  // rede pra nada, e aparece pro usuario como "travado" ate o timeout.
+  if (!(await checkUploadDirWritable())) {
+    console.error('upload: diretorio de destino sem permissao de escrita', path.join(UPLOAD_ROOT, UPLOADS_SUBDIR));
+    return NextResponse.json(
+      { error: 'Erro de configuracao no servidor (sem permissao de escrita). Avise o administrador.' },
+      { status: 500 }
+    );
+  }
+
   // Guarda de disco: nunca deixar o upload derrubar o host inteiro. Usa o
   // Content-Length se confiavel, senao assume o pior caso (o proprio
   // limite maximo) pra checagem.
@@ -115,6 +128,19 @@ export async function POST(request: Request) {
     });
 
     const writeStream = fs.createWriteStream(destPath);
+    writeStream.on('error', (err) => {
+      // Falhou escrever -- continuar recebendo o resto de um arquivo de
+      // centenas de MB so' pra descartar nao serve pra nada, e e' o que
+      // fazia um erro (permissao, disco cheio) so' aparecer DEPOIS do
+      // upload inteiro atravessar a rede. Destruir o corpo cru fecha a
+      // conexao agora: cliente e proxy veem o erro na hora, nao no
+      // timeout. So' isso nao bastaria pra `parsed` resolver, por isso o
+      // reject direto abaixo -- destruir um lado de um .pipe() comum (sem
+      // ser via pipeline()) nao propaga 'close'/'error' pro outro lado.
+      rawBody.destroy(err);
+      bb.destroy();
+      rejectParsed(err);
+    });
     // Guarda a promise em vez de so bufferizar bytes -- precisa esperar o
     // destino terminar de fato (flush + close), nao so o lado de leitura
     // acabar, senao um stat() logo depois podia pegar o arquivo pela
@@ -122,12 +148,15 @@ export async function POST(request: Request) {
     filePipeline = pipeline(stream, writeStream);
   });
 
+  let rejectParsed!: (err: unknown) => void;
   const parsed = new Promise<void>((resolve, reject) => {
     bb.on('close', resolve);
     bb.on('error', reject);
+    rejectParsed = reject;
   });
 
-  Readable.fromWeb(request.body as unknown as NodeWebReadableStream).pipe(bb);
+  const rawBody = Readable.fromWeb(request.body as unknown as NodeWebReadableStream);
+  rawBody.pipe(bb);
 
   try {
     await parsed;
@@ -135,7 +164,18 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('erro no upload:', error);
     if (destPath) await fs.promises.unlink(destPath).catch(() => {});
-    return NextResponse.json({ error: 'Falha ao processar o upload.' }, { status: 500 });
+    // pipeline() rejeita com o MESMO objeto de erro que o writeStream
+    // emitiu -- da' pra classificar direto do que chegou aqui, sem
+    // precisar guardar o erro numa variavel a parte (que o closure de
+    // 'file' reatribuindo deixava o TS estreitar sozinho pra 'never').
+    const code = (error as NodeJS.ErrnoException)?.code;
+    const message =
+      code === 'ENOSPC'
+        ? 'Sem espaco em disco no servidor.'
+        : code === 'EACCES' || code === 'EPERM'
+          ? 'Erro de permissao no servidor. Avise o administrador.'
+          : 'Falha ao processar o upload.';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 
   if (rejected) {

@@ -183,6 +183,21 @@ export async function ensureUploadDirs() {
   await fs.promises.mkdir(path.join(UPLOAD_ROOT, UPLOADS_SUBDIR), { recursive: true });
 }
 
+// Checagem rapida ANTES de aceitar qualquer byte do upload. Sem isso, um
+// diretorio com dono errado (aconteceu de verdade: `_uploads` ficou
+// pertencendo a um uid de uma imagem antiga, o container roda com outro)
+// so' se revela depois do CLIENTE terminar de mandar o arquivo inteiro --
+// pra um arquivo grande, isso e' minutos de "processando no servidor..."
+// pra, no fim, estourar o mesmo erro que já dava pra saber de antemao.
+export async function checkUploadDirWritable(): Promise<boolean> {
+  try {
+    await fs.promises.access(path.join(UPLOAD_ROOT, UPLOADS_SUBDIR), fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // bavail (blocos disponiveis pra usuario sem privilegio), nao bfree (que
 // inclui blocos reservados a root) -- e' o numero que realmente importa
 // pra saber se o upload cabe.

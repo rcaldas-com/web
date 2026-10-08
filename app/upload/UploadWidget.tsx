@@ -8,6 +8,13 @@ import CopyLinkButton from '@/components/CopyLinkButton';
 type Status = 'idle' | 'uploading' | 'success' | 'error';
 
 const MAX_BYTES = 500 * 1024 * 1024;
+// Teto pra fase "processando no servidor": o server agora falha rapido
+// pra erro de configuracao (ver app/api/upload/route.ts), entao essa fase
+// nunca deveria legitimamente passar de pouco tempo -- e' so' escrever em
+// disco depois que a rede ja entregou tudo. Se passar disso, o problema e'
+// outro (proxy travado, servidor fora), e esperar o timeout do HAProxy
+// (10min) sem dizer nada seria pior que avisar e deixar cancelar.
+const SERVER_PROCESSING_TIMEOUT_MS = 60 * 1000;
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -34,9 +41,19 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
   // loaded/total/speed num objeto só: os três mudam juntos, a cada evento de
   // progresso, e separá-los renderizaria três vezes por evento.
   const [progress, setProgress] = useState({ loaded: 0, total: 0, bytesPerSec: 0 });
+  // Vira true se a fase "processando no servidor..." passar do teto -- so'
+  // um aviso (o botao cancelar ja existe), nao cancela sozinho.
+  const [stuck, setStuck] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const startedAtRef = useRef(0);
+  const stuckTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const clearStuckTimeout = () => {
+    clearTimeout(stuckTimeoutRef.current);
+    stuckTimeoutRef.current = undefined;
+    setStuck(false);
+  };
 
   const loadFile = (f: File) => {
     if (f.size > MAX_BYTES) {
@@ -79,6 +96,7 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
     setStatus('uploading');
     setError('');
     setProgress({ loaded: 0, total: file.size, bytesPerSec: 0 });
+    clearStuckTimeout();
     startedAtRef.current = Date.now();
 
     const formData = new FormData();
@@ -100,10 +118,17 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
         // tanto que o tempo restante fica pulando e deixa de informar.
         bytesPerSec: elapsed > 0 ? e.loaded / elapsed : 0,
       });
+      // So' arma o relogio na transicao pra "processando" (nao a cada
+      // evento) -- e' o instante em que o navegador terminou de entregar
+      // os bytes e so' falta o servidor responder.
+      if (e.loaded >= e.total && !stuckTimeoutRef.current) {
+        stuckTimeoutRef.current = setTimeout(() => setStuck(true), SERVER_PROCESSING_TIMEOUT_MS);
+      }
     };
 
     xhr.onload = () => {
       xhrRef.current = null;
+      clearStuckTimeout();
       let json: { url?: string; error?: string } = {};
       try {
         json = JSON.parse(xhr.responseText);
@@ -122,12 +147,14 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
 
     xhr.onerror = () => {
       xhrRef.current = null;
+      clearStuckTimeout();
       setError('Erro de rede ao enviar.');
       setStatus('error');
     };
 
     xhr.onabort = () => {
       xhrRef.current = null;
+      clearStuckTimeout();
       setStatus('idle');
       setProgress({ loaded: 0, total: 0, bytesPerSec: 0 });
     };
@@ -139,10 +166,14 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
 
   // Sair da pagina no meio do envio deixaria a requisicao pendurada; abortar
   // no unmount tambem evita setState em componente desmontado.
-  useEffect(() => () => xhrRef.current?.abort(), []);
+  useEffect(() => () => {
+    xhrRef.current?.abort();
+    clearTimeout(stuckTimeoutRef.current);
+  }, []);
 
   const onClear = () => {
     xhrRef.current?.abort();
+    clearStuckTimeout();
     setFile(null);
     setSlug('');
     setResultUrl('');
@@ -280,6 +311,12 @@ export default function UploadWidget({ domains, defaultDomain }: { domains: stri
                   )}`}
             </span>
           </div>
+          {stuck && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              Isso está demorando mais que o normal — pode ser um problema no servidor.
+              Você pode cancelar e tentar de novo.
+            </p>
+          )}
         </div>
       )}
 
