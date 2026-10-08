@@ -94,6 +94,9 @@ export default async function CardInvoicePage({
   const totalDireto = directPayments.reduce((s, p) => s + p.amountPaid, 0);
   const totalLinhas = totalParcelas + totalDireto;
   const diferenca = registrada ? Math.round((registrada.invoiceTotal - totalLinhas) * 100) / 100 : 0;
+  // O topo mostra o que o app considera a fatura (o mesmo numero do painel
+  // e do saldo), nao a soma das linhas -- essa vai pro aviso de diferenca.
+  const totalFatura = registrada?.invoiceTotal ?? totalLinhas;
 
   const aba = (valor: 'fechada' | 'aberta', ym: string) => {
     const ativa = (valor === 'fechada') === (offset === 0);
@@ -131,7 +134,7 @@ export default async function CardInvoicePage({
           </div>
           <div className="text-right">
             <p className="text-xs text-zinc-500 dark:text-zinc-400">Total</p>
-            <p className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{BRL(totalLinhas)}</p>
+            <p className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{BRL(totalFatura)}</p>
           </div>
         </div>
 
@@ -142,8 +145,8 @@ export default async function CardInvoicePage({
 
         {Math.abs(diferenca) > 0.005 && (
           <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
-            O app tem {BRL(registrada!.invoiceTotal)} registrado pra esta fatura -- {BRL(Math.abs(diferenca))}{' '}
-            {diferenca > 0 ? 'a mais' : 'a menos'} que a soma das linhas abaixo. Costuma ser valor editado à mão ou
+            As linhas abaixo somam {BRL(totalLinhas)} -- {BRL(Math.abs(diferenca))}{' '}
+            {diferenca > 0 ? 'a menos' : 'a mais'} que o total da fatura. Costuma ser valor editado à mão ou
             lançamento que não passou por pagamento de despesa.
           </p>
         )}
@@ -187,8 +190,8 @@ export default async function CardInvoicePage({
             <span className="font-mono text-zinc-800 dark:text-zinc-100">{BRL(totalDireto)}</span>
           </div>
           <div>
-            <span className="text-zinc-500 dark:text-zinc-400">Total: </span>
-            <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-50">{BRL(totalParcelas + totalDireto)}</span>
+            <span className="text-zinc-500 dark:text-zinc-400">Soma das linhas: </span>
+            <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-50">{BRL(totalLinhas)}</span>
           </div>
         </div>
       </div>
