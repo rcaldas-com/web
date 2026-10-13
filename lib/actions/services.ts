@@ -2,10 +2,11 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireAdmin } from '@/lib/auth';
-import { getService, setServiceEnrichment, setServiceBackup, type ServiceSource } from '@/lib/services';
+import { getService, setServiceEnrichment, setServiceBackup, stackOf, type ServiceSource } from '@/lib/services';
 import { findBackupRunner, enqueueJob } from '@/lib/monitor';
 import { latestSuccessfulBuild } from '@/lib/builds';
 import { promoteImage } from '@/lib/promote';
+import { imageBaseFor, splitIdentity } from '@/lib/stacks';
 
 // Reconstroi o `source` a partir do formulario. Cada kind tem campos
 // proprios, e mandar os campos do kind errado sujaria o documento -- daí
@@ -112,7 +113,7 @@ export async function setServiceAction(formData: FormData) {
       if (svc?.source?.kind === 'build' || svc?.source?.kind === 'upstream') {
         const ultimo = await latestSuccessfulBuild(name);
         if (ultimo) {
-          const r = await promoteImage(`registry.rcaldas.com/rcaldas/${name}`, ultimo.tag);
+          const r = await promoteImage(imageBaseFor(stackOf(svc), splitIdentity(name).service), ultimo.tag);
           console.log(
             r.ok
               ? `auto-promocao ligada: ${name} ${r.de} -> ${r.para} (commit ${r.commit})`

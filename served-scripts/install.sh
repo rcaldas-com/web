@@ -317,6 +317,12 @@ LOG_FORWARD_PORT="${LOG_FORWARD_PORT:-5514}"
 # nunca roda, custo zero pro resto da frota.
 DHCP_LEASES_FILE="${DHCP_LEASES_FILE:-}"
 VERSION="@@AGENT_VERSION@@"
+# Lista de stacks conhecidas (lib/stacks.ts, fonte unica) -- [{"name",
+# "dir","composeFile"}]. service-inventory e deploy percorrem isto E
+# PULAM qualquer "dir" que nao exista neste host: uma stack so aparece de
+# verdade depois do bootstrap manual dela (clone + .env + Mongo + HAProxy,
+# ver README da stack) em CADA host, nunca so por entrar nesta lista.
+STACKS_JSON='@@STACKS_JSON@@'
 LOG="/var/log/rcaldas-agent.log"
 PENDING_RESULTS_FILE="/etc/rcaldas-agent/pending-results.json"
 TIMER_FILE="/etc/systemd/system/rcaldas-agent.timer"
@@ -611,66 +617,84 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
         ;;
       service-inventory)
         log "job $jid: inventariando servicos do compose"
-        # Tres results pequenos em vez de um JSON montado aqui. Compor um
-        # objeto so exigiria jq com --slurpfile e bem mais shell dentro do
-        # template literal do JS -- que e onde este arquivo ja se queimou
-        # duas vezes. Cada linha abaixo e independente e trivial de checar.
-        inv_dir="/var/rcaldas/rcaldas"
-        inv_file="docker-compose.prod.yml"
-        if [[ ! -f "$inv_dir/$inv_file" ]]; then
-          jmsg="sem $inv_file em $inv_dir"
-        elif ! command -v jq >/dev/null 2>&1; then
+        # Tres results pequenos por stack em vez de um JSON montado aqui.
+        # Compor um objeto so exigiria jq com --slurpfile e bem mais shell
+        # dentro do template literal do JS -- que e onde este arquivo ja se
+        # queimou duas vezes. Cada linha abaixo e independente e trivial de
+        # checar.
+        #
+        # Percorre TODAS as stacks de STACKS_JSON (ver topo deste arquivo),
+        # pulando qualquer "dir" que nao exista neste host -- e' assim que
+        # um host sem a stack bndes clonada simplesmente nao reporta nada
+        # dela, sem job falho e sem precisar saber de antemao quais hosts
+        # tem o que.
+        if ! command -v jq >/dev/null 2>&1; then
           jmsg="jq nao instalado neste host"
         else
-          # Guarda de saida em cada pipeline, pelo mesmo motivo do git
-          # abaixo: com pipefail, um docker compose que falhe derrubaria o
-          # agente inteiro em vez de so' falhar o job.
-          #
-          # (Nunca use crase em comentario deste arquivo -- ela fecha o
-          # template literal do JS e o build quebra com erro de parse de
-          # ecmascript, nao de bash.)
-          inv_dec=$(cd "$inv_dir" && docker compose -f "$inv_file" config --format json 2>/dev/null \
-            | jq -c '[.services | to_entries[] | {name: .key, image: (.value.image // "")}]' 2>/dev/null || echo "")
-          inv_run=$(cd "$inv_dir" && docker compose -f "$inv_file" ps --all --format json 2>/dev/null \
-            | jq -sc '[.[] | {name: .Service, image: .Image, state: .State}]' 2>/dev/null || echo "")
-          # Montado por jq com --argjson, nunca concatenando string: aspas
-          # dentro de aspas dentro de template literal e' onde este arquivo
-          # ja quebrou a frota inteira uma vez.
-          # safe.directory nas TRES chamadas de git, e nao e' zelo: sob
-          # systemd o HOME vem VAZIO, entao o git nao le /root/.gitconfig e
-          # recusa um repo cujo dono e' outro usuario (aqui uid 8484 vs root)
-          # com "dubious ownership" e exit 128. Pelo sudo funciona -- o sudo
-          # seta HOME=/root -- o que faz o teste manual passar e o agente de
-          # verdade falhar. Custou uma sessao inteira de diagnostico.
-          #
-          # E cada pipeline tem "|| echo", tambem obrigatorio: com
-          # "set -o pipefail" o 128 do git vira o status do PIPELINE, que
-          # vira o status da substituicao de comando, que com "set -e" mata
-          # o agente inteiro -- heartbeat junto. Nenhum job pode ter esse
-          # poder; na duvida ele reporta vazio e o ciclo continua.
-          inv_git="git -c safe.directory=*"
-          # --untracked-files=no de proposito: arquivo solto no diretorio nao
-          # e' deriva de deploy. Sem isso, qualquer script temporario no host
-          # apareceria como alarme -- e alarme que acende por qualquer coisa
-          # e' alarme que se aprende a ignorar.
-          inv_dirty=$(cd "$inv_dir" && $inv_git status --porcelain --untracked-files=no 2>/dev/null | awk '{print $NF}' | jq -Rsc 'split("\n") | map(select(. != ""))' 2>/dev/null || echo "[]")
-          inv_dirty="${inv_dirty:-[]}"
-          inv_ahead=$(cd "$inv_dir" && $inv_git rev-list --count '@{u}'..HEAD 2>/dev/null || echo 0)
-          inv_behind=$(cd "$inv_dir" && $inv_git rev-list --count HEAD..'@{u}' 2>/dev/null || echo 0)
-          # HEAD local. 'behind' depende de '@{u}', que so' e' verdade logo apos
-          # um fetch -- e o inventario nao faz fetch, entao marcava 0 mesmo com o
-          # host atrasado. O sha nao depende disso: o servidor ja le o HEAD do
-          # repo pela API do GitHub e compara.
-          inv_head=$(cd "$inv_dir" && $inv_git rev-parse HEAD 2>/dev/null || echo "")
-          inv_repo=$(jq -nc --argjson dirty "$inv_dirty" --arg a "$inv_ahead" --arg b "$inv_behind" --arg h "$inv_head" \
-            '{dirty: $dirty, ahead: ($a | tonumber), behind: ($b | tonumber), head: $h}' 2>/dev/null)
-          if [[ -n "$inv_dec" && -n "$inv_run" && -n "$inv_repo" ]]; then
-            jstatus="ok"; jmsg="inventario coletado"
-            info_result=",{\"id\":\"services-declared\",\"type\":\"inventory\",\"status\":\"ok\",\"message\":\"$(json_escape "$inv_dec")\"}"
-            info_result="$info_result,{\"id\":\"services-running\",\"type\":\"inventory\",\"status\":\"ok\",\"message\":\"$(json_escape "$inv_run")\"}"
-            info_result="$info_result,{\"id\":\"repo-state\",\"type\":\"inventory\",\"status\":\"ok\",\"message\":\"$(json_escape "$inv_repo")\"}"
+          inv_ok=0
+          inv_tried=0
+          while IFS= read -r inv_st; do
+            inv_stack=$(printf '%s' "$inv_st" | jq -r .name)
+            inv_dir=$(printf '%s' "$inv_st" | jq -r .dir)
+            inv_file=$(printf '%s' "$inv_st" | jq -r .composeFile)
+            [[ -d "$inv_dir" ]] || continue
+            [[ -f "$inv_dir/$inv_file" ]] || continue
+            inv_tried=$((inv_tried + 1))
+
+            # Guarda de saida em cada pipeline, pelo mesmo motivo do git
+            # abaixo: com pipefail, um docker compose que falhe derrubaria o
+            # agente inteiro em vez de so' falhar o job.
+            #
+            # (Nunca use crase em comentario deste arquivo -- ela fecha o
+            # template literal do JS e o build quebra com erro de parse de
+            # ecmascript, nao de bash.)
+            inv_dec=$(cd "$inv_dir" && docker compose -f "$inv_file" config --format json 2>/dev/null \
+              | jq -c '[.services | to_entries[] | {name: .key, image: (.value.image // "")}]' 2>/dev/null || echo "")
+            inv_run=$(cd "$inv_dir" && docker compose -f "$inv_file" ps --all --format json 2>/dev/null \
+              | jq -sc '[.[] | {name: .Service, image: .Image, state: .State}]' 2>/dev/null || echo "")
+            # Montado por jq com --argjson, nunca concatenando string: aspas
+            # dentro de aspas dentro de template literal e' onde este arquivo
+            # ja quebrou a frota inteira uma vez.
+            # safe.directory nas TRES chamadas de git, e nao e' zelo: sob
+            # systemd o HOME vem VAZIO, entao o git nao le /root/.gitconfig e
+            # recusa um repo cujo dono e' outro usuario (aqui uid 8484 vs root)
+            # com "dubious ownership" e exit 128. Pelo sudo funciona -- o sudo
+            # seta HOME=/root -- o que faz o teste manual passar e o agente de
+            # verdade falhar. Custou uma sessao inteira de diagnostico.
+            #
+            # E cada pipeline tem "|| echo", tambem obrigatorio: com
+            # "set -o pipefail" o 128 do git vira o status do PIPELINE, que
+            # vira o status da substituicao de comando, que com "set -e" mata
+            # o agente inteiro -- heartbeat junto. Nenhum job pode ter esse
+            # poder; na duvida ele reporta vazio e o ciclo continua.
+            inv_git="git -c safe.directory=*"
+            # --untracked-files=no de proposito: arquivo solto no diretorio nao
+            # e' deriva de deploy. Sem isso, qualquer script temporario no host
+            # apareceria como alarme -- e alarme que acende por qualquer coisa
+            # e' alarme que se aprende a ignorar.
+            inv_dirty=$(cd "$inv_dir" && $inv_git status --porcelain --untracked-files=no 2>/dev/null | awk '{print $NF}' | jq -Rsc 'split("\n") | map(select(. != ""))' 2>/dev/null || echo "[]")
+            inv_dirty="${inv_dirty:-[]}"
+            inv_ahead=$(cd "$inv_dir" && $inv_git rev-list --count '@{u}'..HEAD 2>/dev/null || echo 0)
+            inv_behind=$(cd "$inv_dir" && $inv_git rev-list --count HEAD..'@{u}' 2>/dev/null || echo 0)
+            # HEAD local. 'behind' depende de '@{u}', que so' e' verdade logo apos
+            # um fetch -- e o inventario nao faz fetch, entao marcava 0 mesmo com o
+            # host atrasado. O sha nao depende disso: o servidor ja le o HEAD do
+            # repo pela API do GitHub e compara.
+            inv_head=$(cd "$inv_dir" && $inv_git rev-parse HEAD 2>/dev/null || echo "")
+            inv_repo=$(jq -nc --argjson dirty "$inv_dirty" --arg a "$inv_ahead" --arg b "$inv_behind" --arg h "$inv_head" \
+              '{dirty: $dirty, ahead: ($a | tonumber), behind: ($b | tonumber), head: $h}' 2>/dev/null)
+            if [[ -n "$inv_dec" && -n "$inv_run" && -n "$inv_repo" ]]; then
+              inv_ok=$((inv_ok + 1))
+              info_result="$info_result,{\"id\":\"services-declared:$inv_stack\",\"type\":\"inventory\",\"status\":\"ok\",\"message\":\"$(json_escape "$inv_dec")\"}"
+              info_result="$info_result,{\"id\":\"services-running:$inv_stack\",\"type\":\"inventory\",\"status\":\"ok\",\"message\":\"$(json_escape "$inv_run")\"}"
+              info_result="$info_result,{\"id\":\"repo-state:$inv_stack\",\"type\":\"inventory\",\"status\":\"ok\",\"message\":\"$(json_escape "$inv_repo")\"}"
+            fi
+          done < <(printf '%s' "$STACKS_JSON" | jq -c '.[]')
+
+          if [[ "$inv_ok" -gt 0 ]]; then
+            jstatus="ok"; jmsg="inventario coletado ($inv_ok/$inv_tried stacks)"
           else
-            jmsg="falha ao ler compose config/ps"
+            jmsg="nenhuma stack com compose neste host, ou falha ao ler compose config/ps"
           fi
         fi
         ;;
@@ -682,37 +706,61 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
         # root deixaria objetos root-owned dentro do .git e quebraria o
         # proximo comando do usuario. De quebra, a credencial do registry
         # sai do lugar certo, sem gambiarra de DOCKER_CONFIG.
-        d_dir="/var/rcaldas/rcaldas"
-        d_file="docker-compose.prod.yml"
+        # UM job de deploy reconcilia TODAS as stacks presentes neste host
+        # (ver STACKS_JSON no topo) -- nao ha um job por stack: o host que
+        # tem rcaldas e bndes aplica as duas no mesmo ciclo, e o que so
+        # tem rcaldas (ainda nao fez o bootstrap da bndes) so aplica essa,
+        # sem erro pela outra nao existir.
         d_run="/usr/sbin/runuser -u rcaldas -- env HOME=/var/rcaldas"
-        log "job $jid: reconciliando $d_dir"
-        if [[ ! -d "$d_dir/.git" ]]; then
-          jmsg="$d_dir nao e' um repo git"
-        elif ! $d_run git -C "$d_dir" fetch -q origin main 2>>"$LOG"; then
-          jmsg="fetch falhou"
-        else
-          d_local=$($d_run git -C "$d_dir" rev-parse HEAD 2>/dev/null || echo "")
-          d_remoto=$($d_run git -C "$d_dir" rev-parse origin/main 2>/dev/null || echo "")
-          if [[ -z "$d_local" || -z "$d_remoto" ]]; then
-            jmsg="nao consegui resolver os shas"
-          elif [[ "$d_local" == "$d_remoto" ]]; then
-            jstatus="ok"; jmsg="ja em dia (${d_local:0:7})"
-          # --ff-only e' a trava principal: NUNCA reset --hard. O .env nao
-          # esta no git e ha ajuste manual legitimo no host -- um deploy que
-          # descarta isso e' pior que um deploy que nao acontece. Se nao for
-          # fast-forward, para e reporta pra alguem olhar.
-          elif ! $d_run git -C "$d_dir" merge --ff-only -q origin/main 2>>"$LOG"; then
-            jmsg="nao e' fast-forward -- alguem mexeu no host, reconciliacao abortada"
-          elif ! $d_run sh -c "cd $d_dir && docker compose -f $d_file pull -q" >> "$LOG" 2>&1; then
-            jmsg="pull das imagens falhou"
-          # up -d GLOBAL, nao por servico: o compose respeita depends_on
-          # assim (wallet depende de ccxt e redis). Subir servico isolado
-          # ignora essa ordem.
-          elif ! $d_run sh -c "cd $d_dir && docker compose -f $d_file up -d" >> "$LOG" 2>&1; then
-            jmsg="up -d falhou: $(tail -3 "$LOG" | tr '\n' ' ' | tail -c 300)"
+        d_ok=0
+        d_tried=0
+        d_msgs=""
+        while IFS= read -r d_st; do
+          d_stack=$(printf '%s' "$d_st" | jq -r .name)
+          d_dir=$(printf '%s' "$d_st" | jq -r .dir)
+          d_file=$(printf '%s' "$d_st" | jq -r .composeFile)
+          [[ -d "$d_dir" ]] || continue
+          d_tried=$((d_tried + 1))
+          log "job $jid: reconciliando $d_dir"
+          if [[ ! -d "$d_dir/.git" ]]; then
+            d_msgs="$d_msgs; [$d_stack] nao e' um repo git"
+          elif ! $d_run git -C "$d_dir" fetch -q origin main 2>>"$LOG"; then
+            d_msgs="$d_msgs; [$d_stack] fetch falhou"
           else
-            jstatus="ok"; jmsg="${d_local:0:7} -> ${d_remoto:0:7} aplicado"
+            d_local=$($d_run git -C "$d_dir" rev-parse HEAD 2>/dev/null || echo "")
+            d_remoto=$($d_run git -C "$d_dir" rev-parse origin/main 2>/dev/null || echo "")
+            if [[ -z "$d_local" || -z "$d_remoto" ]]; then
+              d_msgs="$d_msgs; [$d_stack] nao consegui resolver os shas"
+            elif [[ "$d_local" == "$d_remoto" ]]; then
+              d_ok=$((d_ok + 1))
+              d_msgs="$d_msgs; [$d_stack] ja em dia (${d_local:0:7})"
+            # --ff-only e' a trava principal: NUNCA reset --hard. O .env nao
+            # esta no git e ha ajuste manual legitimo no host -- um deploy que
+            # descarta isso e' pior que um deploy que nao acontece. Se nao for
+            # fast-forward, para e reporta pra alguem olhar.
+            elif ! $d_run git -C "$d_dir" merge --ff-only -q origin/main 2>>"$LOG"; then
+              d_msgs="$d_msgs; [$d_stack] nao e' fast-forward -- alguem mexeu no host, reconciliacao abortada"
+            elif ! $d_run sh -c "cd $d_dir && docker compose -f $d_file pull -q" >> "$LOG" 2>&1; then
+              d_msgs="$d_msgs; [$d_stack] pull das imagens falhou"
+            # up -d GLOBAL, nao por servico: o compose respeita depends_on
+            # assim (wallet depende de ccxt e redis). Subir servico isolado
+            # ignora essa ordem.
+            elif ! $d_run sh -c "cd $d_dir && docker compose -f $d_file up -d" >> "$LOG" 2>&1; then
+              d_msgs="$d_msgs; [$d_stack] up -d falhou: $(tail -3 "$LOG" | tr '\n' ' ' | tail -c 300)"
+            else
+              d_ok=$((d_ok + 1))
+              d_msgs="$d_msgs; [$d_stack] ${d_local:0:7} -> ${d_remoto:0:7} aplicado"
+            fi
           fi
+        done < <(printf '%s' "$STACKS_JSON" | jq -c '.[]')
+
+        d_msgs="${d_msgs#; }"
+        if [[ "$d_tried" -eq 0 ]]; then
+          jmsg="nenhuma stack clonada neste host"
+        elif [[ "$d_ok" -eq "$d_tried" ]]; then
+          jstatus="ok"; jmsg="$d_msgs"
+        else
+          jmsg="$d_msgs"
         fi
         ;;
       repo-heads)
@@ -724,8 +772,13 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
         # So submodulo entra: um diretorio comum dentro do dev (ccxt) teria
         # como "HEAD" o sha do proprio dev, e mudaria a cada commit da
         # stack inteira -- buildaria sem nada dele ter mudado.
+        #
+        # Cada token chega como "<stack>/<repo>" (nao so' <repo>): e' o que
+        # diz em qual /var/rcaldas/<stack> procurar, e tambem e' a CHAVE que
+        # volta no JSON -- o servidor casa por essa mesma chave (ver
+        # ingestRepoHeads em lib/polling.ts), entao nunca remova a stack do
+        # token, so' use-a pra achar o diretorio.
         rh_repos=$(printf '%s' "$job" | sed -n 's/.*"repos":"\([^"]*\)".*/\1/p')
-        rh_root="/var/rcaldas/rcaldas"
         rh_git="git -c safe.directory=*"
         # Operacao de REDE vai pelo usuario rcaldas, nao pelo root: e' ele
         # que tem a chave do GitHub e o insteadOf que troca https por ssh.
@@ -746,8 +799,13 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
         else
           : > "$rh_tmp"
           for rh_r in $(printf '%s' "$rh_repos" | tr ',' ' '); do
-            [[ -e "$rh_root/$rh_r/.git" ]] || continue
-            rh_sha=$($rh_run $rh_git -C "$rh_root/$rh_r" ls-remote origin HEAD 2>/dev/null | awk '{print $1}' | head -1 || echo "")
+            rh_stack="${rh_r%%/*}"
+            rh_repo="${rh_r#*/}"
+            rh_dir=$(printf '%s' "$STACKS_JSON" | jq -r --arg s "$rh_stack" '.[] | select(.name==$s) | .dir' 2>/dev/null)
+            [[ -n "$rh_dir" && -e "$rh_dir/$rh_repo/.git" ]] || continue
+            rh_sha=$($rh_run $rh_git -C "$rh_dir/$rh_repo" ls-remote origin HEAD 2>/dev/null | awk '{print $1}' | head -1 || echo "")
+            # Chave no JSON de saida e' o token INTEIRO ("stack/repo"), nao
+            # so' rh_repo -- ver comentario acima.
             [[ -n "$rh_sha" ]] && printf '%s %s\n' "$rh_r" "$rh_sha" >> "$rh_tmp"
           done
           # Montado por jq a partir de linhas "repo sha": concatenar JSON no
@@ -770,7 +828,13 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
         b_image=$(printf '%s' "$job" | sed -n 's/.*"imageBase":"\([^"]*\)".*/\1/p')
         b_ref=$(printf '%s' "$job" | sed -n 's/.*"ref":"\([^"]*\)".*/\1/p')
         b_ref="${b_ref:-main}"
-        b_root="/var/rcaldas/rcaldas"
+        # root/stack vem do job (o servidor ja sabe de qual stack e'); o
+        # default aqui so' protege um job velho (de antes desta mudanca)
+        # que ainda estivesse na fila sem esses dois campos.
+        b_root=$(printf '%s' "$job" | sed -n 's/.*"root":"\([^"]*\)".*/\1/p')
+        b_root="${b_root:-/var/rcaldas/rcaldas}"
+        b_stack=$(printf '%s' "$job" | sed -n 's/.*"stack":"\([^"]*\)".*/\1/p')
+        b_stack="${b_stack:-rcaldas}"
         b_git="git -c safe.directory=*"
         # Mesmo motivo do repo-heads: o fetch e' rede e precisa da chave do
         # rcaldas. Sem isto o car ate seria detectado, mas morreria aqui.
@@ -789,7 +853,10 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
           else
             b_src="$b_root"; b_ctx_sub="/$b_repo"
           fi
-          b_wt="/var/rcaldas/build/$b_repo"
+          # Nome leva a stack -- sem isso, duas stacks com repo homonimo
+          # disputariam a MESMA worktree (um apagaria a arvore do outro no
+          # meio do docker build). Nao e' o caso hoje, mas e' barato evitar.
+          b_wt="/var/rcaldas/build/${b_stack}-${b_repo}"
           # O agente roda como ROOT, e a credencial do registry foi feita
           # com docker login pelo usuario rcaldas -- ela vive em
           # /var/rcaldas/.docker, nao em /root/.docker. Sem apontar o

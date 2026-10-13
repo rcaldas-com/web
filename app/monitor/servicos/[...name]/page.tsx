@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAdminPage } from '@/lib/auth';
-import { getService } from '@/lib/services';
+import { getService, stackOf } from '@/lib/services';
 import { setServiceAction, setServiceBackupAction } from '@/lib/actions/services';
 import { promoteBuildAction } from '@/lib/actions/builds';
 import { listBuilds, hasRunningBuild } from '@/lib/builds';
 import { pickBuildWorker } from '@/lib/monitor';
 import { promoteConfigurado } from '@/lib/promote';
+import { getStack } from '@/lib/stacks';
 import SubmitButton from '@/components/SubmitButton';
 import BuildTriggerForm from '@/components/BuildTriggerForm';
 import Spinner from '@/components/Spinner';
@@ -33,8 +34,14 @@ function field(label: string, value: React.ReactNode) {
 const input =
   'w-full rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950';
 
-export default async function ServicoPage({ params }: { params: Promise<{ name: string }> }) {
-  const { name } = await params;
+// Catch-all ([...name]), nao [name]: a identidade de um servico de outra
+// stack carrega a stack dentro (ex. "bndes/bolo", ver serviceIdentity em
+// lib/stacks.ts) -- um segmento so' precisaria de URL encoding pra essa
+// barra, e um link como `/monitor/servicos/${svc.name}` (todo lugar nesta
+// tela monta assim) ja' funciona de graca contra um catch-all.
+export default async function ServicoPage({ params }: { params: Promise<{ name: string[] }> }) {
+  const { name: segments } = await params;
+  const name = segments.join('/');
   await requireAdminPage(`/monitor/servicos/${name}`);
   const svc = await getService(name);
   if (!svc) notFound();
@@ -61,6 +68,7 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
   // flag "pendente" no banco, que exigiria alguem lembrar de limpar.
   const tagPromovida = svc.promoted?.tag !== tagEmProducao ? svc.promoted?.tag : undefined;
   const promoverDisponivel = promoteConfigurado();
+  const repoDaStack = getStack(stackOf(svc))?.repo;
 
   return (
     <main className="min-h-screen bg-zinc-100 dark:bg-zinc-950">
@@ -273,8 +281,14 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
             {!promoverDisponivel && (
               <p className="mb-3 rounded bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
                 Promoção indisponível: falta <code>GITHUB_TOKEN</code> no <code>.env</code> do servidor. Build funciona
-                normalmente — o que não dá é escrever a tag no repo. O token precisa de escrita só em{' '}
-                <code>rcaldas-com/dev</code>.
+                normalmente — o que não dá é escrever a tag no repo. O token precisa de escrita em{' '}
+                <code>{repoDaStack ?? 'rcaldas-com/dev'}</code>
+                {repoDaStack && repoDaStack !== 'rcaldas-com/dev' && (
+                  <>
+                    {' '}(e em <code>rcaldas-com/dev</code>, pra promover os das outras stacks)
+                  </>
+                )}
+                .
               </p>
             )}
 

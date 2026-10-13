@@ -3,9 +3,10 @@
 import { revalidatePath } from 'next/cache';
 import { requireAdmin } from '@/lib/auth';
 import { enqueueBuildJob, pickBuildWorker, setBuildWorker } from '@/lib/monitor';
-import { getService } from '@/lib/services';
+import { getService, stackOf } from '@/lib/services';
 import { currentRunningBuild, startBuild } from '@/lib/builds';
 import { promoteImage } from '@/lib/promote';
+import { getStack, imageBaseFor, splitIdentity } from '@/lib/stacks';
 
 export async function promoteBuildAction(formData: FormData): Promise<void> {
   await requireAdmin();
@@ -18,7 +19,7 @@ export async function promoteBuildAction(formData: FormData): Promise<void> {
   // nao tem o que promover.
   if (!svc || (svc.source?.kind !== 'build' && svc.source?.kind !== 'upstream')) return;
 
-  const resultado = await promoteImage(`registry.rcaldas.com/rcaldas/${service}`, tag);
+  const resultado = await promoteImage(imageBaseFor(stackOf(svc), splitIdentity(service).service), tag);
   if (!resultado.ok) {
     // Nao lanca: erro de promocao nao deve virar tela de erro 500. Fica no
     // log do servidor e a pagina simplesmente continua mostrando a tag
@@ -84,9 +85,15 @@ export async function triggerBuildAction(
   const worker = await pickBuildWorker();
   if (!worker) return { ok: false, message: 'nenhum worker de build disponível agora' };
 
+  const stack = stackOf(svc);
+  const info = getStack(stack);
+  if (!info) return { ok: false, message: `stack '${stack}' desconhecida` };
+
   const jobId = await enqueueBuildJob(worker, {
     repo: svc.source.repo,
-    imageBase: `registry.rcaldas.com/rcaldas/${name}`,
+    root: info.dir,
+    stack,
+    imageBase: imageBaseFor(stack, splitIdentity(name).service),
     ref: svc.source.ref,
   });
   if (!jobId) return { ok: false, message: 'falha ao enfileirar o job' };

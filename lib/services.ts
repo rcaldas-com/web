@@ -1,5 +1,6 @@
 import { Db, ObjectId } from 'mongodb';
 import clientPromise from './mongodb';
+import { serviceIdentity, stackFromImage } from './stacks';
 
 // Registro de servicos do Monitor.
 //
@@ -67,7 +68,14 @@ export const RETENCAO_OFFSITE = { dia: 14, semana: 8, mes: 12 };
 
 export type MonitorService = {
   _id: ObjectId;
+  // Identidade: nome puro pra rcaldas (compatibilidade com tudo que ja
+  // existe), "<stack>/<nome>" pra qualquer outra -- ver serviceIdentity em
+  // stacks.ts. E' a CHAVE do registro (name_unique), por isso tem que ser
+  // isso que desambigua "redis" da stack rcaldas do "redis" da stack bndes.
   name: string;
+  // Ausente so em documento anterior a multi-stack -- trate como 'rcaldas'
+  // (ver stackOf abaixo). Sempre presente a partir de ingestInventory novo.
+  stack?: string;
   source: ServiceSource;
   deployment: ServiceDeployment;
   // Observado no host, nunca editado a mao -- vem do job service-inventory.
@@ -101,8 +109,13 @@ export type MonitorService = {
 
 // Estado do repo de deploy no host alvo. E' o que detecta a deriva que
 // motivou tudo isto: tag editada direto no host, sem commit.
+//
+// Por {host, stack}, nao so' host: cada stack tem seu proprio repo/HEAD, e
+// um host pode estar em dia com a rcaldas e atrasado na bndes (ou nem ter
+// a bndes clonada ainda).
 export type RepoState = {
   host: string;
+  stack: string;
   dirtyFiles: string[];
   ahead: number;
   behind: number;
@@ -127,17 +140,32 @@ async function ensureIndexes(db: Db) {
   }
 }
 
-// Origem inferida na PRIMEIRA vez que o servico aparece, so pra nao nascer
-// vazio. Depois disso nunca sobrescreve: o que o admin editou vale mais que
-// o palpite. `$setOnInsert` garante isso.
-function guessSource(image: string): ServiceSource {
-  if (image.startsWith('registry.rcaldas.com/')) {
-    // registry.rcaldas.com/rcaldas/web:2.11 -> repo 'web'
-    const semTag = image.split(':')[0];
+/**
+ * Origem inferida na PRIMEIRA vez que o servico aparece, so pra nao nascer
+ * vazio. Depois disso nunca sobrescreve: o que o admin editou vale mais que
+ * o palpite. `$setOnInsert` garante isso.
+ *
+ * Precisa saber de QUAL stack e' a chamada, nao so' olhar a imagem: o
+ * emailer da stack bndes roda `registry.rcaldas.com/rcaldas/emailer`,
+ * imagem de OUTRA stack -- e' 'upstream' do ponto de vista do bndes (ele
+ * nao builda isso, so' acompanha o que a stack rcaldas publica), nunca
+ * 'build'. Sem comparar com a stack que esta perguntando, o palpite
+ * tentaria enfileirar um build de "emailer" dentro do diretorio do bndes,
+ * que nao tem esse repo.
+ */
+function guessSource(image: string, stack: string): ServiceSource {
+  const semTag = image.split(':')[0];
+  if (stackFromImage(image) === stack) {
+    // registry.rcaldas.com/<stack>/web:2.11 -> repo 'web'
     const repo = semTag.split('/').pop() || '';
     return { kind: 'build', repo };
   }
-  return { kind: 'upstream', image: image.split(':')[0] };
+  return { kind: 'upstream', image: semTag };
+}
+
+/** Stack do serviço, com fallback pra documento anterior a multi-stack. */
+export function stackOf(svc: { stack?: string; name: string }): string {
+  return svc.stack ?? (svc.name.includes('/') ? svc.name.split('/')[0] : 'rcaldas');
 }
 
 /**
@@ -151,7 +179,10 @@ function guessSource(image: string): ServiceSource {
  */
 export async function ingestInventory(params: {
   host: string;
-  project: string;
+  // Stack que gerou este inventário (ver lib/stacks.ts) -- é o que vira o
+  // prefixo da identidade (serviceIdentity) e o 'project' do deployment,
+  // pra "redis"/"emailer" da stack bndes não sobrescreverem os da rcaldas.
+  stack: string;
   declared: { name: string; image: string }[];
   running: { name: string; image: string; state: string }[];
 }) {
@@ -165,11 +196,16 @@ export async function ingestInventory(params: {
 
   for (const svc of params.declared) {
     const run = rodando.get(svc.name);
+    const name = serviceIdentity(params.stack, svc.name);
     await col.updateOne(
-      { name: svc.name },
+      { name },
       {
         $set: {
-          deployment: { kind: 'compose', host: params.host, project: params.project, service: svc.name },
+          stack: params.stack,
+          // deployment.service fica com o nome REAL do compose (sem
+          // prefixo) -- é com ele que um futuro `docker compose exec`
+          // precisa falar, nunca com a identidade prefixada.
+          deployment: { kind: 'compose', host: params.host, project: params.stack, service: svc.name },
           observed: {
             declaredImage: svc.image,
             runningImage: run?.image,
@@ -178,7 +214,7 @@ export async function ingestInventory(params: {
           },
           updatedAt: now,
         },
-        $setOnInsert: { name: svc.name, source: guessSource(svc.image), createdAt: now },
+        $setOnInsert: { name, source: guessSource(svc.image, params.stack), createdAt: now },
       },
       { upsert: true }
     );
@@ -300,7 +336,7 @@ export async function saveRepoState(state: Omit<RepoState, 'seenAt'>) {
   const db = client.db();
   await db
     .collection<RepoState>('monitor_repo_state')
-    .updateOne({ host: state.host }, { $set: { ...state, seenAt: new Date() } }, { upsert: true });
+    .updateOne({ host: state.host, stack: state.stack }, { $set: { ...state, seenAt: new Date() } }, { upsert: true });
 }
 
 export async function getRepoStates(): Promise<(Omit<RepoState, 'seenAt'> & { seenAt: string })[]> {
@@ -309,6 +345,9 @@ export async function getRepoStates(): Promise<(Omit<RepoState, 'seenAt'> & { se
   const docs = await db.collection<RepoState>('monitor_repo_state').find({}).toArray();
   return docs.map((d) => ({
     host: d.host,
+    // Documento anterior a multi-stack nao tem o campo -- era sempre a
+    // rcaldas, a unica que existia.
+    stack: d.stack ?? 'rcaldas',
     dirtyFiles: d.dirtyFiles ?? [],
     ahead: d.ahead ?? 0,
     behind: d.behind ?? 0,

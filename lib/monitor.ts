@@ -295,10 +295,12 @@ export type AgentJob = {
   // Parametros do job, PLANOS de proposito: o agente fatia a resposta do
   // /agent-jobs com grep -o de {...} e qualquer objeto aninhado aqui
   // quebraria esse recorte, entregando o job truncado.
-  repo?: string; // diretorio do submodulo em /var/rcaldas/rcaldas
-  imageBase?: string; // registry.rcaldas.com/rcaldas/<nome>, sem tag
+  repo?: string; // diretorio do submodulo, dentro de `root`
+  root?: string; // /var/rcaldas/<stack> -- so no job build (default: rcaldas, p/ job antigo na fila)
+  imageBase?: string; // registry.rcaldas.com/<stack>/<nome>, sem tag
   ref?: string; // branch remoto a buildar (vazio = main)
-  repos?: string; // lista separada por virgula -- so no job repo-heads
+  stack?: string; // so no job build -- nome da worktree em /var/rcaldas/build/<stack>-<repo>
+  repos?: string; // "<stack>/<repo>,<stack>/<repo>,..." -- so no job repo-heads
   createdAt: Date;
   sentAt?: Date;
   doneAt?: Date;
@@ -617,17 +619,29 @@ export async function handleLogAlert(alerta: {
 // chave inclui o repo.
 export async function enqueueBuildJob(
   hostName: string,
-  params: { repo: string; imageBase: string; ref?: string }
+  params: { repo: string; root: string; stack: string; imageBase: string; ref?: string }
 ): Promise<string | null> {
   const host = normalizeHostName(hostName);
   if (!host || !params.repo || !params.imageBase) return null;
   const client = await clientPromise;
   const db = client.db();
   const now = new Date();
+  // Dedup leva a stack: duas stacks nunca deveriam ter repo homonimo, mas
+  // sem isso no filtro um bug de nome colidido perderia um dos dois builds
+  // em vez de so' confundir a worktree.
   const res = await db.collection<AgentJob>('monitor_agent_jobs').findOneAndUpdate(
-    { host, type: 'build', repo: params.repo, status: 'pending' },
+    { host, type: 'build', repo: params.repo, stack: params.stack, status: 'pending' },
     {
-      $set: { host, type: 'build', status: 'pending', repo: params.repo, imageBase: params.imageBase, ref: params.ref },
+      $set: {
+        host,
+        type: 'build',
+        status: 'pending',
+        repo: params.repo,
+        root: params.root,
+        stack: params.stack,
+        imageBase: params.imageBase,
+        ref: params.ref,
+      },
       $setOnInsert: { createdAt: now },
     },
     { upsert: true, returnDocument: 'after' }
@@ -1283,42 +1297,58 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     }
 
     // Inventario de servicos. Canal proprio ('inventory'), pelo mesmo
-    // motivo do host-info: sao tres payloads JSON que nao cabem nos 500
-    // chars do result de job comum.
+    // motivo do host-info: sao payloads JSON que nao cabem nos 500 chars do
+    // result de job comum.
+    //
+    // Id leva a stack ("services-declared:bndes"), nao so' o nome fixo de
+    // antes: um host pode reportar as duas stacks no MESMO heartbeat (ver
+    // served-scripts/install.sh, job service-inventory/repo-heads), e sem a
+    // stack no id a segunda sobrescreveria a primeira neste Record -- as
+    // duas vinham com a chave "services-declared" pura.
     const inventario: Record<string, string> = {};
     for (const result of lote) {
       if (result.type !== 'inventory' || !result.id || !result.message) continue;
       inventario[result.id] = result.message;
     }
-    if (inventario['services-declared'] && inventario['services-running']) {
-      try {
-        await ingestInventory({
-          host,
-          project: 'rcaldas',
-          declared: JSON.parse(inventario['services-declared']),
-          running: JSON.parse(inventario['services-running']),
-        });
-      } catch (error) {
-        // JSON malformado nao pode derrubar o heartbeat do host -- ele
-        // esta bem, quem esta ruim e o inventario.
-        console.error('inventario de servicos invalido:', error);
+    const stacksVistas = new Set(
+      Object.keys(inventario)
+        .map((id) => id.split(':')[1])
+        .filter((s): s is string => Boolean(s))
+    );
+    for (const stack of stacksVistas) {
+      if (inventario[`services-declared:${stack}`] && inventario[`services-running:${stack}`]) {
+        try {
+          await ingestInventory({
+            host,
+            stack,
+            declared: JSON.parse(inventario[`services-declared:${stack}`]),
+            running: JSON.parse(inventario[`services-running:${stack}`]),
+          });
+        } catch (error) {
+          // JSON malformado nao pode derrubar o heartbeat do host -- ele
+          // esta bem, quem esta ruim e o inventario.
+          console.error(`inventario de servicos invalido (${stack}):`, error);
+        }
       }
-    }
-    if (inventario['repo-state']) {
-      try {
-        const estado = JSON.parse(inventario['repo-state']) as {
-          dirty?: string[];
-          ahead?: number;
-          behind?: number;
-        };
-        await saveRepoState({
-          host,
-          dirtyFiles: estado.dirty ?? [],
-          ahead: estado.ahead ?? 0,
-          behind: estado.behind ?? 0,
-        });
-      } catch (error) {
-        console.error('estado do repo invalido:', error);
+      if (inventario[`repo-state:${stack}`]) {
+        try {
+          const estado = JSON.parse(inventario[`repo-state:${stack}`]) as {
+            dirty?: string[];
+            ahead?: number;
+            behind?: number;
+            head?: string;
+          };
+          await saveRepoState({
+            host,
+            stack,
+            dirtyFiles: estado.dirty ?? [],
+            ahead: estado.ahead ?? 0,
+            behind: estado.behind ?? 0,
+            head: estado.head,
+          });
+        } catch (error) {
+          console.error(`estado do repo invalido (${stack}):`, error);
+        }
       }
     }
 
@@ -1583,6 +1613,8 @@ export async function takePendingJobs(hostName: string) {
     id: j._id.toString(),
     type: j.type,
     ...(j.repo ? { repo: j.repo } : {}),
+    ...(j.root ? { root: j.root } : {}),
+    ...(j.stack ? { stack: j.stack } : {}),
     ...(j.imageBase ? { imageBase: j.imageBase } : {}),
     ...(j.ref ? { ref: j.ref } : {}),
     ...(j.repos ? { repos: j.repos } : {}),

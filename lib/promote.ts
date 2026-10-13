@@ -6,13 +6,11 @@
 // o agente do host de deploy, amanha um controlador de cluster lendo o
 // mesmo repo. Troca-se o executor, nao a UI nem o modelo. Ver CICD.md.
 
-import { getRepoStates, getService, listServices, recordPromotion } from './services';
+import { getRepoStates, getService, listServices, recordPromotion, stackOf } from './services';
 import { enqueueDeployJobs, listDeployTargets } from './monitor';
+import { getStack, imageBaseFor, serviceIdentity, splitIdentity, stackFromImage, STACKS } from './stacks';
 
 const GITHUB_API = 'https://api.github.com';
-const REPO = process.env.DEPLOY_REPO || 'rcaldas-com/dev';
-const COMPOSE_PATH = process.env.DEPLOY_COMPOSE_PATH || 'docker-compose.prod.yml';
-const BRANCH = process.env.DEPLOY_BRANCH || 'main';
 
 export type PromoteResult =
   | { ok: true; commit: string; de: string; para: string }
@@ -63,6 +61,16 @@ export async function promoteImage(imageBase: string, novaTag: string): Promise<
   if (!promoteConfigurado()) {
     return { ok: false, erro: 'GITHUB_TOKEN nao configurado no .env do servidor' };
   }
+
+  // A stack sai do proprio imageBase (registry.rcaldas.com/<stack>/<app>)
+  // -- e' o que diz em qual repo/compose esta linha image: mora. Ver
+  // lib/stacks.ts sobre por que isso nunca pode ser um global so'.
+  const stackNome = stackFromImage(imageBase);
+  const stack = stackNome ? getStack(stackNome) : null;
+  if (!stack) {
+    return { ok: false, erro: `nao sei em que stack/repo promover ${imageBase} (namespace desconhecido)` };
+  }
+  const { repo: REPO, composeFile: COMPOSE_PATH, branch: BRANCH } = stack;
 
   const url = `/repos/${REPO}/contents/${encodeURIComponent(COMPOSE_PATH)}`;
   const atual = await gh(`${url}?ref=${BRANCH}`);
@@ -141,8 +149,11 @@ export async function promoteImage(imageBase: string, novaTag: string): Promise<
   //
   // O nome do servico sai do imageBase porque e' dele que a linha do
   // compose foi encontrada: os dois sao sempre o mesmo servico, entao nao
-  // ha como divergirem.
-  const servico = imageBase.split('/').pop() || '';
+  // ha como divergirem. Mas a CHAVE do registro inclui a stack (ver
+  // serviceIdentity) -- sem isso, promover "bolo" gravaria o selo num doc
+  // "bolo" que nao existe (o real e' "bndes/bolo"), e a tela continuaria
+  // oferecendo "promover" num build que ja foi.
+  const servico = serviceIdentity(stackNome!, imageBase.split('/').pop() || '');
   if (servico) {
     try {
       await recordPromotion(servico, novaTag);
@@ -170,7 +181,7 @@ export async function maybeAutoPromote(service: string, tag: string): Promise<vo
   try {
     const svc = await getService(service);
     if (!svc?.autoPromote) return;
-    const r = await promoteImage(`registry.rcaldas.com/rcaldas/${service}`, tag);
+    const r = await promoteImage(imageBaseFor(stackOf(svc), splitIdentity(service).service), tag);
     if (r.ok) {
       console.log(`auto-promovido ${service}: ${r.de} -> ${r.para} (commit ${r.commit})`);
     } else {
@@ -200,69 +211,78 @@ export async function maybeAutoPromote(service: string, tag: string): Promise<vo
  * enqueueDeployJobs faz upsert por {host, type, pending}, entao chamar de
  * novo enquanto um deploy espera nao empilha nada -- e ele ja pede o
  * inventario junto, que e' o que fecha o ciclo e faz a divergencia sumir.
+ *
+ * UM job 'deploy' por host cobre TODAS as stacks (o agente reconcilia
+ * cada /var/rcaldas/<stack> que existir nele -- ver install.sh) -- por
+ * isso esta funcao so' precisa decidir SE pede, checando cada stack, e
+ * enqueueDeployJobs() uma vez so' resolve as duas de uma vez.
  */
+async function checarDerivaDaStack(stack: (typeof STACKS)[number]): Promise<string | null> {
+  const atual = await gh(`/repos/${stack.repo}/contents/${encodeURIComponent(stack.composeFile)}?ref=${stack.branch}`);
+  if (!atual.res.ok) return null;
+
+  // HEAD do repo, nao do arquivo: e' contra ele que o host se compara.
+  const ref = await gh(`/repos/${stack.repo}/commits/${stack.branch}`);
+  const shaRemoto = ref.res.ok ? String(ref.body.sha || '') : '';
+
+  const conteudo = Buffer.from(String(atual.body.content || ''), 'base64').toString('utf8');
+  // servico -> tag que o git manda subir. O nome sai do proprio caminho da
+  // imagem, que e' como o resto do sistema ja identifica servico.
+  const noGit = new Map<string, string>();
+  for (const linha of conteudo.split('\n')) {
+    const m = linha.match(/^\s*image:\s*(\S+?):(\S+?)\s*$/);
+    if (!m) continue;
+    const nome = m[1].split('/').pop();
+    if (nome) noGit.set(nome, m[2]);
+  }
+  if (!noGit.size) return null;
+
+  // Antes disto a comparacao era so' de TAG de imagem, e isso deixava
+  // passar tudo que nao fosse promocao: mudar `user:`, porta, volume,
+  // variavel ou acrescentar servico nao mexe em tag nenhuma. Aconteceu de
+  // verdade -- o commit que fez o web rodar com outro uid ficou parado no
+  // git, e eu tinha afirmado que producao convergia "tenha o git mudado
+  // por quem for". So' convergia pra metade dos casos.
+  //
+  // O commit e' o sinal certo: se o host esta noutro commit, ele esta
+  // desatualizado, seja qual for a linha que mudou.
+  const estados = shaRemoto ? (await getRepoStates()).filter((e) => e.stack === stack.name) : [];
+  const alvosDeploy = await listDeployTargets();
+  const atrasados = alvosDeploy.filter((h) => {
+    const st = estados.find((e) => e.host === h);
+    // Sem head reportado (agente velho ou stack ainda nao clonada nesse
+    // host) nao da pra afirmar atraso -- e chutar aqui viraria deploy em
+    // loop ou pediria reconciliacao de uma stack que o host nem tem.
+    return st?.head && st.head !== shaRemoto;
+  });
+  if (atrasados.length) {
+    return `[${stack.name}] deriva de commit: ${atrasados.join(', ')} em ${estados.find((e) => atrasados.includes(e.host))?.head?.slice(0, 7)}, repo em ${shaRemoto.slice(0, 7)}`;
+  }
+
+  // So' os servicos DESTA stack -- o nome bruto (sem prefixo) e' o que bate
+  // com a chave que noGit usa, extraida do mesmo compose.
+  const servicos = (await listServices()).filter((s) => stackOf(s) === stack.name);
+  const divergentes = servicos.filter((s) => {
+    const declarada = s.observed?.declaredImage?.split(':').pop();
+    // Sem inventario ainda, nao da pra afirmar divergencia -- e chutar
+    // aqui viraria deploy em loop no primeiro servico nunca visto.
+    if (!declarada) return false;
+    const esperada = noGit.get(splitIdentity(s.name).service);
+    return Boolean(esperada) && esperada !== declarada;
+  });
+  if (!divergentes.length) return null;
+
+  return `[${stack.name}] deriva do compose: ${divergentes.map((s) => `${s.name} ${s.observed?.declaredImage?.split(':').pop()}->${noGit.get(splitIdentity(s.name).service)}`).join(', ')}`;
+}
+
 export async function reconcileComposeDrift(): Promise<void> {
   if (!promoteConfigurado()) return;
   try {
-    const atual = await gh(`/repos/${REPO}/contents/${encodeURIComponent(COMPOSE_PATH)}?ref=${BRANCH}`);
-    if (!atual.res.ok) return;
-
-    // HEAD do repo, nao do arquivo: e' contra ele que o host se compara.
-    const ref = await gh(`/repos/${REPO}/commits/${BRANCH}`);
-    const shaRemoto = ref.res.ok ? String(ref.body.sha || '') : '';
-
-    const conteudo = Buffer.from(String(atual.body.content || ''), 'base64').toString('utf8');
-    // servico -> tag que o git manda subir. O nome sai do proprio caminho da
-    // imagem, que e' como o resto do sistema ja identifica servico.
-    const noGit = new Map<string, string>();
-    for (const linha of conteudo.split('\n')) {
-      const m = linha.match(/^\s*image:\s*(\S+?):(\S+?)\s*$/);
-      if (!m) continue;
-      const nome = m[1].split('/').pop();
-      if (nome) noGit.set(nome, m[2]);
-    }
-    if (!noGit.size) return;
-
-    // Antes disto a comparacao era so' de TAG de imagem, e isso deixava
-    // passar tudo que nao fosse promocao: mudar `user:`, porta, volume,
-    // variavel ou acrescentar servico nao mexe em tag nenhuma. Aconteceu de
-    // verdade -- o commit que fez o web rodar com outro uid ficou parado no
-    // git, e eu tinha afirmado que producao convergia "tenha o git mudado
-    // por quem for". So' convergia pra metade dos casos.
-    //
-    // O commit e' o sinal certo: se o host esta noutro commit, ele esta
-    // desatualizado, seja qual for a linha que mudou.
-    const estados = shaRemoto ? await getRepoStates() : [];
-    const alvosDeploy = await listDeployTargets();
-    const atrasados = alvosDeploy.filter((h) => {
-      const st = estados.find((e) => e.host === h);
-      // Sem head reportado (agente velho, host nunca inventariado) nao da
-      // pra afirmar atraso -- e chutar aqui viraria deploy em loop.
-      return st?.head && st.head !== shaRemoto;
-    });
-    if (atrasados.length) {
-      const alvos = await enqueueDeployJobs();
-      console.log(
-        `deriva de commit: ${atrasados.join(', ')} em ${estados.find((e) => atrasados.includes(e.host))?.head?.slice(0, 7)}, repo em ${shaRemoto.slice(0, 7)} | reconciliacao pedida a: ${alvos.join(', ')}`
-      );
-      return;
-    }
-
-    const servicos = await listServices();
-    const divergentes = servicos.filter((s) => {
-      const declarada = s.observed?.declaredImage?.split(':').pop();
-      // Sem inventario ainda, nao da pra afirmar divergencia -- e chutar
-      // aqui viraria deploy em loop no primeiro servico nunca visto.
-      if (!declarada) return false;
-      const esperada = noGit.get(s.name);
-      return Boolean(esperada) && esperada !== declarada;
-    });
-    if (!divergentes.length) return;
+    const motivos = (await Promise.all(STACKS.map(checarDerivaDaStack))).filter((m): m is string => Boolean(m));
+    if (!motivos.length) return;
 
     const alvos = await enqueueDeployJobs();
-    console.log(
-      `deriva do compose: ${divergentes.map((s) => `${s.name} ${s.observed?.declaredImage?.split(':').pop()}->${noGit.get(s.name)}`).join(', ')} | reconciliacao pedida a: ${alvos.join(', ')}`
-    );
+    console.log(`${motivos.join(' | ')} | reconciliacao pedida a: ${alvos.join(', ')}`);
   } catch (error) {
     // Nunca pode derrubar o heartbeat que chamou.
     console.error('checagem de deriva do compose falhou:', error);

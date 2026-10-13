@@ -1,10 +1,11 @@
 import { Db } from 'mongodb';
 import clientPromise from './mongodb';
 import redis from './redis';
-import { listServices } from './services';
+import { listServices, stackOf } from './services';
 import { hasRunningBuild, lastAttemptedSha, startBuild, sweepStaleBuilds } from './builds';
 import { enqueueBuildJob, enqueueRepoHeadsJob, pickBuildWorker, upsertIncident } from './monitor';
 import { reconcileComposeDrift } from './promote';
+import { getStack, imageBaseFor, splitIdentity } from './stacks';
 
 // Intervalo entre leituras do HEAD remoto. Era o maior termo isolado da
 // latencia da pipeline: as batidas somadas dao ~2,5min e esta trava sozinha
@@ -62,11 +63,16 @@ export async function requestRepoHeadsThrottled(): Promise<void> {
 
     // So' repos de servicos que NOS buildamos. Um 'upstream' nao tem repo
     // nosso pra observar, e um 'managed' nao tem imagem nenhuma.
+    //
+    // "<stack>/<repo>", nao so' o repo: duas stacks podem ter repo
+    // homonimo (nao e' o caso hoje, mas o dir de checkout e' por stack --
+    // /var/rcaldas/<stack>/<repo> -- e sem a stack no token o agente nao
+    // saberia em qual dos dois procurar o .git).
     const repos = [
       ...new Set(
         (await listServices())
           .filter((s) => s.source?.kind === 'build')
-          .map((s) => (s.source as { kind: 'build'; repo: string }).repo)
+          .map((s) => `${stackOf(s)}/${(s.source as { kind: 'build'; repo: string }).repo}`)
           .filter(Boolean)
       ),
     ];
@@ -92,22 +98,28 @@ export async function ingestRepoHeads(_db: Db, heads: Record<string, string>): P
   const servicos = (await listServices()).filter((s) => s.source?.kind === 'build');
 
   for (const svc of servicos) {
+    const stack = stackOf(svc);
     const repo = (svc.source as { kind: 'build'; repo: string }).repo;
-    const sha = heads[repo];
+    const sha = heads[`${stack}/${repo}`];
     if (!sha) continue;
 
     // Ja tentou este sha (ok ou falha) -- nao repete. Ver lastAttemptedSha.
     if ((await lastAttemptedSha(svc.name)) === sha) continue;
     // Um build por servico de cada vez: dois jobs disputariam a mesma
-    // worktree em /var/rcaldas/build/<repo>.
+    // worktree em /var/rcaldas/build/<stack>-<repo>.
     if (await hasRunningBuild(svc.name)) continue;
 
     const worker = await pickBuildWorker();
     if (!worker) return; // sem worker vivo agora; tenta na proxima janela
 
+    const info = getStack(stack);
+    if (!info) continue; // stack desconhecida (nao devia acontecer -- services.ts so grava stacks de STACKS)
+
     const jobId = await enqueueBuildJob(worker, {
       repo,
-      imageBase: `registry.rcaldas.com/rcaldas/${svc.name}`,
+      root: info.dir,
+      stack,
+      imageBase: imageBaseFor(stack, splitIdentity(svc.name).service),
       ref: (svc.source as { ref?: string }).ref,
     });
     if (!jobId) continue;
