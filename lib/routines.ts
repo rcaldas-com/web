@@ -24,6 +24,8 @@ type Rotina = {
   segredoEnv: string;
   intervaloSec: number;
   timeoutMs: number;
+  // Falhas seguidas antes de virar incidente. Ausente = FALHAS_PRA_INCIDENTE.
+  falhasPraIncidente?: number;
 };
 
 const ROTINAS: Rotina[] = [
@@ -36,7 +38,19 @@ const ROTINAS: Rotina[] = [
     url: process.env.WALLET_TICK_URL || 'http://wallet:3000/api/internal/tick',
     segredoEnv: 'INTERNAL_TICK_SECRET',
     intervaloSec: 300,
-    timeoutMs: 15_000,
+    // O tick responde 200 mesmo quando uma cotacao falha (allSettled), entao
+    // a unica "falha" que esta rotina enxergava era o timeout -- e com 15s
+    // ela disparava sozinha: o normal e' ~7,5s, mas depende de API externa
+    // (Horizon, Blockstream, corretoras) que de vez em quando passa disso.
+    // Foram 16 incidentes em uma semana, todos resolvidos em 5-20min sem
+    // ninguem fazer nada. 60s ainda cabe folgado no intervalo de 5min, e
+    // abortar do lado de ca' nem para o tick -- so' faz o Monitor desistir
+    // de esperar.
+    timeoutMs: 60_000,
+    // 3 seguidas = 15min sem tick completar. Wallet fora do ar de verdade
+    // (conexao recusada, 5xx) continua alertando nesse prazo; uma API de
+    // cotacao lenta por alguns minutos, nao.
+    falhasPraIncidente: 3,
   },
 ];
 
@@ -102,17 +116,18 @@ async function registrarResultado(
   );
 
   const chave = `rotina:${rotina.nome}`;
+  const limite = rotina.falhasPraIncidente ?? FALHAS_PRA_INCIDENTE;
   if (!contaFalha) return;
   if (resultado.ok) {
     // Só resolve se havia o que resolver -- resolveIncident já é no-op
     // quando não há incidente aberto com essa chave.
-    if ((anterior?.consecutiveFailures ?? 0) >= FALHAS_PRA_INCIDENTE) {
+    if ((anterior?.consecutiveFailures ?? 0) >= limite) {
       await resolveIncident(db, chave);
     }
     return;
   }
 
-  if (seguidas >= FALHAS_PRA_INCIDENTE) {
+  if (seguidas >= limite) {
     await upsertIncident(db, {
       key: chave,
       target: rotina.nome,
