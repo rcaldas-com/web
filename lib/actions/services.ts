@@ -2,7 +2,14 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireAdmin } from '@/lib/auth';
-import { getService, setServiceEnrichment, setServiceBackup, stackOf, type ServiceSource } from '@/lib/services';
+import {
+  createManualService,
+  getService,
+  setServiceEnrichment,
+  setServiceBackup,
+  stackOf,
+  type ServiceSource,
+} from '@/lib/services';
 import { findBackupRunner, enqueueJob } from '@/lib/monitor';
 import { latestSuccessfulBuild } from '@/lib/builds';
 import { promoteImage } from '@/lib/promote';
@@ -130,4 +137,28 @@ export async function setServiceAction(formData: FormData) {
 
   revalidatePath('/monitor/servicos');
   revalidatePath(`/monitor/servicos/${name}`);
+}
+
+// Cadastro manual: so' pra servico que o inventario nunca vai ver (processo
+// solto no host, como webssh/webvnc). Ver createManualService.
+export async function createServiceAction(formData: FormData) {
+  await requireAdmin();
+  // Mesmo alfabeto dos nomes de servico de compose, e sem "/": a barra e'
+  // reservada pro prefixo de stack (ver serviceIdentity em lib/stacks.ts).
+  const name = String(formData.get('name') || '').trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_.-]{0,62}$/.test(name)) return;
+
+  const bruta = String(formData.get('url') || '').trim();
+  let url: string | undefined;
+  if (bruta) {
+    try {
+      const u = new URL(bruta);
+      if (u.protocol === 'https:' || u.protocol === 'http:') url = u.toString();
+    } catch {
+      // URL invalida: cadastra sem ela, e a pagina do servico mostra o campo vazio.
+    }
+  }
+
+  await createManualService(name, url);
+  revalidatePath('/monitor/servicos');
 }

@@ -101,6 +101,15 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
           {field('Projeto', dep?.kind === 'compose' ? dep.project : undefined)}
           {field('Inventariado', formatDate(svc.observed?.seenAt))}
           {field('Log', svc.logPath)}
+          {svc.url &&
+            field(
+              'Saúde',
+              !svc.health
+                ? 'aguardando a primeira sondagem'
+                : svc.health.ok
+                  ? `ok${svc.health.status ? ` (HTTP ${svc.health.status})` : ''} desde ${formatDate(svc.health.since)}`
+                  : `FORA: ${svc.health.message ?? 'sem resposta'} desde ${formatDate(svc.health.since)}`
+            )}
           {svc.backup?.method &&
             field(
               'Backup',
@@ -170,7 +179,7 @@ export default async function ServicoPage({ params }: { params: Promise<{ name: 
                 <input name="logPath" defaultValue={svc.logPath ?? ''} placeholder="/var/log/remote/us/web.log" className={input} />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">URL pública</span>
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">URL pública (com ela, o serviço é sondado)</span>
                 <input name="url" defaultValue={svc.url ?? ''} placeholder="https://web.rcaldas.com" className={input} />
               </label>
             </div>

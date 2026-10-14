@@ -103,8 +103,22 @@ export type MonitorService = {
   // ao refresh e a outra aba: quem abrir a pagina no meio do caminho ve o
   // mesmo que quem clicou.
   promoted?: { tag: string; at: Date };
+  // Resultado da ultima sondagem HTTP da `url` (lib/probes.ts). So existe
+  // em servico com `url` cadastrada -- e' ela que liga a sondagem.
+  health?: ServiceHealth;
   createdAt: Date;
   updatedAt: Date;
+};
+
+export type ServiceHealth = {
+  ok: boolean;
+  status?: number;
+  message?: string;
+  checkedAt: Date;
+  // Desde quando esta no estado atual (ok ou fora) -- e' o que deixa a
+  // tela dizer "fora ha 12 min" em vez de so' "fora".
+  since: Date;
+  consecutiveFailures: number;
 };
 
 // Estado do repo de deploy no host alvo. E' o que detecta a deriva que
@@ -221,10 +235,11 @@ export async function ingestInventory(params: {
   }
 }
 
-export type ServiceView = Omit<MonitorService, '_id' | 'createdAt' | 'updatedAt' | 'observed' | 'promoted'> & {
+export type ServiceView = Omit<MonitorService, '_id' | 'createdAt' | 'updatedAt' | 'observed' | 'promoted' | 'health'> & {
   _id: string;
   observed?: { declaredImage?: string; runningImage?: string; state?: string; seenAt: string };
   promoted?: { tag: string; at: string };
+  health?: Omit<ServiceHealth, 'checkedAt' | 'since'> & { checkedAt: string; since: string };
   drift: boolean;
 };
 
@@ -260,8 +275,53 @@ function toView(doc: MonitorService): ServiceView {
       ? { ...doc.observed, seenAt: doc.observed.seenAt.toISOString() }
       : undefined,
     promoted: doc.promoted ? { tag: doc.promoted.tag, at: doc.promoted.at.toISOString() } : undefined,
+    health: doc.health
+      ? { ...doc.health, checkedAt: doc.health.checkedAt.toISOString(), since: doc.health.since.toISOString() }
+      : undefined,
     drift: hasDrift(doc),
   };
+}
+
+export async function setServiceHealth(name: string, health: ServiceHealth | null): Promise<void> {
+  const client = await clientPromise;
+  const db = client.db();
+  await db
+    .collection<MonitorService>('monitor_services')
+    .updateOne({ name }, health ? { $set: { health } } : { $unset: { health: '' } });
+}
+
+/**
+ * Cadastra a mao um servico que o inventario nunca vai enxergar.
+ *
+ * O inventario nasce do docker compose, e nem tudo que importa roda nele:
+ * webssh e webvnc sao processos soltos no host. Sem cadastro eles nao
+ * tinham como ser sondados -- e sao justamente as ferramentas de acesso de
+ * emergencia, as que mais doi descobrir fora do ar na hora de usar.
+ *
+ * Nasce 'managed' e sem deployment; o resto se preenche na pagina dele.
+ * Devolve false se o nome ja existe (nunca sobrescreve um inventariado).
+ */
+export async function createManualService(name: string, url?: string): Promise<boolean> {
+  const client = await clientPromise;
+  const db = client.db();
+  await ensureIndexes(db);
+  const now = new Date();
+  const res = await db.collection<MonitorService>('monitor_services').updateOne(
+    { name },
+    {
+      $setOnInsert: {
+        name,
+        stack: 'rcaldas',
+        source: { kind: 'managed' },
+        deployment: { kind: 'none' },
+        ...(url ? { url } : {}),
+        createdAt: now,
+        updatedAt: now,
+      },
+    },
+    { upsert: true }
+  );
+  return res.upsertedCount > 0;
 }
 
 /**

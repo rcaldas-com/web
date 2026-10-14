@@ -8,6 +8,7 @@ import { ingestInventory, saveRepoState } from './services';
 import { finishBuild } from './builds';
 import { ingestRepoHeads, requestRepoHeadsThrottled } from './polling';
 import { runRoutinesThrottled } from './routines';
+import { runProbesThrottled } from './probes';
 import { maybeAutoPromote } from './promote';
 import redis from './redis';
 
@@ -1151,6 +1152,7 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
   await sweepOfflineHostsThrottled(db);
   await requestRepoHeadsThrottled();
   await runRoutinesThrottled();
+  await runProbesThrottled();
 
   let infoCollectedAt = existing?.info?.collectedAt;
 
