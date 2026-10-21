@@ -895,7 +895,13 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
             $b_git -C "$b_src" worktree prune 2>/dev/null || true
             if ! $b_git -C "$b_src" worktree add --force --detach "$b_wt" "$b_sha" >> "$LOG" 2>&1; then
               jmsg="falha ao criar worktree de $b_sha"
-            elif ! docker build -t "$b_image:$b_tag" "$b_wt$b_ctx_sub" >> "$LOG" 2>&1; then
+            # --pull: sem ele o worker reaproveita para sempre a imagem BASE
+            # que tem em cache (FROM nginx:alpine, FROM node:24-alpine) -- o
+            # site foi pra producao com nginx 1.31.4 quando ja havia correcao
+            # de seguranca publicada. Com ele, todo build novo sai com a base
+            # atual daquela tag; o cache das camadas de cima segue valendo se
+            # a base nao mudou.
+            elif ! docker build --pull -t "$b_image:$b_tag" "$b_wt$b_ctx_sub" >> "$LOG" 2>&1; then
               # So o rabo do log vai no result: o log inteiro de um next
               # build nao cabe num campo de JSON do heartbeat, e ja esta no
               # Loki de qualquer forma.
