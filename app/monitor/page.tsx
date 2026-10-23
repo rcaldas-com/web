@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { HomeIcon, CircleStackIcon, ShieldCheckIcon, RectangleStackIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, CircleStackIcon, ShieldCheckIcon, RectangleStackIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import { requireAdminPage } from '@/lib/auth';
 import { getMonitorOverview, findBackupRunner, findHostByRole } from '@/lib/monitor';
 import { listRoutineRuns } from '@/lib/routines';
@@ -67,6 +67,14 @@ export default async function MonitorPage() {
           >
             <RectangleStackIcon className="h-4 w-4" />
             Serviços
+          </Link>
+          <Link
+            href="/monitor/imagens"
+            title="Versão nova de imagem pública e da base dos nossos apps"
+            className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            <ArrowPathIcon className="h-4 w-4" />
+            Imagens
           </Link>
           {backupRunner ? (
             <Link

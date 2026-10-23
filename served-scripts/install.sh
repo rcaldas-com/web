@@ -451,7 +451,7 @@ payload=$(cat <<JSON
   "network":{"ipv4":"$(json_escape "$ipv4")","ipv6":"$(json_escape "$ipv6")"},
   "system":{"uptime":$uptime_seconds,"load1":$load1,"cpuPct":$cpu_pct,"cpuCount":$cpu_count,"topCpu":"$(json_escape "$top_cpu")","diskRootPct":$disk_root,"diskVarPct":$disk_var_pct,"diskVarLogPct":$disk_varlog_pct,"backupDiskPct":$backup_disk_pct,"memoryPct":$memory_pct},
   "tunnel":{"enabled":$ENABLE_TUNNEL,"activeRemotePort":${active_port:-null}},
-  "capabilities":["heartbeat","tcp_banner","tunnel","service-inventory","build","repo-heads","deploy"],
+  "capabilities":["heartbeat","tcp_banner","tunnel","service-inventory","build","repo-heads","deploy","image-check","image-apply"],
   "results":$results_payload
 }
 JSON
@@ -820,6 +820,43 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
           fi
         fi
         ;;
+      image-check)
+        # Verificacao de imagem publica nova SEM baixar nada: compara o digest
+        # remoto com o do container rodando (ver served-scripts/atualiza-
+        # imagens.sh --json). `refs` = imagens BASE dos nossos builds, so' nos
+        # workers -- e' de onde sai o "este app precisa de rebuild".
+        ic_refs=$(printf '%s' "$job" | sed -n 's/.*"refs":"\([^"]*\)".*/\1/p')
+        log "job $jid: verificando imagens publicas${ic_refs:+ e bases ($ic_refs)}"
+        ic_out=$(curl -fsSL -m 30 "$APP_URL/atualiza-imagens" 2>/dev/null | timeout 600 bash -s -- --json ${ic_refs:+--bases "$ic_refs"} 2>>"$LOG" || echo "")
+        if [[ -n "$ic_out" ]] && printf '%s' "$ic_out" | jq -e .images >/dev/null 2>&1; then
+          jstatus="ok"; jmsg="$(printf '%s' "$ic_out" | jq -r '"\(.images|length) imagens, \([.images[]|select(.status=="atualizar")]|length) com atualizacao"')"
+          info_result=",{\"id\":\"image-check\",\"type\":\"image-check\",\"status\":\"ok\",\"message\":\"$(json_escape "$ic_out")\"}"
+        else
+          jmsg="falha na verificacao de imagens"
+        fi
+        ;;
+      image-apply)
+        # Atualizacao pedida pela tela do Monitor: o mesmo atualiza-imagens,
+        # em modo de aplicacao sem perguntar. `projects` vazio = todos.
+        ia_proj=$(printf '%s' "$job" | sed -n 's/.*"projects":"\([^"]*\)".*/\1/p')
+        ia_args=(--aplicar --sim)
+        for ia_p in ${ia_proj//,/ }; do ia_args+=(--projeto "$ia_p"); done
+        log "job $jid: aplicando atualizacao de imagens ${ia_proj:-(todos os projetos)}"
+        ia_tmp=$(mktemp)
+        if curl -fsSL -m 30 "$APP_URL/atualiza-imagens" 2>/dev/null | timeout 1800 bash -s -- "${ia_args[@]}" > "$ia_tmp" 2>&1; then
+          jstatus="ok"
+        fi
+        cat "$ia_tmp" >> "$LOG"
+        # So' o resumo vai no result (500 chars); o detalhe fica no log.
+        jmsg="$(sed -n '/^Resumo/,$p' "$ia_tmp" | sed 's/\x1b\[[0-9;]*m//g' | tail -n +2 | sed 's/^ *//' | paste -sd ';' | cut -c1-480)"
+        [[ -n "$jmsg" ]] || jmsg="$(tail -3 "$ia_tmp" | tr '\n' ' ' | cut -c1-480)"
+        rm -f "$ia_tmp"
+        # Depois de aplicar, verifica de novo: e' o que fecha o incidente.
+        ic_out=$(curl -fsSL -m 30 "$APP_URL/atualiza-imagens" 2>/dev/null | timeout 600 bash -s -- --json 2>>"$LOG" || echo "")
+        if printf '%s' "$ic_out" | jq -e .images >/dev/null 2>&1; then
+          info_result=",{\"id\":\"image-check\",\"type\":\"image-check\",\"status\":\"ok\",\"message\":\"$(json_escape "$ic_out")\"}"
+        fi
+        ;;
       build)
         # Parametros vem planos no job (repo, imageBase, ref) -- lidos com o
         # mesmo sed do id/type, porque o recorte do lado de la e
@@ -835,6 +872,10 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
         b_root="${b_root:-/var/rcaldas/rcaldas}"
         b_stack=$(printf '%s' "$job" | sed -n 's/.*"stack":"\([^"]*\)".*/\1/p')
         b_stack="${b_stack:-rcaldas}"
+        # Sufixo de tag so' no REBUILD do mesmo commit (base nova sem codigo
+        # novo): sem ele a imagem nova sairia com a tag da anterior e a
+        # promocao recusaria ("producao ja esta nesta tag"). So' [a-z0-9.-].
+        b_suffix=$(printf '%s' "$job" | sed -n 's/.*"tagSuffix":"\([^"]*\)".*/\1/p' | tr -cd 'a-z0-9.-')
         b_git="git -c safe.directory=*"
         # Mesmo motivo do repo-heads: o fetch e' rede e precisa da chave do
         # rcaldas. Sem isto o car ate seria detectado, mas morreria aqui.
@@ -873,7 +914,7 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
           if [[ -z "$b_sha" ]]; then
             jmsg="nao consegui resolver $b_ref em $b_repo"
           else
-            b_tag="${b_sha:0:7}"
+            b_tag="${b_sha:0:7}${b_suffix}"
             # Emitido AQUI, antes de buildar, e nao so' no sucesso: o
             # servidor precisa do sha mesmo quando falha. Sem isso o build
             # falho ia pro banco sem sha, o lastAttemptedSha (que filtra por
@@ -920,6 +961,17 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
               jmsg="push falhou 2x: $(tail -3 "$LOG" | tr '\n' ' ' | tail -c 300)"
             else
               jstatus="ok"; jmsg="$b_image:$b_tag"
+              # Digest de cada imagem BASE (FROM) com que este build saiu --
+              # e' contra isso que a verificacao periodica compara o digest
+              # remoto pra dizer "este app tem base nova, precisa rebuild".
+              # Pula estagio interno (FROM builder), scratch e ref com ARG.
+              b_df="$b_wt$b_ctx_sub/Dockerfile"
+              b_bases=$(awk 'toupper($1)=="FROM"{i=2; while($i ~ /^--/) i++; ref=$i; alias=""; if (toupper($(i+1))=="AS") alias=tolower($(i+2)); if (!(tolower(ref) in seen) && ref!="scratch" && ref !~ /\$/) print ref; if (alias!="") seen[alias]=1}' "$b_df" 2>/dev/null | sort -u \
+                | while read -r b_ref; do
+                    b_d=$(docker image inspect "$b_ref" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | grep -F "${b_ref%:*}@" | head -1 | cut -d@ -f2)
+                    [[ -n "$b_d" ]] && printf '%s\t%s\n' "$b_ref" "$b_d"
+                  done | jq -Rsc --arg j "$jid" '{jobId: $j, bases: (split("\n") | map(select(length>0) | split("\t") | {(.[0]): .[1]}) | add // {})}' 2>/dev/null || echo "")
+              [[ -n "$b_bases" ]] && info_result="$info_result,{\"id\":\"build-bases\",\"type\":\"build-bases\",\"status\":\"ok\",\"message\":\"$(json_escape "$b_bases")\"}"
             fi
             $b_git -C "$b_src" worktree remove --force "$b_wt" >> "$LOG" 2>&1 || rm -rf "$b_wt" 2>/dev/null || true
           fi

@@ -21,6 +21,9 @@ export type MonitorBuild = {
   startedAt: Date;
   finishedAt?: Date;
   durationMs?: number;
+  // Digest de cada imagem BASE (FROM) com que este build saiu, {ref: digest}.
+  // Vem do agente >= 2.19 (result build-bases); build anterior nao tem.
+  bases?: Record<string, string>;
   // Marcado por sweepStaleBuilds quando fecha um 'running' por idade, nunca
   // pelo worker. Existe pra finishBuild saber aceitar o resultado real se
   // ele chegar depois -- ver os dois comentarios la.
@@ -275,4 +278,10 @@ export async function sweepStaleBuilds(): Promise<{ service: string; worker: str
     fechados.push({ service: doc.service, worker: doc.worker, minutos });
   }
   return fechados;
+}
+
+export async function setBuildBases(jobId: string, bases: Record<string, string>): Promise<void> {
+  const client = await clientPromise;
+  const db = client.db();
+  await db.collection<MonitorBuild>('monitor_builds').updateOne({ jobId }, { $set: { bases } });
 }

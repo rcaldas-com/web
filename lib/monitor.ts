@@ -5,7 +5,8 @@ import { Db, ObjectId } from 'mongodb';
 import clientPromise from './mongodb';
 import { sendTunnelKeyApprovalEmail, sendIncidentEmail } from './email';
 import { ingestInventory, saveRepoState } from './services';
-import { finishBuild } from './builds';
+import { finishBuild, setBuildBases } from './builds';
+import { baseRefs, enqueueImageCheck, ingestImageCheck, IMAGE_CHECK_INTERVAL_MS } from './images';
 import { ingestRepoHeads, requestRepoHeadsThrottled } from './polling';
 import { runRoutinesThrottled } from './routines';
 import { runProbesThrottled } from './probes';
@@ -18,7 +19,7 @@ import redis from './redis';
 // AGENT_BIN mudar -- nao mudar isso foi o motivo do host-info ter ficado
 // invisivel: o codigo novo foi adicionado sem bump, entao nenhum host
 // existente jamais teria motivo pra se atualizar sozinho.
-export const AGENT_VERSION = '2.18.0';
+export const AGENT_VERSION = '2.19.0';
 
 // Ritmo da frota. O agente le nextIntervalSec do heartbeat e reescreve o
 // proprio timer quando muda, entao trocar estes numeros (ou marcar um host
@@ -224,6 +225,8 @@ export type MonitorHost = {
   // pedido evita martelar um host onde o job falha sempre -- que foi como
   // 4101 jobs de host-info viraram lixo entre 15 e 19/08.
   inventoryRequestedAt?: Date;
+  // Ultimo pedido de image-check (verificacao periodica de imagem publica).
+  imageCheckRequestedAt?: Date;
   // 'standard' (padrao, ate undefined): host comum, sem exposicao publica
   // esperada. 'proxy'/'home': precisa aceitar trafego de fora por design
   // (web/mail/roteador) -- muda qual sugestao de firewall faz sentido, ver
@@ -291,7 +294,16 @@ export type BackupPlanEntry = {
 export type AgentJob = {
   _id: ObjectId;
   host: string;
-  type: 'backup-config' | 'update-agent' | 'host-info' | 'service-inventory' | 'build' | 'repo-heads' | 'deploy';
+  type:
+    | 'backup-config'
+    | 'update-agent'
+    | 'host-info'
+    | 'service-inventory'
+    | 'build'
+    | 'repo-heads'
+    | 'deploy'
+    | 'image-check'
+    | 'image-apply';
   status: 'pending' | 'sent' | 'done' | 'failed';
   // Parametros do job, PLANOS de proposito: o agente fatia a resposta do
   // /agent-jobs com grep -o de {...} e qualquer objeto aninhado aqui
@@ -302,6 +314,9 @@ export type AgentJob = {
   ref?: string; // branch remoto a buildar (vazio = main)
   stack?: string; // so no job build -- nome da worktree em /var/rcaldas/build/<stack>-<repo>
   repos?: string; // "<stack>/<repo>,<stack>/<repo>,..." -- so no job repo-heads
+  tagSuffix?: string; // so no build de REBUILD do mesmo commit ("-b2610231830")
+  refs?: string; // so no image-check: imagens base a verificar, separadas por virgula
+  projects?: string; // so no image-apply: projetos compose, separados por virgula (vazio = todos)
   createdAt: Date;
   sentAt?: Date;
   doneAt?: Date;
@@ -376,7 +391,7 @@ function readBackupRunnerKey(): string | undefined {
 const MAX_RESULTS_POR_HEARTBEAT = 20;
 const MAX_EMAILS_POR_HOST_HORA = 10;
 
-function normalizeHostName(value: string) {
+export function normalizeHostName(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '-').slice(0, 80);
 }
 
@@ -620,7 +635,7 @@ export async function handleLogAlert(alerta: {
 // chave inclui o repo.
 export async function enqueueBuildJob(
   hostName: string,
-  params: { repo: string; root: string; stack: string; imageBase: string; ref?: string }
+  params: { repo: string; root: string; stack: string; imageBase: string; ref?: string; tagSuffix?: string }
 ): Promise<string | null> {
   const host = normalizeHostName(hostName);
   if (!host || !params.repo || !params.imageBase) return null;
@@ -642,6 +657,7 @@ export async function enqueueBuildJob(
         stack: params.stack,
         imageBase: params.imageBase,
         ref: params.ref,
+        tagSuffix: params.tagSuffix,
       },
       $setOnInsert: { createdAt: now },
     },
@@ -1184,6 +1200,28 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
       if (jobId && sha && tag && image) buildsPorJob.set(jobId, { sha, tag, image });
     }
 
+    // Bases (FROM) com que cada build saiu -- e' o que a verificacao
+    // periodica compara pra dizer que um app precisa de rebuild.
+    for (const result of lote) {
+      if (result.type !== 'build-bases' || !result.message) continue;
+      try {
+        const { jobId, bases } = JSON.parse(result.message) as { jobId: string; bases: Record<string, string> };
+        if (jobId && bases) await setBuildBases(jobId, bases);
+      } catch (error) {
+        console.error('build-bases invalido:', error);
+      }
+    }
+
+    // Verificacao de imagem publica nova (job image-check/image-apply).
+    for (const result of lote) {
+      if (result.type !== 'image-check' || !result.message) continue;
+      try {
+        await ingestImageCheck(host, JSON.parse(result.message));
+      } catch (error) {
+        console.error('image-check invalido:', error);
+      }
+    }
+
     // HEAD remoto dos repos -> enfileira build do que mudou (Fase 3).
     for (const result of lote) {
       if (result.type !== 'repo-heads' || !result.message) continue;
@@ -1459,6 +1497,18 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
     }
   }
 
+  // Verificacao periodica de imagem publica nova, em TODO host que declara
+  // saber fazer (producao e dev: "todas as imagens que usamos"). Sem baixar
+  // nada -- so' compara digest --, entao o custo e' ~20s de job a cada 6h.
+  // Worker de build leva junto as imagens BASE dos nossos apps (refs).
+  if ((payload.capabilities || []).includes('image-check')) {
+    const ultimo = existing?.imageCheckRequestedAt;
+    if (!ultimo || ultimo < new Date(now.getTime() - IMAGE_CHECK_INTERVAL_MS)) {
+      await enqueueImageCheck(host, existing?.buildWorker?.enabled ? await baseRefs() : undefined);
+      await hosts.updateOne({ name: host }, { $set: { imageCheckRequestedAt: now } });
+    }
+  }
+
   // Devolve pra fila o que ficou preso em 'sent' (host reiniciou no meio)
   // antes de contar, senao um job travado nunca mais seria entregue.
   await requeueStaleJobs(db, host);
@@ -1620,6 +1670,9 @@ export async function takePendingJobs(hostName: string) {
     ...(j.imageBase ? { imageBase: j.imageBase } : {}),
     ...(j.ref ? { ref: j.ref } : {}),
     ...(j.repos ? { repos: j.repos } : {}),
+    ...(j.tagSuffix ? { tagSuffix: j.tagSuffix } : {}),
+    ...(j.refs ? { refs: j.refs } : {}),
+    ...(j.projects ? { projects: j.projects } : {}),
   }));
 }
 
