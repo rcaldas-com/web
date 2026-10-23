@@ -942,7 +942,18 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
             # de seguranca publicada. Com ele, todo build novo sai com a base
             # atual daquela tag; o cache das camadas de cima segue valendo se
             # a base nao mudou.
-            elif ! docker build --pull -t "$b_image:$b_tag" "$b_wt$b_ctx_sub" >> "$LOG" 2>&1; then
+            #
+            # --pull e' TENTATIVA, nao requisito: ele consulta o registry da
+            # base a cada build, e com o Docker Hub limitando a rede (429 em
+            # HEAD anonimo) TODO build falhava -- aconteceu em 23/10, com o
+            # web parado em "failed to resolve source metadata". Se a falha e'
+            # so' o registry nao responder, refaz com a base em cache, como era
+            # antes do --pull; a verificacao periodica de imagens avisa depois
+            # que a base ficou velha.
+            elif ! docker build --pull -t "$b_image:$b_tag" "$b_wt$b_ctx_sub" >> "$LOG" 2>&1 \
+                 && ! { tail -60 "$LOG" | grep -qiE 'failed to resolve source metadata|toomanyrequests|429 too many|unexpected status from head' \
+                        && log "job $jid: registry da imagem base nao respondeu, refazendo o build sem --pull" \
+                        && docker build -t "$b_image:$b_tag" "$b_wt$b_ctx_sub" >> "$LOG" 2>&1; }; then
               # So o rabo do log vai no result: o log inteiro de um next
               # build nao cabe num campo de JSON do heartbeat, e ja esta no
               # Loki de qualquer forma.
