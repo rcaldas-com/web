@@ -83,12 +83,16 @@ digest_remoto() {
     | jq -r '.digest // empty' 2>/dev/null
 }
 
-# Digest com que a imagem local foi baixada, do repositorio dela (uma imagem
-# pode ter varios RepoDigests se foi baixada por mais de um nome).
+# TODOS os digests com que a imagem local foi baixada, do repositorio dela,
+# um por linha. Sao varios quando a mesma imagem veio por mais de um indice:
+# o registry republica o indice (atestacao, arquitetura nova) sem mudar a
+# imagem amd64, o pull traz o mesmo conteudo e o docker ACRESCENTA o digest
+# novo. Comparar so' com o primeiro deixava o host "com versao nova" pra
+# sempre -- aconteceu no bag com redis:8 logo depois de aplicar.
 digest_local() {
   local ref="$1" repo="${2%:*}"
   docker image inspect "$ref" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null \
-    | grep -F "${repo}@" | head -1 | cut -d@ -f2
+    | grep -F "${repo}@" | cut -d@ -f2
 }
 
 if [[ $JSON == 1 ]]; then
@@ -109,11 +113,12 @@ if [[ $JSON == 1 ]]; then
             printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$nome" "$svc" "$img" "$fixa" "" "" "sem-container"; continue
           fi
           id=$(docker inspect "$c" --format '{{.Image}}' 2>/dev/null)
-          local_d=$(digest_local "$id" "$img"); remoto=$(digest_remoto "$img")
-          if [[ -z "$local_d" ]]; then st=local
+          locais=$(digest_local "$id" "$img"); remoto=$(digest_remoto "$img")
+          local_d=$(printf '%s\n' "$locais" | tail -1)
+          if [[ -z "$locais" ]]; then st=local
           elif [[ -z "$remoto" ]]; then st=desconhecido
-          elif [[ "$local_d" != "$remoto" ]]; then st=atualizar
-          else st=ok; fi
+          elif printf '%s\n' "$locais" | grep -qxF "$remoto"; then st=ok
+          else st=atualizar; fi
           printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$nome" "$svc" "$img" "$fixa" "$local_d" "$remoto" "$st"
         done
   done < <(docker compose ls --all --format json 2>/dev/null | jq -r '.[] | [.Name, .ConfigFiles] | @tsv') > "$linhas"

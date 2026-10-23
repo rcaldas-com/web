@@ -965,10 +965,17 @@ if printf '%s' "$response" | grep -q '"hasJobs":true'; then
               # e' contra isso que a verificacao periodica compara o digest
               # remoto pra dizer "este app tem base nova, precisa rebuild".
               # Pula estagio interno (FROM builder), scratch e ref com ARG.
+              #
+              # O digest vem do REGISTRY, nao de `docker image inspect`: com
+              # BuildKit o --pull resolve a base no cache proprio dele e NAO
+              # cria a imagem local (no bag, depois do build, nginx:alpine
+              # "nao existe"). O digest remoto agora e' o que o --pull acabou
+              # de usar -- a janela pra base ser republicada no meio e' o
+              # tempo do build.
               b_df="$b_wt$b_ctx_sub/Dockerfile"
               b_bases=$(awk 'toupper($1)=="FROM"{i=2; while($i ~ /^--/) i++; ref=$i; alias=""; if (toupper($(i+1))=="AS") alias=tolower($(i+2)); if (!(tolower(ref) in seen) && ref!="scratch" && ref !~ /\$/) print ref; if (alias!="") seen[alias]=1}' "$b_df" 2>/dev/null | sort -u \
                 | while read -r b_ref; do
-                    b_d=$(docker image inspect "$b_ref" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | grep -F "${b_ref%:*}@" | head -1 | cut -d@ -f2)
+                    b_d=$(timeout 30 docker buildx imagetools inspect "$b_ref" --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest // empty' 2>/dev/null)
                     [[ -n "$b_d" ]] && printf '%s\t%s\n' "$b_ref" "$b_d"
                   done | jq -Rsc --arg j "$jid" '{jobId: $j, bases: (split("\n") | map(select(length>0) | split("\t") | {(.[0]): .[1]}) | add // {})}' 2>/dev/null || echo "")
               [[ -n "$b_bases" ]] && info_result="$info_result,{\"id\":\"build-bases\",\"type\":\"build-bases\",\"status\":\"ok\",\"message\":\"$(json_escape "$b_bases")\"}"
