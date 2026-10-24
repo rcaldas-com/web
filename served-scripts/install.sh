@@ -486,7 +486,12 @@ if [[ -n "$runner_key" ]]; then
   if [[ -n "$bkp_home" && -d "$bkp_home" ]]; then
     bkp_auth="$bkp_home/.ssh/authorized_keys"
     mkdir -p "$bkp_home/.ssh" && chmod 700 "$bkp_home/.ssh"
-    touch "$bkp_auth"
+    # So' cria se nao existe. `touch` em arquivo existente atualiza a data, e
+    # este arquivo e' um LINK pro authorized_keys do live (Syncthing): cada
+    # heartbeat de cada host mudava a data do arquivo sincronizado, o
+    # Syncthing nunca terminava de sincronizar ("file modified but not
+    # rescanned") e o alerta de log do bag disparou dezenas de vezes em 23/10.
+    [[ -e "$bkp_auth" ]] || touch "$bkp_auth"
     if ! grep -qsF "$runner_key" "$bkp_auth"; then
       # Remove chave de runner anterior antes de gravar a nova, senao a
       # cada troca sobraria uma chave velha ainda valida no host.
