@@ -6,7 +6,7 @@ import clientPromise from './mongodb';
 import { sendTunnelKeyApprovalEmail, sendIncidentEmail } from './email';
 import { ingestInventory, saveRepoState } from './services';
 import { finishBuild, setBuildBases } from './builds';
-import { baseRefs, enqueueImageCheck, ingestImageCheck, IMAGE_CHECK_INTERVAL_MS } from './images';
+import { baseRefs, enqueueImageCheck, ingestImageCheck, IMAGE_CHECK_INTERVAL_MS, noteBuildBases } from './images';
 import { ingestRepoHeads, requestRepoHeadsThrottled } from './polling';
 import { runRoutinesThrottled } from './routines';
 import { runProbesThrottled } from './probes';
@@ -1206,7 +1206,10 @@ export async function registerHeartbeat(payload: HeartbeatPayload, headers: Head
       if (result.type !== 'build-bases' || !result.message) continue;
       try {
         const { jobId, bases } = JSON.parse(result.message) as { jobId: string; bases: Record<string, string> };
-        if (jobId && bases) await setBuildBases(jobId, bases);
+        if (jobId && bases) {
+          await setBuildBases(jobId, bases);
+          await noteBuildBases(host, bases);
+        }
       } catch (error) {
         console.error('build-bases invalido:', error);
       }

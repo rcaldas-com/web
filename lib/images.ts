@@ -121,15 +121,24 @@ export async function listStaleApps(): Promise<StaleApp[]> {
   const client = await clientPromise;
   const db = client.db();
   const remotos = new Map(
-    (await db.collection<BaseDigestDoc>('monitor_base_digests').find({}).toArray()).map((d) => [d.ref, d.remote])
+    (await db.collection<BaseDigestDoc>('monitor_base_digests').find({}).toArray()).map((d) => [d.ref, d])
   );
   const out: StaleApp[] = [];
   for (const svc of (await listServices()).filter((s) => s.source?.kind === 'build')) {
     const b = await productionBuild(db, svc);
     const bases = b?.bases ?? {};
+    // So' e' "base nova" se a verificacao remota for POSTERIOR ao build: o
+    // build resolve a base na hora (--pull) e registra o digest que usou, que
+    // pode ser mais novo que a ultima verificacao guardada. Sem esta trava o
+    // ccxt ficou "com base nova" depois de dois rebuilds: a referencia do
+    // python era de 12 dias antes, e o build tinha usado a versao atual.
+    const fim = b?.finishedAt ?? b?.startedAt;
     const stale = Object.entries(bases)
-      .filter(([ref, used]) => remotos.get(ref) && sha(remotos.get(ref)) !== sha(used))
-      .map(([ref, used]) => ({ ref, used: sha(used), remote: sha(remotos.get(ref)) }));
+      .filter(([ref, used]) => {
+        const r = remotos.get(ref);
+        return r && sha(r.remote) !== sha(used) && (!fim || r.checkedAt > fim);
+      })
+      .map(([ref, used]) => ({ ref, used: sha(used), remote: sha(remotos.get(ref)?.remote) }));
     out.push({ service: svc.name, tag: b?.tag, hasBases: Object.keys(bases).length > 0, stale });
   }
   return out;
@@ -213,6 +222,10 @@ async function refreshImageIncidents(db: Db, host: string) {
     await resolveIncident(db, chave);
   }
 
+  await refreshBaseIncident(db);
+}
+
+async function refreshBaseIncident(db: Db) {
   const apps = (await listStaleApps()).filter((a) => a.stale.length);
   if (apps.length) {
     await upsertIncident(db, {
@@ -225,6 +238,28 @@ async function refreshImageIncidents(db: Db, host: string) {
   } else {
     await resolveIncident(db, 'imagens-base');
   }
+}
+
+/**
+ * Bases que um build acabou de usar. O digest foi resolvido no registry na
+ * hora do build, entao vale como verificacao remota daquele instante: grava
+ * como referencia (e' a mais recente que existe) e reavalia o alerta das
+ * bases ja, sem esperar a proxima verificacao de 6h.
+ *
+ * Sem isto, base de app que ainda nao tinha bases registradas nunca entrava
+ * na lista que o worker verifica -- e a referencia dela envelhecia parada.
+ */
+export async function noteBuildBases(hostName: string, bases: Record<string, string>): Promise<void> {
+  const client = await clientPromise;
+  const db = client.db();
+  const now = new Date();
+  for (const [ref, digest] of Object.entries(bases)) {
+    if (!ref || !digest) continue;
+    await db
+      .collection<BaseDigestDoc>('monitor_base_digests')
+      .updateOne({ ref }, { $set: { ref, remote: digest, checkedAt: now, host: hostName } }, { upsert: true });
+  }
+  await refreshBaseIncident(db);
 }
 
 // ---------------------------------------------------------------- rebuild
