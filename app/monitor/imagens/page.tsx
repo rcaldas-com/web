@@ -23,6 +23,7 @@ const BADGE: Record<string, string> = {
   ok: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
   atualizar: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
   desconhecido: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400',
+  indisponivel: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
   local: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400',
   'sem-container': 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400',
 };
@@ -30,6 +31,7 @@ const ROTULO: Record<string, string> = {
   ok: 'em dia',
   atualizar: 'versão nova',
   desconhecido: 'não verificável',
+  indisponivel: 'não publicada',
   local: 'imagem local',
   'sem-container': 'sem container',
 };
@@ -162,6 +164,14 @@ export default async function ImagensPage() {
                         <span className={`rounded-full px-2 py-0.5 text-xs ${BADGE[i.status] ?? BADGE.desconhecido}`}>
                           {ROTULO[i.status] ?? i.status}
                         </span>
+                        {i.status === 'indisponivel' && (
+                          <span
+                            className="ml-2 text-xs text-zinc-400"
+                            title="O registry recusou (401/403/404). Esta cópia local é a última; um host novo não consegue baixar."
+                          >
+                            sem atualização possível
+                          </span>
+                        )}
                         {i.fixed && i.status === 'ok' && (
                           <span className="ml-2 text-xs text-zinc-400" title="Versão nova exige trocar a tag no compose">
                             tag fixa

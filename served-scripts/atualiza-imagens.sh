@@ -83,6 +83,15 @@ digest_remoto() {
     | jq -r '.digest // empty' 2>/dev/null
 }
 
+# Por que o registry nao deu o digest: 401/403/404 = a imagem nao e' mais
+# publicada (ou virou privada) -- caso do minio, que sumiu do Docker Hub e
+# fechou o quay.io. Qualquer outra coisa (429, timeout, rede) e' transitoria.
+motivo_remoto() {
+  local err
+  err=$(timeout 30 docker buildx imagetools inspect "$1" 2>&1 >/dev/null)
+  if printf '%s' "$err" | grep -qE ' (401|403|404) |unauthorized|not found|denied'; then echo indisponivel; else echo desconhecido; fi
+}
+
 # TODOS os digests com que a imagem local foi baixada, do repositorio dela,
 # um por linha. Sao varios quando a mesma imagem veio por mais de um indice:
 # o registry republica o indice (atestacao, arquitetura nova) sem mudar a
@@ -113,12 +122,21 @@ if [[ $JSON == 1 ]]; then
             printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$nome" "$svc" "$img" "$fixa" "" "" "sem-container"; continue
           fi
           id=$(docker inspect "$c" --format '{{.Image}}' 2>/dev/null)
-          locais=$(digest_local "$id" "$img"); remoto=$(digest_remoto "$img")
-          local_d=$(printf '%s\n' "$locais" | tail -1)
-          if [[ -z "$locais" ]]; then st=local
-          elif [[ -z "$remoto" ]]; then st=desconhecido
-          elif printf '%s\n' "$locais" | grep -qxF "$remoto"; then st=ok
-          else st=atualizar; fi
+          id_tag=$(docker image inspect "$img" --format '{{.Id}}' 2>/dev/null)
+          # Container rodando imagem DIFERENTE da que a tag aponta aqui: a
+          # nova ja foi baixada (pull sem recriar -- o modo verificar faz
+          # isso) e a antiga perdeu tag e digest. Antes isto aparecia como
+          # "imagem local"; e' "falta recriar", que o aplicar resolve.
+          if [[ -n "$id_tag" && "$id" != "$id_tag" ]]; then
+            locais=""; remoto=""; local_d=""; st=atualizar
+          else
+            locais=$(digest_local "$id" "$img"); remoto=$(digest_remoto "$img")
+            local_d=$(printf '%s\n' "$locais" | tail -1)
+            if [[ -z "$locais" ]]; then st=local
+            elif [[ -z "$remoto" ]]; then st=$(motivo_remoto "$img")
+            elif printf '%s\n' "$locais" | grep -qxF "$remoto"; then st=ok
+            else st=atualizar; fi
+          fi
           printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$nome" "$svc" "$img" "$fixa" "$local_d" "$remoto" "$st"
         done
   done < <(docker compose ls --all --format json 2>/dev/null | jq -r '.[] | [.Name, .ConfigFiles] | @tsv') > "$linhas"

@@ -39,7 +39,9 @@ export type ImageEntry = {
   remote: string;
   // atualizar = digest remoto difere do rodando; desconhecido = registry nao
   // respondeu (ex.: quay.io); local = imagem sem digest (buildada no host).
-  status: 'ok' | 'atualizar' | 'desconhecido' | 'local' | 'sem-container';
+  // indisponivel = registry recusou (401/403/404): a imagem deixou de ser
+  // publicada ou virou privada, entao nao ha versao nova pra buscar.
+  status: 'ok' | 'atualizar' | 'desconhecido' | 'indisponivel' | 'local' | 'sem-container';
 };
 
 type ImageCheckDoc = { host: string; checkedAt: Date; images: ImageEntry[] };
