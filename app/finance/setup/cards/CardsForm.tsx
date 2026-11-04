@@ -10,7 +10,7 @@ import { useSavedFlash } from '../useSavedFlash';
 import { keepFormValues } from '../keepFormValues';
 import { useFormDirty } from '../useFormDirty';
 import SetupActions from '../SetupActions';
-import { FIELD, RemoveRowButton } from '../rowParts';
+import { FIELD, FIELD_BASE, RemoveRowButton } from '../rowParts';
 
 const DRAFT_ID = 'cards';
 
@@ -173,7 +173,7 @@ export default function CardsForm({
                     type="text" name="cardInvoiceTotal" inputMode="decimal"
                     value={row.invoiceTotal}
                     onChange={e => updateRow(i, 'invoiceTotal', e.target.value)}
-                    className={`${FIELD} w-28`}
+                    className={`${FIELD_BASE} w-28`}
                     placeholder="0,00"
                   />
                 </label>

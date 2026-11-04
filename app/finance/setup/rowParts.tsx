@@ -8,8 +8,14 @@ import { TrashIcon } from '@heroicons/react/24/outline';
 // quatro linhas de tela pra três campos curtos. Agora a linha principal
 // (nome + valor curto + remover) cabe numa linha em qualquer largura.
 
-export const FIELD =
-  'block h-9 w-full rounded-md border-zinc-300 px-2 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500';
+// Sem largura: quem precisa de campo estreito (dia, valor padrão) soma a
+// sua. Juntar `w-full` com `w-12` na mesma classe deixava o Tailwind
+// escolher pela ordem do CSS gerado -- e o w-full ganhava, esticando
+// "Dia" e "Padrão" pela linha inteira.
+export const FIELD_BASE =
+  'block h-9 rounded-md border-zinc-300 px-2 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500';
+
+export const FIELD = `${FIELD_BASE} w-full`;
 
 export const LABEL = 'mb-0.5 block text-xs text-zinc-500';
 

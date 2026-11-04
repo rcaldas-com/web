@@ -9,7 +9,7 @@ import { useSavedFlash } from '../useSavedFlash';
 import { keepFormValues } from '../keepFormValues';
 import { useFormDirty } from '../useFormDirty';
 import SetupActions from '../SetupActions';
-import { FIELD, RemoveRowButton } from '../rowParts';
+import { FIELD, FIELD_BASE, RemoveRowButton } from '../rowParts';
 
 const DRAFT_ID = 'expenses';
 
@@ -142,7 +142,10 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
                 hidden={rows.length === 1}
               />
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            {/* Celular: selects numa linha, dia/padrão/VR na outra. Tela
+                larga: tudo numa linha só. */}
+            <div className="space-y-2 sm:flex sm:items-center sm:gap-4 sm:space-y-0">
+            <div className="grid grid-cols-2 gap-2 sm:w-72 sm:shrink-0">
               <select
                 name="expCategory"
                 aria-label="Forma de pagamento"
@@ -165,7 +168,7 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
                 <option value="weekly">Por semana</option>
               </select>
             </div>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-zinc-600">
+            <div className="flex items-center gap-4 text-sm text-zinc-600">
               {!row.proportional ? (
                 <label className="flex items-center gap-1">
                   <span>Dia</span>
@@ -173,7 +176,7 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
                     type="text" inputMode="numeric" pattern="[0-9]*" maxLength={2} name="expDueDay"
                     value={row.dueDay || ''}
                     onChange={e => updateRow(i, 'dueDay', e.target.value.replace(/\D/g, ''))}
-                    className={`${FIELD} w-12 text-center`}
+                    className={`${FIELD_BASE} w-11 text-center`}
                     placeholder="-"
                   />
                 </label>
@@ -190,7 +193,7 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
                     type="text" inputMode="decimal" name="expDefaultPayment"
                     value={row.defaultPayment ?? ''}
                     onChange={e => updateRow(i, 'defaultPayment', e.target.value)}
-                    className={`${FIELD} w-20`}
+                    className={`${FIELD_BASE} w-20`}
                     placeholder="-"
                   />
                 </label>
@@ -209,6 +212,7 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
                 />
                 <span>VR</span>
               </label>
+            </div>
             </div>
           </div>
         ))}
