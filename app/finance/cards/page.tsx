@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getSessionUserId } from '@/lib/auth';
-import { getProfile, getCards, getInstallments, getOrInitMonthCardInvoices, buildCardViews } from '@/lib/finance/data';
+import { getProfile, getCards, getInstallments, getOrInitMonthCardInvoices } from '@/lib/finance/data';
+import { activeCards, buildCardViews } from '@/lib/finance/compute';
 import { addMonthsToYearMonth, getFinanceToday } from '@/lib/finance/date';
 import CardsClient from './CardsClient';
 import CardsGuest from './CardsGuest';
@@ -23,12 +24,12 @@ export default async function CardsPage() {
 
   // Load next month's invoices and show from next month's perspective
   const nextMonthInvoices = await getOrInitMonthCardInvoices(userId, nextYearMonth, cards, installments, 1);
-  const cardViews = buildCardViews(cards, installments, nextMonthInvoices, 1);
+  const cardViews = buildCardViews(cards, installments, nextMonthInvoices, 1, nextYearMonth);
 
   return (
     <>
       <AutoRefresh />
-      <CardsClient cardViews={cardViews} cards={cards} nextYearMonth={nextYearMonth} />
+      <CardsClient cardViews={cardViews} cards={activeCards(cards)} nextYearMonth={nextYearMonth} />
     </>
   );
 }

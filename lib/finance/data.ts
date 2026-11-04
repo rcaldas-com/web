@@ -13,7 +13,6 @@ import type {
   MonthCardInvoice,
   MonthExpenseOverride,
   InstallmentGroup,
-  CardView,
 } from './types';
 
 const INSTALLMENT_ROLLOVER_CONTROL_ID = 'installment-rollover';
@@ -218,8 +217,10 @@ export async function upsertCard(userId: string, card: { _id?: string; name: str
     // Regravar daqui carimbaria um número velho como se fosse do mês atual.
     const $set: Record<string, unknown> = { name: card.name, dueDay: card.dueDay };
     if (card.sortOrder != null) $set.sortOrder = card.sortOrder;
+    // userId no filtro: o _id vem do formulário, e sem isto um id de
+    // cartão de outra pessoa seria editável.
     await db.collection('financeCard').updateOne(
-      { _id: new ObjectId(card._id) },
+      { _id: new ObjectId(card._id), userId },
       { $set }
     );
     await recordChange({
@@ -275,15 +276,26 @@ export async function updateCardOrder(userId: string, cardIds: string[]) {
   await Promise.all(ops);
 }
 
-export async function deleteCard(cardId: string) {
+// Remoção LÓGICA (ver CreditCard.removedAt). Antes existia um deleteCard que
+// apagava o documento e todas as parcelas do cartão -- parcela que o banco
+// continua cobrando depois do cancelamento sumia do saldo, e o histórico
+// perdia o cartão. Ele nem era chamado pela tela: o Salvar de Configurar
+// simplesmente ignorava a linha removida, e o cartão voltava.
+export async function removeCards(userId: string, cardIds: string[]) {
+  if (!cardIds.length) return;
   const client = await clientPromise;
   const db = client.db();
-  const before = await db.collection('financeCard').findOne({ _id: new ObjectId(cardId) });
-  await db.collection('financeCard').deleteOne({ _id: new ObjectId(cardId) });
-  await db.collection('financeInstallment').deleteMany({ cardId });
-  if (before) {
+  const removedMonth = getFinanceToday().yearMonth;
+  for (const cardId of cardIds) {
+    const before = await db.collection('financeCard').findOne({ _id: new ObjectId(cardId), userId });
+    if (!before || before.removedAt) continue;
+    await db.collection('financeCard').updateOne(
+      { _id: before._id, userId },
+      { $set: { removedAt: new Date(), removedMonth } },
+    );
+    const parcelas = await db.collection('financeInstallment').countDocuments({ userId, cardId });
     await recordChange({
-      userId: before.userId as string,
+      userId,
       entity: 'card',
       entityId: cardId,
       entityLabel: (before.name as string) || 'Cartão',
@@ -291,7 +303,9 @@ export async function deleteCard(cardId: string) {
       action: 'delete',
       changes: [
         { field: 'name', label: 'Nome', before: before.name ?? null, after: null, kind: 'text' },
-        { field: 'invoiceTotal', label: 'Fatura', before: before.invoiceTotal ?? null, after: null, kind: 'money' },
+        ...(parcelas
+          ? [{ field: 'parcelas', label: 'Parcelas em andamento (mantidas)', before: parcelas, after: parcelas, kind: 'number' as const }]
+          : []),
       ],
       source: 'user',
     });
@@ -1038,40 +1052,6 @@ export function groupInstallments(installments: Installment[], cards: CreditCard
   }
 
   return Array.from(groups.values()).sort((a, b) => b.remaining - a.remaining);
-}
-
-export function buildCardViews(
-  cards: CreditCard[],
-  installments: Installment[],
-  monthInvoices?: MonthCardInvoice[],
-  monthOffset = 0,
-): CardView[] {
-  const invoiceMap = new Map((monthInvoices || []).map(ci => [ci.cardId, ci]));
-
-  return cards.map(card => {
-    const cardInstallments = installments
-      .filter(i => i.cardId === card._id && i.remainingInstallments > monthOffset);
-    const installmentsTotal = cardInstallments.reduce((sum, i) => sum + i.monthlyValue, 0);
-    const monthInvoice = invoiceMap.get(card._id!);
-    const invoiceTotal = monthInvoice ? monthInvoice.invoiceTotal : card.invoiceTotal;
-    const paid = monthInvoice ? monthInvoice.paid : false;
-
-    return {
-      _id: card._id!,
-      name: card.name,
-      dueDay: card.dueDay,
-      invoiceTotal,
-      installmentsTotal,
-      extras: invoiceTotal - installmentsTotal,
-      paid,
-      items: cardInstallments.map(i => ({
-        _id: i._id!,
-        description: i.description,
-        remaining: i.remainingInstallments - monthOffset,
-        monthlyValue: i.monthlyValue,
-      })).sort((a, b) => b.remaining - a.remaining),
-    };
-  });
 }
 
 export function calculateTotalBalance(

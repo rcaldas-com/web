@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import {
   upsertProfile,
   upsertCard,
-  deleteCard as deleteCardData,
+  removeCards,
   updateCardOrder,
   saveExpenses,
   addInstallment,
@@ -107,6 +107,18 @@ export async function saveCards(formData: FormData) {
     });
   }
 
+  // Linha que sumiu do formulário = cartão removido. Antes isto não existia:
+  // o Salvar só gravava as linhas presentes, então remover e salvar não
+  // fazia nada e o cartão voltava. Linha com nome apagado continua com o
+  // id no form, então NÃO conta como remoção -- só o botão de remover tira
+  // a linha inteira.
+  const kept = new Set(cardIds.filter(Boolean));
+  const existing = await getCards(userId);
+  await removeCards(
+    userId,
+    existing.filter(c => !c.removedAt && !kept.has(c._id!)).map(c => c._id!),
+  );
+
   revalidatePath('/finance');
 }
 
@@ -118,12 +130,6 @@ export async function saveCardsAndContinue(formData: FormData) {
 export async function saveCardsAndFinish(formData: FormData) {
   await saveCards(formData);
   redirect('/finance');
-}
-
-export async function removeCard(cardId: string) {
-  await getUserId();
-  await deleteCardData(cardId);
-  revalidatePath('/finance');
 }
 
 
@@ -157,7 +163,9 @@ export async function saveExpensesList(formData: FormData) {
       value: evalExpression(values[i]),
       category: (categories[i] === 'card' ? 'card' : 'cash') as 'card' | 'cash',
       proportional: (['daily', 'weekly'].includes(proportionals[i]) ? proportionals[i] : false) as false | 'daily' | 'weekly',
-      dueDay: parseInt(dueDays[i]) || undefined,
+      // Teto em 31: o campo deixou de ser type=number (que barrava no
+      // navegador) pra caber compacto na linha.
+      dueDay: Math.min(31, parseInt(dueDays[i]) || 0) || undefined,
       // Vazio/zero = sem padrão (abre com o restante). null e não undefined:
       // saveExpenses faz $set com o objeto, e undefined não apagaria um
       // padrão antigo quando o campo é esvaziado.

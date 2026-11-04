@@ -9,6 +9,7 @@ import { useSavedFlash } from '../useSavedFlash';
 import { keepFormValues } from '../keepFormValues';
 import { useFormDirty } from '../useFormDirty';
 import SetupActions from '../SetupActions';
+import { FIELD, RemoveRowButton } from '../rowParts';
 
 const DRAFT_ID = 'expenses';
 
@@ -109,67 +110,73 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
         </div>
         <p className="text-sm text-zinc-500">
           <strong>Cartão:</strong> débito no cartão (impacta fatura). <strong>À vista:</strong> débito direto (pix/boleto).
-          <br /><strong>Proporcional:</strong> diário = valor × dias no mês | semanal = valor × (dias / 7).
+          <br /><strong>Por dia / Por semana:</strong> proporcional -- valor × dias no mês, ou valor × (dias / 7).
         </p>
         {rows.map((row, i) => (
-          <div key={i} className="border rounded-md p-3 space-y-2">
+          <div key={i} className="space-y-2 rounded-md border p-2">
             <input type="hidden" name="expId" value={row.id} />
-            {/* Mesmo grid nomeado das outras 3 abas -- coluna única abaixo
-                de sm, evita o botão de apagar sobrar sozinho na linha. */}
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_2rem] sm:items-center">
+            {/* Mesmo padrão das outras abas: nome + valor + remover numa
+                linha em qualquer largura (antes empilhava no celular e a
+                lixeira sobrava sozinha numa linha). */}
+            <div className="grid grid-cols-[minmax(0,1fr)_6.5rem_2.25rem] items-center gap-2">
               <input
                 ref={i === rows.length - 1 ? lastNameRef : undefined}
                 type="text" name="expName"
+                aria-label="Nome da despesa"
                 value={row.name}
                 onChange={e => updateRow(i, 'name', e.target.value)}
-                className="block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                className={FIELD}
                 placeholder="Nome da despesa"
               />
               <input
                 type="text" inputMode="decimal" name="expValue"
+                aria-label="Valor"
                 value={row.value || ''}
                 onChange={e => updateRow(i, 'value', e.target.value)}
-                className="block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                className={FIELD}
                 placeholder="Valor"
               />
-              {rows.length > 1 && (
-                <button type="button" onClick={() => removeRow(i)}
-                  className="h-9 w-8 justify-self-start rounded-md text-red-500 hover:bg-red-50 hover:text-red-700 sm:justify-self-center">
-                  ✕
-                </button>
-              )}
+              <RemoveRowButton
+                label={`Remover ${row.name || 'despesa'}`}
+                onClick={() => removeRow(i)}
+                hidden={rows.length === 1}
+              />
             </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-2 items-center text-sm">
+            <div className="grid grid-cols-2 gap-2">
               <select
                 name="expCategory"
+                aria-label="Forma de pagamento"
                 value={row.category}
                 onChange={e => updateRow(i, 'category', e.target.value)}
-                className="rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                className={FIELD}
               >
                 <option value="card">Cartão</option>
                 <option value="cash">À vista</option>
               </select>
               <select
                 name="expProportional"
+                aria-label="Fixo ou proporcional"
                 value={row.proportional || ''}
                 onChange={e => updateRow(i, 'proportional', e.target.value || false)}
-                className="rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                className={FIELD}
               >
                 <option value="">Fixo</option>
-                <option value="daily">Proporcional/dia</option>
-                <option value="weekly">Proporcional/semana</option>
+                <option value="daily">Por dia</option>
+                <option value="weekly">Por semana</option>
               </select>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-zinc-600">
               {!row.proportional ? (
-                <div className="flex items-center gap-1">
-                  <span>Dia:</span>
+                <label className="flex items-center gap-1">
+                  <span>Dia</span>
                   <input
-                    type="number" name="expDueDay" min="1" max="31"
+                    type="text" inputMode="numeric" pattern="[0-9]*" maxLength={2} name="expDueDay"
                     value={row.dueDay || ''}
-                    onChange={e => updateRow(i, 'dueDay', e.target.value)}
-                    className="w-16 rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    onChange={e => updateRow(i, 'dueDay', e.target.value.replace(/\D/g, ''))}
+                    className={`${FIELD} w-12 text-center`}
                     placeholder="-"
                   />
-                </div>
+                </label>
               ) : (
                 <input type="hidden" name="expDueDay" value="" />
               )}
@@ -177,16 +184,16 @@ export default function ExpensesForm({ expenses, isGuest }: { expenses: Recurrin
                   então padrão não se aplica -- mas o hidden fica pra manter
                   o alinhamento posicional do getAll() no servidor. */}
               {!row.proportional ? (
-                <div className="flex items-center gap-1" title="Valor com que o pagamento abre, no lugar do restante. Vazio = restante.">
-                  <span>Padrão:</span>
+                <label className="flex items-center gap-1" title="Valor com que o pagamento abre, no lugar do restante. Vazio = restante.">
+                  <span>Padrão</span>
                   <input
                     type="text" inputMode="decimal" name="expDefaultPayment"
                     value={row.defaultPayment ?? ''}
                     onChange={e => updateRow(i, 'defaultPayment', e.target.value)}
-                    className="w-20 rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    className={`${FIELD} w-20`}
                     placeholder="-"
                   />
-                </div>
+                </label>
               ) : (
                 <input type="hidden" name="expDefaultPayment" value="" />
               )}

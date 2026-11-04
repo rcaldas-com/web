@@ -71,6 +71,9 @@ export function getLocalCards(): CreditCard[] {
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
 
+// Mesma regra do caminho autenticado (saveCards/removeCards): o cartão que
+// sumiu da lista fica marcado como removido em vez de apagado, porque
+// parcelas e faturas guardadas apontam pelo _id.
 export function saveLocalCards(cards: Omit<CreditCard, 'userId'>[]) {
   const withIds: CreditCard[] = cards.map((c, index) => ({
     ...c,
@@ -78,7 +81,12 @@ export function saveLocalCards(cards: Omit<CreditCard, 'userId'>[]) {
     userId: 'guest',
     sortOrder: c.sortOrder ?? index,
   }));
-  write(KEYS.cards, withIds);
+  const kept = new Set(withIds.map(c => c._id));
+  const removedMonth = getFinanceToday().yearMonth;
+  const removed = getLocalCards()
+    .filter(c => !kept.has(c._id))
+    .map(c => (c.removedAt ? c : { ...c, removedAt: new Date().toISOString(), removedMonth }));
+  write(KEYS.cards, [...withIds, ...removed]);
   return withIds;
 }
 
@@ -439,7 +447,8 @@ export function hasLocalFinanceData(): boolean {
 export function getAllLocalData() {
   return {
     profile: getLocalProfile(),
-    cards: getLocalCards(),
+    // Removidos ficam no navegador: migrar recriaria cada um como ativo.
+    cards: getLocalCards().filter(c => !c.removedAt),
     expenses: getAllLocalExpenses(),
     installments: getLocalInstallments(),
     months: getMonths(),

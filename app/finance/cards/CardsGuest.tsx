@@ -9,7 +9,7 @@ import {
   getLocalMonthData,
 } from '@/lib/finance/local-storage';
 import { addMonthsToYearMonth, getFinanceToday } from '@/lib/finance/date';
-import { buildCardViews, initMonthCardInvoices } from '@/lib/finance/compute';
+import { activeCards, buildCardViews, initMonthCardInvoices } from '@/lib/finance/compute';
 import type { CardView, CreditCard } from '@/lib/finance/types';
 
 export default function CardsGuest() {
@@ -24,7 +24,7 @@ export default function CardsGuest() {
     const cards = getLocalCards();
     const installments = getLocalInstallments();
 
-    if (cards.length === 0) {
+    if (activeCards(cards).length === 0) {
       router.replace('/finance/setup/cards');
       return;
     }
@@ -36,8 +36,8 @@ export default function CardsGuest() {
       : initMonthCardInvoices(cards, installments, 1, nextYearMonth);
 
     setState({
-      cards,
-      cardViews: buildCardViews(cards, installments, invoices, 1),
+      cards: activeCards(cards),
+      cardViews: buildCardViews(cards, installments, invoices, 1, nextYearMonth),
       nextYearMonth,
     });
   };

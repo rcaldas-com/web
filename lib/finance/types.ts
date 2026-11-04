@@ -39,6 +39,13 @@ export interface CreditCard {
   // pra mês nenhum (que é o certo: aquele número não descreve mais nada).
   invoiceTotalMonth?: string;
   sortOrder?: number;  // ordem preferida na tela de cartões e selects
+  // Removido pelo usuário em Configurar. O documento FICA (remoção lógica):
+  // parcelas, pagamentos e faturas de meses passados apontam pelo _id, e
+  // apagar de vez faria o histórico perder o cartão e as parcelas que o
+  // banco continua cobrando depois do cancelamento ficarem sem fatura.
+  // Quando ele ainda aparece: ver isCardVisibleInMonth.
+  removedAt?: Date | string;
+  removedMonth?: string;  // YYYY-MM em que foi removido
 }
 
 export interface RecurringExpense {
@@ -166,6 +173,7 @@ export interface CardView {
   installmentsTotal: number; // soma parcelas
   extras: number;            // fatura - parcelas
   paid: boolean;             // fatura paga neste mês
+  removed?: boolean;         // cartão removido -- fora do picker de pagamento
   nextInvoiceTotal?: number; // total da fatura do próximo mês (inclui ajustes)
   items: {
     _id: string;

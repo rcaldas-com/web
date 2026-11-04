@@ -125,6 +125,11 @@ export default async function CardInvoicePage({
             <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
               {card.name}{' '}
               <span className="text-zinc-400 font-normal">· fatura {monthLabelPtBr(invoiceYearMonth)}</span>
+              {card.removedAt && (
+                <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 align-middle text-xs font-normal text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                  removido
+                </span>
+              )}
               {registrada?.paid && (
                 <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 align-middle text-xs font-normal text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                   paga

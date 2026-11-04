@@ -11,6 +11,7 @@ import { useSavedFlash } from '../useSavedFlash';
 import { keepFormValues } from '../keepFormValues';
 import { useFormDirty } from '../useFormDirty';
 import SetupActions from '../SetupActions';
+import { FIELD, RemoveRowButton } from '../rowParts';
 
 const DRAFT_ID = 'profile';
 
@@ -19,8 +20,14 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
   const [saved, flashSaved] = useSavedFlash();
   const draft = isGuest ? loadDraft<{ banks: BankAccount[]; values: Record<string, string> }>(DRAFT_ID) : null;
 
-  const [banks, setBanks] = useState<BankAccount[]>(
-    draft?.banks || (profile?.banks?.length ? profile.banks : [{ name: '', balance: 0 }])
+  // `key` estável por linha: os campos de banco são NÃO controlados
+  // (defaultValue), e com key = índice remover o 1º banco fazia o React
+  // reaproveitar o <input> dele pro 2º -- o texto do removido continuava na
+  // tela e quem sumia era o último.
+  const nextKey = useRef(0);
+  const withKey = (b: BankAccount) => ({ ...b, key: nextKey.current++ });
+  const [banks, setBanks] = useState<(BankAccount & { key: number })[]>(() =>
+    (draft?.banks || (profile?.banks?.length ? profile.banks : [{ name: '', balance: 0 }])).map(withKey)
   );
 
   // Debounced auto-save for guest
@@ -71,7 +78,7 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
     flashSaved();
   };
 
-  const addBank = () => setBanks([...banks, { name: '', balance: 0 }]);
+  const addBank = () => setBanks([...banks, withKey({ name: '', balance: 0 })]);
   const removeBank = (i: number) => setBanks(banks.filter((_, idx) => idx !== i));
 
   return (
@@ -165,39 +172,38 @@ export default function ProfileForm({ profile, isGuest }: { profile: FinanceProf
             + Adicionar
           </button>
         </div>
-        {/* Mesmo padrão de linha das outras 3 abas: caixa com borda +
-            grid nomeado, coluna única (empilha em largura cheia) abaixo
-            de sm -- evita o botão de apagar sobrar sozinho numa linha,
-            mesmo defeito já corrigido em Parcelas. */}
-        {banks.map((bank, i) => (
-          <div key={i} className="rounded-md border p-3">
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2rem] sm:items-end">
-              <div>
-                <label className="block text-sm font-medium text-zinc-700">Banco</label>
+        {/* Rótulo uma vez só, no topo -- mesmo padrão de Cartões. */}
+        <div className="grid grid-cols-[minmax(0,1fr)_8rem_2.25rem] gap-2 px-[9px] text-xs text-zinc-500">
+          <span>Banco</span>
+          <span>Saldo (R$)</span>
+          <span aria-hidden />
+        </div>
+        <div className="space-y-2">
+          {banks.map((bank, i) => (
+            <div key={bank.key} className="rounded-md border p-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_8rem_2.25rem] items-center gap-2">
                 <input
                   type="text" name="bankName"
+                  aria-label="Banco"
                   defaultValue={bank.name}
-                  className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className={FIELD}
                   placeholder="BB, ITAU..."
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-zinc-700">Saldo (R$)</label>
                 <input
                   type="text" inputMode="decimal" name="bankBalance"
+                  aria-label="Saldo"
                   defaultValue={bank.balance}
-                  className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className={FIELD}
+                />
+                <RemoveRowButton
+                  label={`Remover ${bank.name || 'banco'}`}
+                  onClick={() => removeBank(i)}
+                  hidden={banks.length === 1}
                 />
               </div>
-              {banks.length > 1 && (
-                <button type="button" onClick={() => removeBank(i)}
-                  className="h-9 w-8 justify-self-start rounded-md text-red-500 hover:bg-red-50 hover:text-red-700 sm:justify-self-center">
-                  ✕
-                </button>
-              )}
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       <SetupActions

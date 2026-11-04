@@ -256,7 +256,9 @@ export default function DashboardClient({
         yearMonth={yearMonth}
         proportionalDays={proportionalDays}
         banks={profile.banks}
-        cards={cardViews}
+        // Removido ainda aparece na lista de faturas enquanto tiver o que
+        // pagar, mas não recebe pagamento novo.
+        cards={cardViews.filter(c => !c.removed)}
       />
 
       {/* Cartões / Faturas do mês */}

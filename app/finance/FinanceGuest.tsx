@@ -87,7 +87,7 @@ export default function FinanceGuest() {
   };
 
   const installmentGroups = groupInstallments(installments, cards, offset);
-  const cardViews = buildCardViews(cards, installments, monthCardInvoices, offset);
+  const cardViews = buildCardViews(cards, installments, monthCardInvoices, offset, yearMonth);
   const monthCalc = calculateMonthBalance(profile, monthExpenses, installmentGroups, daysInMonth, expenseOverrides);
 
   // Projections

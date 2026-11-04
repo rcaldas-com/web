@@ -3,13 +3,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveCards, saveCardsAndFinish } from '@/lib/finance/actions';
-import { saveLocalCards, saveDraft, loadDraft, clearDraft } from '@/lib/finance/local-storage';
+import { saveLocalCards, getLocalCards, saveDraft, loadDraft, clearDraft } from '@/lib/finance/local-storage';
 import { evalExpression } from '@/lib/finance/eval-expression';
 import type { CreditCard } from '@/lib/finance/types';
 import { useSavedFlash } from '../useSavedFlash';
 import { keepFormValues } from '../keepFormValues';
 import { useFormDirty } from '../useFormDirty';
 import SetupActions from '../SetupActions';
+import { FIELD, RemoveRowButton } from '../rowParts';
 
 const DRAFT_ID = 'cards';
 
@@ -34,10 +35,22 @@ const toCardRow = (card: DraftCardRow): CardRow => ({
   invoiceTotal: card.invoiceTotal == null ? '' : String(card.invoiceTotal),
 });
 
-export default function CardsForm({ cards, isGuest }: { cards: CreditCard[]; isGuest?: boolean }) {
+export default function CardsForm({
+  cards: serverCards,
+  installmentCounts = {},
+  isGuest,
+}: {
+  cards: CreditCard[];
+  // Parcelas por cartão -- só pra mensagem de confirmação ao remover.
+  installmentCounts?: Record<string, number>;
+  isGuest?: boolean;
+}) {
   const router = useRouter();
   const [saved, flashSaved] = useSavedFlash();
   const draft = isGuest ? loadDraft<{ rows: DraftCardRow[] }>(DRAFT_ID) : null;
+  // Convidado: a página não tem como ler o navegador, então lê aqui. Antes
+  // a aba abria vazia pra quem já tinha cartões salvos e não tinha rascunho.
+  const cards = isGuest ? getLocalCards().filter(c => !c.removedAt) : serverCards;
   const [rows, setRows] = useState<CardRow[]>(
     draft?.rows?.map(toCardRow) || (cards.length
       ? cards.map(c => toCardRow({ _id: c._id, name: c.name, dueDay: c.dueDay, invoiceTotal: c.invoiceTotal ?? 0 }))
@@ -74,7 +87,24 @@ export default function CardsForm({ cards, isGuest }: { cards: CreditCard[]; isG
   };
 
   const addRow = () => setRows([...rows, { name: '', dueDay: '', invoiceTotal: '' }]);
-  const removeRow = (i: number) => setRows(rows.filter((_, idx) => idx !== i));
+  const removeRow = (i: number) => {
+    const row = rows[i];
+    // Cartão já salvo: confirma, porque ao Salvar ele sai da lista e das
+    // faturas futuras (ver isCardVisibleInMonth). Linha nova ainda não
+    // existe em lugar nenhum, então some direto.
+    if (row._id) {
+      const nome = row.name.trim() || 'este cartão';
+      const n = installmentCounts[row._id] ?? 0;
+      const detalhe = n
+        ? `Ele tem ${n} ${n === 1 ? 'parcela' : 'parcelas'} em andamento: elas continuam nas faturas até terminar, e o cartão some quando a última acabar.`
+        : 'Ele sai da lista e das faturas dos próximos meses.';
+      const ok = window.confirm(
+        `Remover ${nome}?\n\n${detalhe}\n\nO histórico dos meses passados é mantido. A remoção vale quando você salvar.`,
+      );
+      if (!ok) return;
+    }
+    setRows(rows.filter((_, idx) => idx !== i));
+  };
   const updateRow = (i: number, field: string, value: string | number) => {
     setRows(rows.map((r, idx) => idx === i ? { ...r, [field]: value } : r));
   };
@@ -94,51 +124,63 @@ export default function CardsForm({ cards, isGuest }: { cards: CreditCard[]; isG
             + Adicionar
           </button>
         </div>
-        {/* Mesmo padrão de linha das outras 3 abas: caixa com borda em
-            vez de separador -- consistência entre as 4, não mais visual
-            diferente por aba. */}
-        {rows.map((row, i) => (
-          <div key={i} className="rounded-md border p-3">
-            <input type="hidden" name="cardId" value={row._id || ''} />
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_6rem_8rem_2rem] sm:items-end">
-              <div>
-                <label className="block text-sm font-medium text-zinc-700">Nome</label>
+        {rows.length > 0 && (
+          // Rótulo uma vez só, no topo da coluna -- repetir "Nome" e
+          // "Vencimento" em cada cartão era a metade da altura de cada um.
+          <div className="grid grid-cols-[minmax(0,1fr)_4.5rem_2.25rem] gap-2 px-[9px] text-xs text-zinc-500">
+            <span>Nome</span>
+            <span className="text-center">Vence dia</span>
+            <span aria-hidden />
+          </div>
+        )}
+        <div className="space-y-2">
+          {rows.map((row, i) => (
+            <div key={i} className="rounded-md border p-2">
+              <input type="hidden" name="cardId" value={row._id || ''} />
+              <div className="grid grid-cols-[minmax(0,1fr)_4.5rem_2.25rem] items-center gap-2">
                 <input
                   type="text" name="cardName"
+                  aria-label="Nome do cartão"
                   value={row.name}
                   onChange={e => updateRow(i, 'name', e.target.value)}
-                  className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className={FIELD}
                   placeholder="BB, ITAU..."
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-zinc-700">Vencimento</label>
                 <input
                   type="text" name="cardDueDay" inputMode="numeric" pattern="[0-9]*" maxLength={2}
+                  aria-label="Dia de vencimento"
                   value={row.dueDay}
                   onChange={e => updateRow(i, 'dueDay', e.target.value.replace(/\D/g, ''))}
-                  className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className={`${FIELD} text-center`}
+                />
+                <RemoveRowButton
+                  label={`Remover ${row.name || 'cartão'}`}
+                  onClick={() => removeRow(i)}
+                  hidden={rows.length === 1 && !row._id}
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-zinc-700">Fatura atual</label>
-                <input
-                  type="text" name="cardInvoiceTotal" inputMode="decimal"
-                  value={row.invoiceTotal}
-                  onChange={e => updateRow(i, 'invoiceTotal', e.target.value)}
-                  className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  placeholder="0,00"
-                />
-              </div>
-              {rows.length > 1 && (
-                <button type="button" onClick={() => removeRow(i)}
-                  className="h-9 w-8 justify-self-start rounded-md text-red-500 hover:bg-red-50 hover:text-red-700 sm:justify-self-center">
-                  ✕
-                </button>
+              {/* "Fatura atual" só existe no cadastro: é o ponto de partida
+                  do mês em que o cartão entra (upsertCard nunca regrava esse
+                  valor depois). Mostrar o campo em cartão já salvo exibia um
+                  número de meses atrás que, editado, não mudava nada. A
+                  fatura de cada mês se ajusta no painel ou em Cartões. */}
+              {row._id ? (
+                <input type="hidden" name="cardInvoiceTotal" value="" />
+              ) : (
+                <label className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
+                  <span>Fatura já em aberto</span>
+                  <input
+                    type="text" name="cardInvoiceTotal" inputMode="decimal"
+                    value={row.invoiceTotal}
+                    onChange={e => updateRow(i, 'invoiceTotal', e.target.value)}
+                    className={`${FIELD} w-28`}
+                    placeholder="0,00"
+                  />
+                </label>
               )}
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       <SetupActions

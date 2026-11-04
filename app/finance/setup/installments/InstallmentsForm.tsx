@@ -14,6 +14,7 @@ import { useSavedFlash } from '../useSavedFlash';
 import { keepFormValues } from '../keepFormValues';
 import { useFormDirty } from '../useFormDirty';
 import SetupActions from '../SetupActions';
+import { FIELD, LABEL, RemoveRowButton } from '../rowParts';
 
 interface InstallmentRow {
   _id?: string;
@@ -56,7 +57,12 @@ export default function InstallmentsForm({
   const guestCards = isGuest ? getLocalCards() : [];
   const cards = isGuest ? guestCards : serverCards;
   const sourceInstallments = isGuest ? getLocalInstallments() : serverInstallments;
-  const defaultCardId = cards[0]?._id || '';
+  // Cartão removido não serve pra parcela nova, mas continua como opção nas
+  // linhas que já apontam pra ele: sem a opção, o <select> controlado
+  // mostraria outro cartão e o Salvar moveria a parcela sem ninguém pedir.
+  const ativos = cards.filter(c => !c.removedAt);
+  const cardOptions = (cardId: string) => cards.filter(c => !c.removedAt || c._id === cardId);
+  const defaultCardId = ativos[0]?._id || '';
   const [rows, setRows] = useState<InstallmentRow[]>(
     sourceInstallments.length
       ? sourceInstallments.map(inst => toRow(inst, defaultCardId))
@@ -119,57 +125,63 @@ export default function InstallmentsForm({
           Cadastre as compras parceladas em andamento em cada cartão. Todas as linhas preenchidas serão salvas ao concluir.
         </p>
 
-        {cards.length === 0 ? (
+        {ativos.length === 0 && !rows.some(r => r._id) ? (
           <p className="text-zinc-400 text-sm">Nenhum cartão cadastrado. Volte para o passo 2.</p>
         ) : (
           <div className="space-y-3">
             {rows.map((row, index) => (
-              <div key={index} className="rounded-md border p-3">
+              <div key={index} className="rounded-md border p-2">
                 <input type="hidden" name="installmentId" value={row._id || ''} />
-                {/* Colunas nomeadas (mesmo padrao do CardsForm): abaixo de sm
-                    cada campo empilha em largura cheia, sem disputa de
-                    espaco -- e' o que evita o botao de apagar (o menor dos
-                    5) sobrar sozinho numa linha pra ele, que era o defeito
-                    do flex-wrap com largura fixa por campo. */}
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_7rem_4rem_2rem] sm:items-end">
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-600">Descrição</label>
-                    <input
-                      ref={index === rows.length - 1 ? lastDescriptionRef : undefined}
-                      type="text"
-                      name="description"
-                      value={row.description}
-                      onChange={event => updateRow(index, 'description', event.target.value)}
-                      className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      placeholder="TV, Sofá..."
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-600">Cartão</label>
+                {/* Duas linhas em qualquer largura: descrição + remover em
+                    cima, os três campos curtos embaixo. Antes cada campo
+                    empilhava em largura cheia no celular (5 linhas por
+                    parcela, a lixeira sozinha numa delas). */}
+                <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-2">
+                  <input
+                    ref={index === rows.length - 1 ? lastDescriptionRef : undefined}
+                    type="text"
+                    name="description"
+                    aria-label="Descrição"
+                    value={row.description}
+                    onChange={event => updateRow(index, 'description', event.target.value)}
+                    className={FIELD}
+                    placeholder="Descrição (TV, Sofá...)"
+                  />
+                  <RemoveRowButton
+                    label={`Remover ${row.description || 'parcela'}`}
+                    onClick={() => removeRow(index)}
+                    hidden={rows.length === 1}
+                  />
+                </div>
+                <div className="mt-2 grid grid-cols-[minmax(0,1fr)_6.5rem_3.5rem] gap-2">
+                  <label>
+                    <span className={LABEL}>Cartão</span>
                     <select
                       name="cardId"
                       value={row.cardId}
                       onChange={event => updateRow(index, 'cardId', event.target.value)}
-                      className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      className={FIELD}
                     >
-                      {cards.map(card => (
-                        <option key={card._id} value={card._id}>{card.name}</option>
+                      {cardOptions(row.cardId).map(card => (
+                        <option key={card._id} value={card._id}>
+                          {card.name}{card.removedAt ? ' (removido)' : ''}
+                        </option>
                       ))}
                     </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-600">Valor/mês</label>
+                  </label>
+                  <label>
+                    <span className={LABEL}>Valor/mês</span>
                     <input
                       type="text"
                       inputMode="decimal"
                       name="monthlyValue"
                       value={row.monthlyValue}
                       onChange={event => updateRow(index, 'monthlyValue', event.target.value)}
-                      className="mt-1 block h-9 w-full rounded-md border-zinc-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      className={FIELD}
                     />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-600">Parc.</label>
+                  </label>
+                  <label>
+                    <span className={LABEL}>Parc.</span>
                     <input
                       type="text"
                       inputMode="numeric"
@@ -178,15 +190,9 @@ export default function InstallmentsForm({
                       name="remainingInstallments"
                       value={row.remainingInstallments}
                       onChange={event => updateRow(index, 'remainingInstallments', event.target.value.replace(/\D/g, ''))}
-                      className="mt-1 block h-9 w-full rounded-md border-zinc-300 text-center shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      className={`${FIELD} text-center`}
                     />
-                  </div>
-                  {rows.length > 1 && (
-                    <button type="button" onClick={() => removeRow(index)}
-                      className="h-9 w-8 justify-self-start rounded-md text-red-500 hover:bg-red-50 hover:text-red-700 sm:justify-self-center">
-                      ✕
-                    </button>
-                  )}
+                  </label>
                 </div>
               </div>
             ))}

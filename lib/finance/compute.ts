@@ -45,15 +45,45 @@ export function groupInstallments(installments: Installment[], cards: CreditCard
   return Array.from(groups.values()).sort((a, b) => b.remaining - a.remaining);
 }
 
+export function isCardRemoved(card: Pick<CreditCard, 'removedAt'>): boolean {
+  return Boolean(card.removedAt);
+}
+
+export function activeCards<T extends Pick<CreditCard, 'removedAt'>>(cards: T[]): T[] {
+  return cards.filter(c => !isCardRemoved(c));
+}
+
+// Cartão removido continua na tela enquanto houver o que mostrar:
+//   - até o mês da remoção, sempre: é histórico, e a fatura fechada que
+//     vence no mês ainda precisa ser paga;
+//   - depois, só nos meses em que a fatura tem valor: parcelas que o banco
+//     segue cobrando depois do cancelamento, ou compra feita no mês da
+//     remoção, que cai na fatura seguinte.
+// Quando a última parcela acaba, a fatura zera e ele some sozinho, sem
+// ninguém precisar lembrar de apagar nada.
+export function isCardVisibleInMonth(
+  card: Pick<CreditCard, 'removedAt' | 'removedMonth'>,
+  yearMonth: string,
+  invoiceTotal: number,
+): boolean {
+  if (!isCardRemoved(card)) return true;
+  if (!card.removedMonth || yearMonth <= card.removedMonth) return true;
+  return Math.abs(invoiceTotal) > 0.005;
+}
+
+// `yearMonth` só nas visões que vão pra TELA: filtra os cartões removidos
+// pela regra acima. As somas de saldo chamam sem ele -- um removido
+// escondido tem fatura zero, então não muda total nenhum.
 export function buildCardViews(
   cards: CreditCard[],
   installments: Installment[],
   monthInvoices?: MonthCardInvoice[],
   monthOffset = 0,
+  yearMonth?: string,
 ): CardView[] {
   const invoiceMap = new Map((monthInvoices || []).map(ci => [ci.cardId, ci]));
 
-  return cards.map(card => {
+  const views = cards.map(card => {
     const cardInstallments = installments
       .filter(i => i.cardId === card._id && i.remainingInstallments > monthOffset);
     const installmentsTotal = cardInstallments.reduce((sum, i) => sum + i.monthlyValue, 0);
@@ -73,6 +103,7 @@ export function buildCardViews(
       installmentsTotal,
       extras: invoiceTotal - installmentsTotal,
       paid,
+      removed: isCardRemoved(card),
       items: cardInstallments.map(i => ({
         _id: i._id!,
         description: i.description,
@@ -81,6 +112,10 @@ export function buildCardViews(
       })).sort((a, b) => b.remaining - a.remaining),
     };
   });
+
+  if (!yearMonth) return views;
+  const byId = new Map(cards.map(c => [c._id!, c]));
+  return views.filter(v => isCardVisibleInMonth(byId.get(v._id)!, yearMonth, v.invoiceTotal));
 }
 
 // Agrupa os pagamentos (parciais ou não) de um mês por despesa — uma despesa

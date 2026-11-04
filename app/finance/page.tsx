@@ -85,7 +85,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
     userId, addMonthsToYearMonth(yearMonth, 1), cards, installments, offset + 1
   );
   const nextInvoiceMap = new Map(nextMonthCardInvoices.map(inv => [inv.cardId, inv.invoiceTotal]));
-  const cardViews = buildCardViews(cards, installments, monthCardInvoices, offset).map(cv => ({
+  const cardViews = buildCardViews(cards, installments, monthCardInvoices, offset, yearMonth).map(cv => ({
     ...cv,
     nextInvoiceTotal: nextInvoiceMap.get(cv._id) ?? 0,
   }));
