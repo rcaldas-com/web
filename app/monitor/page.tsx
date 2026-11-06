@@ -120,7 +120,7 @@ export default async function MonitorPage() {
           </span>
         </section>
 
-        <div className="mb-6 grid gap-6 lg:grid-cols-2">
+        <div className="mb-6">
           <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
             <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
               <h2 className="font-semibold text-zinc-950 dark:text-zinc-50">
@@ -163,27 +163,6 @@ export default async function MonitorPage() {
                 </div>
               ))}
               {!overview.incidents.length && <div className="p-4 text-sm text-zinc-500">Nenhum incidente aberto.</div>}
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-              <h2 className="font-semibold text-zinc-950 dark:text-zinc-50">
-                Eventos de email <span className="text-zinc-400 dark:text-zinc-500">({overview.mailEvents.length})</span>
-              </h2>
-            </div>
-            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {overview.mailEvents.map((event) => (
-                <div key={event._id} className="p-4 text-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-medium text-zinc-950 dark:text-zinc-50">{event.event || event.status || 'email'}</span>
-                    <span className="text-xs text-zinc-500">{formatDate(event.ts)}</span>
-                  </div>
-                  <div className="mt-1 text-zinc-500 dark:text-zinc-400">{event.from || '-'} → {event.to || event.originalTo || '-'}</div>
-                  <div className="mt-1 text-zinc-600 dark:text-zinc-300">{event.message || event.status || ''}</div>
-                </div>
-              ))}
-              {!overview.mailEvents.length && <div className="p-4 text-sm text-zinc-500">Nenhum evento de email importado ainda.</div>}
             </div>
           </section>
         </div>

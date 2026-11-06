@@ -345,17 +345,6 @@ export type MonitorIncident = {
   count?: number;
 };
 
-export type MonitorMailEvent = {
-  _id: ObjectId;
-  ts?: Date | string;
-  event?: string;
-  status?: string;
-  from?: string;
-  to?: string;
-  originalTo?: string;
-  message?: string;
-};
-
 // Chave publica do host que faz backup da frota. Vai no heartbeat pra
 // que cada agente a autorize sozinho -- assim trocar de runner e mudar
 // este arquivo, sem reprovisionar host nenhum.
@@ -401,11 +390,6 @@ function hashToken(token: string) {
 
 function makeToken() {
   return crypto.randomBytes(24).toString('base64url');
-}
-
-function serializeDate(value?: Date | string) {
-  if (!value) return undefined;
-  return value instanceof Date ? value.toISOString() : value;
 }
 
 function getRemoteIp(headers: Headers) {
@@ -2375,13 +2359,6 @@ export async function getMonitorOverview() {
     .limit(20)
     .toArray();
 
-  const mailEvents = await db
-    .collection<MonitorMailEvent>('monitor_mail_events')
-    .find({})
-    .sort({ ts: -1 })
-    .limit(20)
-    .toArray();
-
   // Online primeiro, offline depois -- online/offline e computado aqui, nao
   // vem do banco, entao esse agrupamento so da pra fazer depois do find, nao
   // no sort do Mongo. Dentro de cada grupo o criterio muda:
@@ -2427,11 +2404,6 @@ export async function getMonitorOverview() {
       openedAt: incident.openedAt?.toISOString(),
       updatedAt: incident.updatedAt?.toISOString(),
       resolvedAt: incident.resolvedAt?.toISOString(),
-    })),
-    mailEvents: mailEvents.map((event) => ({
-      ...event,
-      _id: event._id.toString(),
-      ts: serializeDate(event.ts),
     })),
   };
 }
