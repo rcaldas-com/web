@@ -2359,6 +2359,16 @@ export async function getMonitorOverview() {
     .limit(20)
     .toArray();
 
+  const serviceNames = new Set(
+    (
+      await db
+        .collection<{ name: string }>('monitor_services')
+        .find({}, { projection: { name: 1 } })
+        .toArray()
+    ).map((s) => s.name),
+  );
+  const hostNames = new Set(hosts.map((h) => h.name));
+
   // Online primeiro, offline depois -- online/offline e computado aqui, nao
   // vem do banco, entao esse agrupamento so da pra fazer depois do find, nao
   // no sort do Mongo. Dentro de cada grupo o criterio muda:
@@ -2404,8 +2414,20 @@ export async function getMonitorOverview() {
       openedAt: incident.openedAt?.toISOString(),
       updatedAt: incident.updatedAt?.toISOString(),
       resolvedAt: incident.resolvedAt?.toISOString(),
+      href: incidentHref(incident, hostNames, serviceNames),
     })),
   };
+}
+
+// Pagina do alvo de um incidente. O target e' so' um nome -- host, servico,
+// rotina ou 'pipeline' -- e a tela montava /monitor/<target> pra todos, o
+// que so' acerta host: "build de site falhou" levava pra pagina de um host
+// "site" que nao existe. Sem pagina (rotina), sem link.
+function incidentHref(incident: MonitorIncident, hostNames: Set<string>, serviceNames: Set<string>) {
+  if (incident.key.startsWith('imagens')) return '/monitor/imagens';
+  if (hostNames.has(incident.target)) return `/monitor/${incident.target}`;
+  if (serviceNames.has(incident.target)) return `/monitor/servicos/${incident.target}`;
+  return undefined;
 }
 
 export type TunnelKeyRequest = {

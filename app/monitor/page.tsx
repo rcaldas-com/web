@@ -148,9 +148,13 @@ export default async function MonitorPage() {
                   </div>
                   <div className="mt-2 font-medium text-zinc-950 dark:text-zinc-50">{incident.summary}</div>
                   <div className="mt-1 flex items-center justify-between gap-3">
-                    <Link href={`/monitor/${incident.target}`} className="text-sm text-zinc-500 hover:underline dark:text-zinc-400">
-                      {incident.target}
-                    </Link>
+                    {incident.href ? (
+                      <Link href={incident.href} className="text-sm text-zinc-500 hover:underline dark:text-zinc-400">
+                        {incident.target}
+                      </Link>
+                    ) : (
+                      <span className="text-sm text-zinc-500 dark:text-zinc-400">{incident.target}</span>
+                    )}
                     <form action={resolveIncidentAction}>
                       <input type="hidden" name="id" value={incident._id} />
                       <SubmitButton
