@@ -104,6 +104,25 @@ digest_local() {
     | grep -F "${repo}@" | cut -d@ -f2
 }
 
+# Identidade do CONTEUDO (camadas + data de criacao), pra quando o ID nao
+# serve. No image store do containerd (o tp) o ID da imagem e' o digest do
+# INDICE multi-plataforma: o registry republica o indice com a mesma imagem
+# amd64, o pull move a tag pro indice novo e o container fica no antigo com
+# ID diferente e conteudo identico. O compose compara o manifesto da
+# plataforma e nao recria; comparar so' o ID marcava "atualizar" pra sempre
+# e o aplicar dizia "recriado" sem trocar nada -- mongo:8.0 no tp, 11/2026.
+conteudo() {
+  docker image inspect "$1" --format '{{.Created}} {{json .RootFS.Layers}}' 2>/dev/null
+}
+
+# Mesma imagem rodando? ID igual, ou ID diferente com o mesmo conteudo.
+mesma_imagem() {
+  [[ "$1" == "$2" ]] && return 0
+  local a b
+  a=$(conteudo "$1"); b=$(conteudo "$2")
+  [[ -n "$a" && "$a" == "$b" ]]
+}
+
 if [[ $JSON == 1 ]]; then
   linhas=$(mktemp)
   while IFS=$'\t' read -r nome arquivos; do
@@ -127,10 +146,13 @@ if [[ $JSON == 1 ]]; then
           # nova ja foi baixada (pull sem recriar -- o modo verificar faz
           # isso) e a antiga perdeu tag e digest. Antes isto aparecia como
           # "imagem local"; e' "falta recriar", que o aplicar resolve.
-          if [[ -n "$id_tag" && "$id" != "$id_tag" ]]; then
+          if [[ -n "$id_tag" ]] && ! mesma_imagem "$id" "$id_tag"; then
             locais=""; remoto=""; local_d=""; st=atualizar
           else
-            locais=$(digest_local "$id" "$img"); remoto=$(digest_remoto "$img")
+            # Mesmo conteudo por outro indice: os digests sao os da tag (o
+            # indice antigo do container ja perdeu os dele).
+            ref="$id"; [[ -n "$id_tag" ]] && ref="$id_tag"
+            locais=$(digest_local "$ref" "$img"); remoto=$(digest_remoto "$img")
             local_d=$(printf '%s\n' "$locais" | tail -1)
             if [[ -z "$locais" ]]; then st=local
             elif [[ -z "$remoto" ]]; then st=$(motivo_remoto "$img")
@@ -221,7 +243,7 @@ while IFS=$'\t' read -r nome arquivos; do
       echo "  ${CINZA}$svc: $img -- sem container${N}"
     elif [[ -z "$novo_id" ]]; then
       echo "  ${VERM}$svc: $img -- pull falhou${N}"; houve_falha=1
-    elif [[ "$novo_id" != "${ANTES_ID[$svc]}" ]]; then
+    elif ! mesma_imagem "$novo_id" "${ANTES_ID[$svc]}"; then
       echo "  ${AMAR}$svc: $img  ${ANTES_V[$svc]} -> $(versao "$img")  ATUALIZAR${N}"
       mudou+=("$svc")
     elif tag_fixa "$img"; then
